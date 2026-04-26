@@ -1,0 +1,134 @@
+[package]
+name = "mnem-embed-providers"
+description = "Embedding-provider adapters for mnem (OpenAI, Ollama). Sync, TLS-via-rustls, tokio-free."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["mnem", "embeddings", "openai", "ollama", "semantic-search"]
+categories = ["api-bindings", "text-processing"]
+readme = "README.md"
+documentation = "https://docs.rs/mnem-embed-providers"
+
+# docs.rs: render every non-ONNX feature so the OpenAI + Ollama + Mock
+# adapter APIs are visible. `onnx` is excluded because activating it
+# pulls `ort` in `load-dynamic` mode, which expects libonnxruntime to
+# be present at *runtime* (not build time). docs.rs builds succeed
+# without the lib but linking against a stub at doc-gen time still
+# adds noise; keeping `onnx` off here matches the public-API surface
+# users care about when reading docs.rs.
+[package.metadata.docs.rs]
+features = ["openai", "ollama", "mock"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+[features]
+# OpenAI and Ollama are both on by default: the mnem-cli wants both out
+# of the box. Consumers that ship a fixed stack can strip either.
+default = ["openai", "ollama"]
+openai = []
+ollama = []
+# Deterministic test-only embedder; off unless a consumer asks for it.
+mock = []
+# `onnx` pulls ort + tokenizers + ndarray + hf-hub. Same versions and
+# same justification as mnem-sparse-providers and mnem-rerank-providers
+# so the workspace dedupes onnxruntime to a single binary. Off by
+# default to keep the default CPU + install footprint small and to
+# preserve wasm32 compatibility of the default build.
+#
+# Two flavours, mutually exclusive (compile_error if both):
+# - `onnx` — `ort/load-dynamic` mode. User installs
+# onnxruntime separately (~100MB, distro pkg
+# or HF release). No bundled C++ runtime,
+# smallest mnem binary. Legacy default.
+# - `onnx-bundled` — `ort/download-binaries` mode. Onnxruntime is
+# fetched at *build time* and statically linked.
+# Single-binary install, ~30-50MB heavier than
+# `onnx`. Bundled-embedder: the variant
+# `mnem-cli --features bundled-embedder` forwards
+# to so `cargo install` produces a batteries-
+# included CLI that runs MiniLM-L6-v2 with zero
+# config and no Ollama.
+onnx = ["dep:ort", "ort/load-dynamic", "dep:tokenizers", "dep:ndarray"]
+onnx-bundled = ["dep:ort", "ort/download-binaries", "ort/tls-rustls", "ort/std", "dep:tokenizers", "dep:ndarray"]
+# GPU execution-provider variants of `onnx-bundled`. Each one bundles
+# the matching ORT runtime + registers the EP at session-open time
+# (CUDA first, then DirectML, then the always-on CPU fallback). Builds
+# stay CPU-clean by default; opt-in costs an extra ~50-200MB depending
+# on EP and 5-15× wall-time speedup on a supported GPU.
+#
+# - `onnx-bundled-cuda` — NVIDIA CUDA (cross-platform; Linux + Win
+# + WSL with a CUDA toolkit + driver
+# installed). Largest binary delta.
+# - `onnx-bundled-directml` — Windows DX12 (any vendor: NVIDIA / AMD /
+# Intel iGPU). No CUDA toolkit needed.
+# Recommended default for Windows operators
+# without an NVIDIA-only stack.
+#
+# The CPU EP is always registered as a fallback so an unsupported
+# session input shape (or a missing GPU at runtime) downgrades
+# gracefully instead of crashing.
+onnx-bundled-cuda = ["onnx-bundled", "ort/cuda"]
+onnx-bundled-directml = ["onnx-bundled", "ort/directml"]
+# Gates integration tests that hit real network endpoints; never on in CI.
+integration-tests = []
+
+[dependencies]
+mnem-core = { path = "../mnem-core", version = "=0.1.0" }
+bytes = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1"
+thiserror = { workspace = true }
+# ureq = sync, blocking, rustls-backed HTTP. Deliberately NOT reqwest
+# (pulls tokio even under the `blocking` feature).
+ureq = { version = "2.12", default-features = false, features = ["json", "tls"] }
+# Deterministic hashing for the MockEmbedder.
+blake3 = { workspace = true }
+
+# Optional, feature-gated. Identical stanza to mnem-sparse-providers /
+# mnem-rerank-providers so cargo dedupes onnxruntime + tokenizer
+# versions across the three crates.
+#
+# Base feature set is `ndarray` only; the runtime-source feature
+# (`load-dynamic` vs `download-binaries`) is added by exactly one of
+# this crate's `onnx` / `onnx-bundled` features (see [features] above).
+# Picking the wrong combination is caught at compile time by the
+# `compile_error!` guard at the top of `src/onnx.rs`.
+#
+# Historical note (audit C7-1, 2026-04-25): `load-dynamic` was the
+# original sole mode because it sidestepped a `__std_find_*` /
+# VS-STL-intrinsic mismatch on older VS 2022 toolchains.
+#
+# **Windows MSVC requirement for `onnx-bundled`** (
+# smoke test): the prebuilt onnxruntime binary that
+# `ort/download-binaries` fetches links against MSVC STL intrinsics
+# (`__std_find_last_of_trivial_pos_1` and friends) that are present
+# in **VS 2022 Build Tools 17.10+ (toolset 14.40+) only**. Older
+# Windows toolchains hit `LNK2001: unresolved external symbol` at
+# release-link time. On affected boxes the install path is one of:
+# 1. Upgrade VS 2022 Build Tools to 17.10+ (recommended).
+# 2. Use the legacy `--features onnx` (load-dynamic) path and
+# install onnxruntime separately (~100MB) on the OS PATH.
+# The `onnx` feature has no MSVC version requirement; the cost is
+# the separate runtime install.
+#
+# Linux and macOS ship with C++ runtimes that already satisfy the
+# `download-binaries` symbol set; `onnx-bundled` builds clean there.
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["ndarray"], optional = true }
+tokenizers = { version = "0.22", default-features = false, features = ["onig"], optional = true }
+ndarray = { version = "0.17", optional = true }
+# Model + tokenizer download uses the in-tree `ureq` (non-optional,
+# already used by the ollama / openai adapters) + a local cache. We
+# deliberately do NOT use `hf-hub` here: the 0.4 release returns an
+# error when the requested file lives under a `/`-containing
+# subdirectory (e.g. Xenova/bge-large-en-v1.5's `onnx/model.onnx`),
+# which is exactly the layout our default model ships in.
+
+[dev-dependencies]
+toml = "1"
+proptest = { workspace = true }

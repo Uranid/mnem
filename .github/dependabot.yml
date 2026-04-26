@@ -1,0 +1,35 @@
+# Dependabot configuration for mnem.
+#
+# Workspace-root Cargo.lock drives the scan. Individual crate
+# Cargo.toml files share the workspace lockfile; do NOT list each
+# crate separately (that would produce duplicate PRs per dep).
+
+version: 2
+updates:
+  # Rust / Cargo (workspace)
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    groups:
+      # Batch patch + minor updates together to cut review noise.
+      # Majors still come through as individual PRs.
+      rust-minor-and-patch:
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "deps(cargo)"
+
+  # GitHub Actions workflow deps (setup-rust, checkout, etc.)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps(ci)"
+
+  # No requirements.txt yet, so skip until we add one.

@@ -1,0 +1,166 @@
+name: reproducibility
+
+# Reproducible-build gate. Two lanes:
+#
+#   1. Same-runner dual-build on Linux-musl -- HARD FAIL on any diff.
+#      This is our byte-identical contract. If this goes red on a PR,
+#      we don't merge until we know why.
+#
+#   2. Cross-runner triple-build on Linux-gnu / macOS / Windows-MSVC --
+#      warn-only. Divergence sources are documented in
+#      docs/REPRODUCIBLE-BUILDS.md and the manifest uploaded for every
+#      run shows the raw + normalized SHA-256 per artifact.
+#
+# Triggered on every push to main + every PR that touches the release
+# or build surface. Also exposed as a workflow_call target so the
+# release workflow can gate a tag on it.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'crates/**'
+      - 'scripts/repro-build.sh'
+      - '.github/workflows/reproducibility.yml'
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'crates/**'
+      - 'scripts/repro-build.sh'
+      - '.github/workflows/reproducibility.yml'
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to attach manifests to'
+        required: false
+        type: string
+      upload_to_release:
+        description: 'Upload repro-manifest-*.json as release assets'
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+
+permissions:
+  contents: write  # release asset upload when invoked from release.yml
+
+concurrency:
+  group: reproducibility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------
+  # Lane 1: same-runner dual-build, Linux-musl, HARD FAIL on diff.
+  # ---------------------------------------------------------------
+  dual-build-musl:
+    name: dual-build x86_64-unknown-linux-musl (hard fail)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust 1.95 + musl target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+          targets: x86_64-unknown-linux-musl
+          components: rustfmt, clippy
+
+      - name: Install musl-tools + diffoscope
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools diffoscope
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: repro-musl
+
+      - name: Run repro-build (strict)
+        run: bash scripts/repro-build.sh --triple x86_64-unknown-linux-musl --strict
+
+      - name: Upload repro-manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: repro-manifest-x86_64-unknown-linux-musl
+          path: repro-manifest.json
+          retention-days: 90
+
+      - name: Attach manifest to release (release workflow only)
+        if: inputs.upload_to_release == true && inputs.tag != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cp repro-manifest.json "repro-manifest-x86_64-unknown-linux-musl.json"
+          gh release upload "${{ inputs.tag }}" \
+            "repro-manifest-x86_64-unknown-linux-musl.json" \
+            --clobber
+
+  # ---------------------------------------------------------------
+  # Lane 2: cross-runner triple-build, warn-only. Surfaces drift
+  # without blocking the PR. The manifest is the audit artifact.
+  # ---------------------------------------------------------------
+  cross-runner:
+    name: cross-runner ${{ matrix.triple }} (warn-only)
+    needs: dual-build-musl
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - triple: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - triple: x86_64-apple-darwin
+            runner: macos-latest
+          - triple: x86_64-pc-windows-msvc
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+          targets: ${{ matrix.triple }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: repro-${{ matrix.triple }}
+
+      - name: Run repro-build (warn-only)
+        shell: bash
+        run: |
+          if [[ "${{ matrix.runner }}" == "windows-latest" ]]; then
+            echo "Windows MSVC is warn-only; manifest still emitted."
+          fi
+          bash scripts/repro-build.sh --triple ${{ matrix.triple }} || true
+
+      - name: Upload repro-manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: repro-manifest-${{ matrix.triple }}
+          path: repro-manifest.json
+          retention-days: 90
+
+      - name: Attach manifest to release (release workflow only)
+        if: inputs.upload_to_release == true && inputs.tag != ''
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cp repro-manifest.json "repro-manifest-${{ matrix.triple }}.json"
+          gh release upload "${{ inputs.tag }}" \
+            "repro-manifest-${{ matrix.triple }}.json" \
+            --clobber

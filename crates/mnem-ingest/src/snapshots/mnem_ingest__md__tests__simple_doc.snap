@@ -1,0 +1,16 @@
+---
+source: crates/mnem-ingest/src/md.rs
+expression: sections
+---
+- heading: Intro
+  depth: 1
+  text: Hello world.
+  byte_range:
+    start: 0
+    end: 23
+- heading: Details
+  depth: 2
+  text: Some body text here.
+  byte_range:
+    start: 23
+    end: 56

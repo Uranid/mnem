@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="30 30 196 196" role="img" aria-label="mnem logo">
+  <title>mnem logo</title>
+  <desc>A four-node knowledge-graph diamond. At each corner, a rust-colored tilted square whose four edges coincide exactly with the two perpendicular stroke corridors of the connecting lines - one pair of opposite sides of the square flanks each line, the other pair flanks the crossing line.</desc>
+
+  <!-- Slate diamond edges: 20-wide strokes, butt-capped at each corner. -->
+  <g stroke="#1f2a36" stroke-width="20" stroke-linecap="butt" fill="none">
+    <line x1="128" y1="48"  x2="48"  y2="128" />
+    <line x1="48"  y1="128" x2="128" y2="208" />
+    <line x1="128" y1="208" x2="208" y2="128" />
+    <line x1="208" y1="128" x2="128" y2="48"  />
+  </g>
+
+  <!-- Rust tilted squares at each corner. Vertices are at cardinal
+       distance ~14 from the apex (= stroke-half-width / sin 45° = the
+       perpendicular 10-unit stroke offset projected onto x and y axes).
+       The four edges of each polygon lie along the four stroke sides
+       of the two converging lines: one edge above line A, one below A,
+       one above B, one below B. -->
+  <g fill="#d1642b">
+    <polygon points="128,34  142,48  128,62  114,48"  />  <!-- top -->
+    <polygon points="48,114  62,128  48,142  34,128"  />  <!-- left -->
+    <polygon points="208,114 222,128 208,142 194,128" />  <!-- right -->
+    <polygon points="128,194 142,208 128,222 114,208" />  <!-- bottom -->
+  </g>
+</svg>

@@ -1,0 +1,62 @@
+[package]
+name = "mnem-rerank-providers"
+description = "Cross-encoder reranker adapters for mnem (Cohere, Voyage, Jina). Sync, TLS-via-rustls, tokio-free."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["mnem", "rerank", "cohere", "voyage", "jina"]
+categories = ["api-bindings", "text-processing"]
+readme = "README.md"
+documentation = "https://docs.rs/mnem-rerank-providers"
+
+# docs.rs: render every SaaS feature (Cohere, Voyage, Jina) - all
+# default-on, no optional deps. `onnx` is excluded because activating
+# it pulls `ort` with `download-binaries`, which fetches onnxruntime
+# at build time - docs.rs sandbox blocks outbound network.
+[package.metadata.docs.rs]
+features = ["cohere", "voyage", "jina"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+[features]
+# Cohere, Voyage, Jina all default-on: the mnem-cli wants all three
+# available out of the box. Consumers that ship a fixed stack can
+# strip the rest.
+default = ["cohere", "voyage", "jina"]
+cohere = []
+voyage = []
+jina = []
+# `onnx` enables the in-process cross-encoder adapter (ms-marco-MiniLM,
+# BGE-reranker-v2-m3, BGE-reranker-base). Off by default because it
+# pulls ort + tokenizers + hf-hub; once enabled, reranking works fully
+# self-hosted with no SaaS key. Mirrors the mnem-sparse-providers
+# `onnx` feature.
+onnx = ["dep:ort", "dep:tokenizers", "dep:ndarray", "dep:hf-hub"]
+# Gates integration tests that hit real network endpoints; never on
+# in CI.
+integration-tests = []
+
+[dependencies]
+mnem-core  = { path = "../mnem-core", version = "=0.1.0" }
+serde      = { workspace = true, features = ["derive"] }
+serde_json = "1"
+thiserror  = { workspace = true }
+# ureq = sync, blocking, rustls-backed HTTP. Matches
+# mnem-embed-providers. Deliberately NOT reqwest (pulls tokio even
+# under the `blocking` feature).
+ureq = { version = "2.12", default-features = false, features = ["json", "tls"] }
+# Feature-gated in-process ONNX cross-encoder stack. Same versions
+# and same rationale as mnem-sparse-providers.
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["ndarray", "std", "download-binaries", "tls-rustls"], optional = true }
+tokenizers = { version = "0.22", default-features = false, features = ["onig"], optional = true }
+ndarray = { version = "0.17", optional = true }
+hf-hub = { version = "0.4", default-features = false, features = ["ureq", "rustls-tls"], optional = true }
+
+[dev-dependencies]
+toml = "1"

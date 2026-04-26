@@ -1,0 +1,87 @@
+[package]
+name = "mnem-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Content-addressed versioned substrate for AI agent memory - the core of mnem."
+readme = "README.md"
+documentation = "https://docs.rs/mnem-core"
+categories = ["database", "data-structures", "encoding"]
+keywords = ["knowledge-graph", "content-addressed", "versioning", "cbor", "ipld"]
+
+# docs.rs: build with every feature so the `blake3` tier-2 hash helpers
+# and the `linearize` mode helpers show up in the rendered API. Both
+# features are net-negative-free (no optional deps, no network, no
+# platform-gating) so `all-features = true` is safe here.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Optional BLAKE3 as content hash .
+blake3 = []
+# Optional opt-in linearize mode helper types.
+linearize = []
+# Gates the 256-case proptest variants in
+# `tests/determinism_properties.rs`. The default 64-case run stays under
+# ~30s per property on a dev laptop; the `ci-slow` variants are reserved
+# for nightly CI (zero impact on the standard `cargo test` budget).
+ci-slow = []
+
+[dependencies]
+uuid                = { workspace = true }
+serde               = { workspace = true }
+thiserror           = { workspace = true }
+bytes               = { workspace = true }
+cid                 = { workspace = true }
+multihash           = { workspace = true }
+multihash-codetable = { workspace = true }
+blake3              = { workspace = true }
+ed25519-dalek       = { workspace = true }
+ipld-core           = { workspace = true }
+serde_ipld_dagcbor  = { workspace = true }
+serde_ipld_dagjson  = { workspace = true }
+# Used by `codec::json::json_to_ipld` (the canonical untrusted-JSON
+# ingress path shared by CLI, HTTP, and MCP). The conversion keeps
+# these crates from carrying three independent copies of the same
+# hardening logic.
+serde_json          = { version = "1", default-features = false, features = ["alloc"] }
+# Tracing spans on hot paths . Default `warn` filter means a
+# baseline caller pays near-zero span cost; operators raise verbosity via
+# `RUST_LOG` when needed. No subscriber pulled in here - that's mnem-cli /
+# mnem-http's job.
+tracing             = { workspace = true }
+
+[dev-dependencies]
+proptest            = { workspace = true }
+serde_json          = "1"
+# Phase-B1b (PHASE-A-2 bench plan): criterion-driven benches live under
+# `benches/`. Zero runtime cost - `harness = false` means no extra deps
+# land in published `cargo install`; benches only compile under
+# `cargo bench` / `cargo build --benches`.
+criterion           = { workspace = true }
+bytes               = { workspace = true }
+
+[[bench]]
+name    = "commit"
+harness = false
+
+[[bench]]
+name    = "retrieve"
+harness = false
+
+[[bench]]
+name    = "dual_adjacency"
+harness = false
+
+[[bench]]
+name    = "graph_expand"
+harness = false

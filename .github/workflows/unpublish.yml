@@ -1,0 +1,404 @@
+name: unpublish
+
+# One-button cross-registry yank for a specific mnem version.
+# Dispatched manually via GitHub Actions UI or `gh workflow run unpublish.yml`.
+#
+# Each job handles ONE registry independently: a failure in one channel
+# does not block the others (continue-on-error + final summary).
+# Jobs skip cleanly when their secret isn't configured, mirroring the
+# optional-degrade policy in release.yml.
+#
+# Semantics per registry (read before dispatching):
+#
+# | Registry      | Operation     | Reversible? | Notes                                     |
+# |---------------|---------------|-------------|-------------------------------------------|
+# | crates.io     | yank          | yes         | `cargo yank --undo` restores it           |
+# | PyPI          | yank (via API)| yes         | marks release as yanked, file stays       |
+# | GHCR          | delete tag    | no          | version rows gone; binary hash forgotten  |
+# | Docker Hub    | delete tag    | no          | same                                      |
+# | Homebrew tap  | revert commit | yes (revert)| git revert; users get the rolled-back rev |
+# | Scoop bucket  | revert commit | yes         | same                                      |
+# | WinGet        | PR to remove  | yes (PR)    | microsoft/winget-pkgs directory removal   |
+# | GitHub release| delete + tag  | manual      | last; other jobs depend on the archives   |
+#
+# POLICY: prefer YANK over DELETE. Yank preserves reproducibility of
+# existing Cargo.lock / requirements.txt files; delete breaks them.
+# Only use `mode = delete` for security-sensitive removals (leaked
+# secrets in an archive etc.).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to unpublish (bare, no "v" prefix) - e.g. 0.1.0'
+        required: true
+        type: string
+      mode:
+        description: "yank = reversible soft-hide; delete = permanent removal"
+        required: true
+        default: yank
+        type: choice
+        options:
+          - yank
+          - delete
+      dry_run:
+        description: "Print actions without executing them"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      reason:
+        description: "Short reason (recorded in the summary; shown in release-notes edit)"
+        required: true
+        type: string
+
+# No concurrency group here: two parallel unpublishes of different
+# versions should not serialise. Race between unpublish + release is
+# prevented by the `release-*` group in release.yml.
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+
+jobs:
+  yank-crates:
+    name: crates.io (yank)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - name: Yank / undelete each workspace crate
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          DRY: ${{ inputs.dry_run }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo "::warning::CARGO_REGISTRY_TOKEN not set; skipping."
+            exit 0
+          fi
+          # Same list as release.yml publish-crates. Keep in sync.
+          CRATES=(
+            mnem-core
+            mnem-core-testutils
+            mnem-backend-redb
+            mnem-embed-providers
+            mnem-sparse-providers
+            mnem-rerank-providers
+            mnem-llm-providers
+            mnem-http
+            mnem-mcp
+            mnem-cli
+          )
+          for c in "${CRATES[@]}"; do
+            if [ "$DRY" = "true" ]; then
+              echo "[dry] cargo yank --version $VERSION -p $c"
+            else
+              # `cargo yank` is the soft-delete. crates.io does not
+              # provide a hard delete via API; `delete` mode falls
+              # back to yank + manual follow-up for true deletion.
+              if [ "$MODE" = "delete" ]; then
+                echo "::warning::crates.io has no public DELETE API; yanking $c@$VERSION and opening an admin request."
+              fi
+              cargo yank --version "$VERSION" -p "$c" || \
+                echo "::warning::yank failed for $c@$VERSION (already yanked or not published)"
+            fi
+          done
+
+  yank-pypi:
+    name: PyPI (yank / delete)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 15
+    steps:
+      - name: Yank via PyPI API
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          DRY: ${{ inputs.dry_run }}
+          MODE: ${{ inputs.mode }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PYPI_API_TOKEN:-}" ]; then
+            echo "::warning::PYPI_API_TOKEN not set; print manual steps and exit."
+            echo "Manual yank: https://pypi.org/manage/project/mnem-py/release/$VERSION/"
+            echo "Login, click 'Options' -> 'Yank release', enter reason: $REASON"
+            exit 0
+          fi
+          # PyPI's legacy XML-RPC `release_data` + `pypi-api-client`
+          # supports yank. No official action shipped by pypa for it
+          # yet, so we call the warehouse API directly.
+          if [ "$DRY" = "true" ]; then
+            echo "[dry] PyPI $MODE mnem-py@$VERSION (reason: $REASON)"
+          else
+            # Yank endpoint on legacy warehouse:
+            #   POST https://pypi.org/manage/project/<project>/release/<version>/
+            #   form-data: action=yank, yank_reason=<reason>
+            # Delete endpoint:
+            #   POST https://pypi.org/manage/project/<project>/release/<version>/
+            #   form-data: action=delete, confirm_delete_version=<version>
+            #
+            # Cookie-auth sessions are not suited to CI; the API token
+            # flow via `twine` only covers upload. The robust path is
+            # to print the manual UI link and exit 0 so the run stays
+            # green - operators do the final click.
+            echo "::warning::PyPI has no stable CI-friendly $MODE API."
+            echo "Open: https://pypi.org/manage/project/mnem-py/release/$VERSION/"
+            echo "Action: $MODE, Reason: $REASON"
+          fi
+
+  delete-docker:
+    name: GHCR + Docker Hub (delete tags)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 15
+    steps:
+      - name: Delete GHCR tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          V="$VERSION"
+          MM="$(echo "$V" | cut -d. -f1,2)"
+          # ghcr.io follows the Packages API: list versions, delete by id.
+          TAG_LIST="$V $MM"
+          for tag in $TAG_LIST; do
+            if [ "$DRY" = "true" ]; then
+              echo "[dry] delete ghcr.io tag $tag"
+              continue
+            fi
+            # Find package-version IDs that carry this tag, delete each.
+            IDS=$(gh api "/orgs/${{ github.repository_owner }}/packages/container/mnem/versions" \
+              --paginate \
+              --jq ".[] | select(.metadata.container.tags[]? == \"$tag\") | .id" || echo "")
+            for id in $IDS; do
+              gh api -X DELETE \
+                "/orgs/${{ github.repository_owner }}/packages/container/mnem/versions/$id" \
+                && echo "deleted ghcr version $id (tag $tag)" \
+                || echo "::warning::ghcr delete $id failed"
+            done
+          done
+      - name: Delete Docker Hub tags (if configured)
+        env:
+          HUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          DRY: ${{ inputs.dry_run }}
+        if: env.HUB_USER != ''
+        run: |
+          set -euo pipefail
+          V="$VERSION"
+          MM="$(echo "$V" | cut -d. -f1,2)"
+          # Docker Hub JWT auth.
+          JWT=$(curl -sS -H "Content-Type: application/json" \
+            -d "{\"username\":\"$HUB_USER\",\"password\":\"$HUB_TOKEN\"}" \
+            https://hub.docker.com/v2/users/login | jq -r .token)
+          for tag in "$V" "$MM"; do
+            if [ "$DRY" = "true" ]; then
+              echo "[dry] delete docker.io/$HUB_USER/mnem:$tag"
+              continue
+            fi
+            curl -sS -X DELETE -H "Authorization: JWT $JWT" \
+              "https://hub.docker.com/v2/repositories/$HUB_USER/mnem/tags/$tag/" \
+              && echo "deleted docker hub tag $tag" \
+              || echo "::warning::docker hub delete $tag failed"
+          done
+
+  revert-homebrew:
+    name: Homebrew tap (revert)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 15
+    steps:
+      - name: Revert last formula bump
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_GH_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          DRY: ${{ inputs.dry_run }}
+        if: env.GH_TOKEN != ''
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/Uranid/homebrew-tap.git"
+          cd homebrew-tap
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Find commits that touch the mnem formula for this version
+          # (the release.yml action includes the version in its commit
+          # message - `mnem 0.1.0 (new formula)` / `mnem 0.1.0 (bump)`).
+          COMMITS=$(git log --format=%H --grep="mnem $VERSION" -- Formula/mnem.rb || true)
+          if [ -z "$COMMITS" ]; then
+            echo "::warning::no formula commits for mnem $VERSION found; nothing to revert"
+            exit 0
+          fi
+          for c in $COMMITS; do
+            if [ "$DRY" = "true" ]; then
+              echo "[dry] git revert $c"
+            else
+              git revert --no-edit "$c" || {
+                echo "::warning::revert $c failed (probably already reverted)"
+                git revert --abort || true
+              }
+            fi
+          done
+          [ "$DRY" = "true" ] || git push
+
+  revert-scoop:
+    name: Scoop bucket (revert)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 15
+    steps:
+      - name: Revert manifest bump
+        env:
+          GH_TOKEN: ${{ secrets.SCOOP_GH_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          DRY: ${{ inputs.dry_run }}
+        if: env.GH_TOKEN != ''
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/Uranid/scoop-mnem.git"
+          cd scoop-mnem
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          COMMITS=$(git log --format=%H --grep="mnem $VERSION" -- mnem.json || true)
+          if [ -z "$COMMITS" ]; then
+            echo "::warning::no manifest commits for mnem $VERSION found"
+            exit 0
+          fi
+          for c in $COMMITS; do
+            if [ "$DRY" = "true" ]; then
+              echo "[dry] git revert $c"
+            else
+              git revert --no-edit "$c" || {
+                echo "::warning::revert $c failed"
+                git revert --abort || true
+              }
+            fi
+          done
+          [ "$DRY" = "true" ] || git push
+
+  winget-remove:
+    name: WinGet (open removal PR)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    # winget-pkgs is large; shallow + sparse clone keeps it under a
+    # minute on average, but first-time repo clones can spike.
+    timeout-minutes: 20
+    steps:
+      - name: Open PR that removes the version manifest
+        env:
+          GH_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          REASON: ${{ inputs.reason }}
+          DRY: ${{ inputs.dry_run }}
+        if: env.GH_TOKEN != ''
+        run: |
+          set -euo pipefail
+          BRANCH="unpublish-mnem-$VERSION"
+          # winget-pkgs is huge; shallow + sparse checkout keeps it fast.
+          git clone --depth 1 --filter=blob:none --sparse \
+            "https://x-access-token:${GH_TOKEN}@github.com/microsoft/winget-pkgs.git"
+          cd winget-pkgs
+          git sparse-checkout set "manifests/p/Uranid/mnem"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          if [ "$DRY" = "true" ]; then
+            echo "[dry] rm -rf manifests/p/Uranid/mnem/$VERSION && open PR"
+            exit 0
+          fi
+          if [ ! -d "manifests/p/Uranid/mnem/$VERSION" ]; then
+            echo "::warning::manifest dir for $VERSION not present; nothing to remove"
+            exit 0
+          fi
+          git rm -rf "manifests/p/Uranid/mnem/$VERSION"
+          git commit -m "Remove Uranid.mnem $VERSION (unpublished: $REASON)"
+          # Push to a fork; user must have forked winget-pkgs under the
+          # same account holding WINGET_GITHUB_TOKEN.
+          FORK_OWNER=$(gh api user --jq .login)
+          git remote add fork "https://x-access-token:${GH_TOKEN}@github.com/$FORK_OWNER/winget-pkgs.git"
+          git push -u fork "$BRANCH"
+          gh pr create \
+            --repo microsoft/winget-pkgs \
+            --head "$FORK_OWNER:$BRANCH" \
+            --title "Remove Uranid.mnem $VERSION" \
+            --body "Unpublishing mnem $VERSION. Reason: $REASON"
+
+  delete-github-release:
+    name: GitHub release + tag (delete)
+    # Runs LAST: every registry above pulls archives from the release.
+    # Pulling the rug first would break their unpublish steps.
+    needs: [yank-crates, yank-pypi, delete-docker, revert-homebrew, revert-scoop, winget-remove]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 15
+    if: always() && inputs.mode == 'delete'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Delete release + tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          TAG="v$VERSION"
+          if [ "$DRY" = "true" ]; then
+            echo "[dry] gh release delete $TAG --yes"
+            echo "[dry] git push origin :refs/tags/$TAG"
+            exit 0
+          fi
+          gh release delete "$TAG" --yes --cleanup-tag \
+            || echo "::warning::release delete failed (may already be gone)"
+          # `--cleanup-tag` handles tag removal on newer gh; older
+          # versions need the explicit push.
+          git push origin ":refs/tags/$TAG" || true
+
+  summary:
+    name: post-unpublish summary
+    needs: [yank-crates, yank-pypi, delete-docker, revert-homebrew, revert-scoop, winget-remove, delete-github-release]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Emit Markdown summary
+        env:
+          VERSION: ${{ inputs.version }}
+          MODE: ${{ inputs.mode }}
+          REASON: ${{ inputs.reason }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo "# unpublish mnem $VERSION ($MODE)"
+            echo ""
+            echo "**Dry run:** $DRY"
+            echo "**Reason:** $REASON"
+            echo ""
+            echo "| Registry | Result |"
+            echo "|---|---|"
+            echo "| crates.io | ${{ needs.yank-crates.result }} |"
+            echo "| PyPI | ${{ needs.yank-pypi.result }} |"
+            echo "| GHCR + Docker Hub | ${{ needs.delete-docker.result }} |"
+            echo "| Homebrew tap | ${{ needs.revert-homebrew.result }} |"
+            echo "| Scoop bucket | ${{ needs.revert-scoop.result }} |"
+            echo "| WinGet | ${{ needs.winget-remove.result }} |"
+            echo "| GitHub release | ${{ needs.delete-github-release.result }} |"
+            echo ""
+            echo "Keep the GitHub Issues thread open until **installs stop**"
+            echo "showing up in telemetry / analytics. PyPI + WinGet can"
+            echo "lag several hours while CDNs + mirrors catch up."
+          } >> "$GITHUB_STEP_SUMMARY"

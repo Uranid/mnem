@@ -1,0 +1,30 @@
+[package]
+name         = "mnem-graphrag"
+version.workspace    = true
+edition.workspace    = true
+rust-version.workspace = true
+license.workspace    = true
+authors.workspace    = true
+repository.workspace = true
+homepage.workspace   = true
+
+description = "LLM-free GraphRAG algorithms over mnem's AdjacencyIndex: Leiden community detection (E1) + extractive summarization, Centroid + MMR (E4)."
+keywords = ["mnem", "graphrag", "leiden", "summarization", "mmr"]
+categories = ["text-processing"]
+readme = "README.md"
+
+[lints]
+workspace = true
+
+[dependencies]
+mnem-core = { path = "../mnem-core" }
+mnem-embed-providers = { path = "../mnem-embed-providers" }
+# Leiden implementation is self-contained adjacency-list math; petgraph
+# was evaluated as an internal rep but the two-layer BTreeMap form
+# below keeps the crate dependency-free beyond mnem-core + blake3.
+serde     = { workspace = true, features = ["derive", "std"] }
+blake3    = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+mnem-embed-providers = { path = "../mnem-embed-providers", features = ["mock"] }
+proptest  = { workspace = true }

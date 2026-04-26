@@ -1,0 +1,73 @@
+[package]
+name = "mnem-mcp"
+description = "Model Context Protocol server for mnem - the AI-native, local-first memory substrate for agents."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+categories = ["command-line-utilities", "database"]
+keywords = ["mcp", "ai-agent", "memory", "knowledge-graph", "rag"]
+readme = "README.md"
+documentation = "https://docs.rs/mnem-mcp"
+
+[[bin]]
+name = "mnem-mcp"
+path = "src/main.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+# `summarize` gates the `mnem_community_summarize` tool. C3 FIX-5
+# originally kept it OFF to reclaim ~2.3 MiB from the default binary;
+# flips the default to ON because the tool is
+# advertised in source / docs and shipping a binary that omits it
+# silently broke the "16 tools" claim. Operators who need the lean
+# binary build with `--no-default-features`.
+#
+# Bundled-embedder default: `bundled-embedder` activates the
+# in-process MiniLM-L6-v2 dense embedder (forwarded to
+# mnem-embed-providers/onnx-bundled). When ON, `mnem_retrieve` with
+# `text` and no `vector` auto-embeds the text in-process — no
+# `MNEM_EMBED_*` env vars, no `[embed]` section, no Ollama daemon.
+# When OFF, the existing behaviour is preserved (text passed to the
+# retriever only as rerank input). Implies `summarize` so the
+# embed-providers crate is in the dep tree.
+[features]
+default = ["summarize"]
+summarize = ["dep:mnem-embed-providers", "dep:mnem-graphrag", "dep:toml"]
+bundled-embedder = ["summarize", "mnem-embed-providers/onnx-bundled"]
+
+[dependencies]
+mnem-core = { path = "../mnem-core", version = "=0.1.0" }
+mnem-backend-redb = { path = "../mnem-backend-redb", version = "=0.1.0" }
+# Phase-B5d: wires the `mnem_ingest` MCP tool. Brings in parse +
+# chunk + rule-based-NER; LLM-driven variants stay behind the
+# mnem-ingest `ollama` feature (not forwarded here).
+mnem-ingest = { path = "../mnem-ingest", version = "=0.1.0" }
+# E4 T2: Centroid+MMR extractive summarizer wired in as the
+# `mnem_community_summarize` tool. Gated behind the `summarize`
+# feature (C3 FIX-5) so the default binary stays free of the
+# embed-providers tree.
+mnem-graphrag = { path = "../mnem-graphrag", version = "=0.1.0", optional = true }
+# Used only by `mnem_community_summarize` to open an embedder from
+# env vars or from `<repo>/config.toml`. Gated behind `summarize`.
+mnem-embed-providers = { path = "../mnem-embed-providers", version = "=0.1.0", optional = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1"
+# `mnem_community_summarize` parses the per-repo `.mnem/config.toml`
+# to resolve an [embed] provider when no MNEM_EMBED_* env vars are
+# set. Optional: only pulled in under the `summarize` feature.
+toml = { version = "1", optional = true }
+anyhow = "1"
+ipld-core = { workspace = true }
+bytes = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

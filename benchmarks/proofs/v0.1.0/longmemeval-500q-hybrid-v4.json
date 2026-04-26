@@ -1,0 +1,48 @@
+{
+  "harness": "mnem-lme-hybrid-v4",
+  "adapter": "mnem",
+  "dataset": "C:\\Users\\hanub\\.mnem\\bench-data\\longmemeval\\longmemeval_s_cleaned.json",
+  "n_questions": 500,
+  "runtime_seconds": 350.1533107,
+  "timing": {
+    "ingest_s": 346.54361669999975,
+    "retrieve_s": 2.8643298999999987,
+    "score_s": 0.6695319999999999
+  },
+  "overall": {
+    "recall@10": 0.99,
+    "recall@5": 0.976
+  },
+  "by_category": {
+    "knowledge-update": {
+      "n": 78.0,
+      "recall@10": 1.0,
+      "recall@5": 1.0
+    },
+    "multi-session": {
+      "n": 133.0,
+      "recall@10": 1.0,
+      "recall@5": 0.9924812030075187
+    },
+    "single-session-assistant": {
+      "n": 56.0,
+      "recall@10": 0.9642857142857143,
+      "recall@5": 0.9464285714285714
+    },
+    "single-session-preference": {
+      "n": 30.0,
+      "recall@10": 0.9666666666666667,
+      "recall@5": 0.9333333333333333
+    },
+    "single-session-user": {
+      "n": 70.0,
+      "recall@10": 1.0,
+      "recall@5": 0.9857142857142858
+    },
+    "temporal-reasoning": {
+      "n": 133.0,
+      "recall@10": 0.9849624060150376,
+      "recall@5": 0.9624060150375939
+    }
+  }
+}

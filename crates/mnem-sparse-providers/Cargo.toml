@@ -1,0 +1,66 @@
+[package]
+name = "mnem-sparse-providers"
+description = "Learned-sparse encoder adapters for mnem (SPLADE, BGE-M3-sparse, opensearch-doc-v3-distill). Sync, TLS-via-rustls, tokio-free."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["mnem", "sparse", "splade", "bge-m3", "retrieval"]
+categories = ["api-bindings", "text-processing"]
+readme = "README.md"
+documentation = "https://docs.rs/mnem-sparse-providers"
+
+# docs.rs: render the default (no-onnx) surface. The `onnx` feature
+# pulls `ort` with `download-binaries` which needs outbound network at
+# build time - unavailable in the docs.rs sandbox. The sidecar/HTTP
+# pattern is what the default build renders.
+[package.metadata.docs.rs]
+features = ["sidecar"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+[features]
+# `onnx` pulls ort + tokenizers + ndarray + hf-hub. ort and tokenizers
+# carry internal unsafe, so they stay in this crate and never contaminate
+# mnem-core's #![forbid(unsafe_code)] guarantee. Off by default until
+# the first-run model-download UX is polished; once enabled, the crate
+# can run the OpenSearch neural-sparse-doc-v3-distill encoder (primary)
+# and BGE-M3 sparse head (upgrade path) fully in-process, no sidecar.
+default = []
+onnx = ["dep:ort", "dep:tokenizers", "dep:ndarray", "dep:hf-hub"]
+# Remote Python sidecar pattern (future): HTTP POST to a local
+# FastAPI-behind-ollama server that wraps SPLADE inference. Off by
+# default; lighter install than bundling onnxruntime.
+sidecar = []
+# Gated integration tests that require a real model on disk.
+integration-tests = []
+
+[dependencies]
+mnem-core  = { path = "../mnem-core", version = "=0.1.0" }
+serde      = { workspace = true, features = ["derive"] }
+serde_json = "1"
+thiserror  = { workspace = true }
+# Sync HTTP for sidecar / remote endpoints; matches the pattern in
+# mnem-embed-providers / mnem-rerank-providers / mnem-llm-providers.
+ureq = { version = "2.12", default-features = false, features = ["json", "tls"] }
+
+# Optional, feature-gated. The `ort` crate is a Rust binding to
+# Microsoft's onnxruntime C++ library; `tokenizers` is HuggingFace's
+# pure-Rust WordPiece / BPE tokenizer crate. Both carry internal
+# unsafe. Leaving them optional lets the default build stay small
+# and keeps the crate importable on WASM (where neither compiles).
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["load-dynamic", "ndarray"], optional = true }
+tokenizers = { version = "0.22", default-features = false, features = ["onig"], optional = true }
+ndarray = { version = "0.17", optional = true }
+# Model weights + tokenizer + idf.json are lazy-downloaded on first
+# use from the HuggingFace Hub; hf-hub honours HF_HOME for airgapped
+# users who pre-populate the cache.
+hf-hub = { version = "0.4", default-features = false, features = ["ureq", "rustls-tls"], optional = true }
+
+[dev-dependencies]
+toml = "1"

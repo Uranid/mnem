@@ -1,0 +1,59 @@
+[package]
+name = "mnem-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+# The `cargo-fuzz` metadata flag is the conventional layout marker;
+# `cargo +nightly fuzz ...` uses it to locate the target list. We do
+# not require the `cargo-fuzz` CLI tool to be installed - the bins
+# below can also be driven with `cargo +nightly build -p mnem-fuzz`
+# followed by invoking the libFuzzer binary directly.
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+# The libfuzzer-sys runtime provides the `fuzz_target!` macro and the
+# LLVM libFuzzer entry point. Nightly-only at compile time, but the
+# crate itself publishes a stable version that compiles on nightly.
+libfuzzer-sys = "0.4"
+mnem-core = { path = "../crates/mnem-core" }
+mnem-transport = { path = "../crates/mnem-transport" }
+# Added in Phase-B5e: fuzz the pure-Rust PDF parser that underpins
+# every `SourceKind::Pdf` ingest. B5b already wraps `pdf-extract` in
+# `catch_unwind`; this target regression-guards the "never panic"
+# contract against future refactors.
+mnem-ingest = { path = "../crates/mnem-ingest" }
+ipld-core = { version = "0.4", default-features = false, features = ["serde"] }
+serde_ipld_dagcbor = { version = "0.6", default-features = false, features = ["std"] }
+
+[workspace]
+# The fuzz package intentionally does NOT belong to the main
+# workspace: pulling libfuzzer-sys into the default `cargo build`
+# would surface a nightly-only requirement on contributors who have
+# no interest in fuzzing. Keeping it excluded means `cargo build
+# --workspace` stays stable-toolchain clean.
+
+# Each target is listed explicitly (cargo-fuzz can autodiscover but
+# being explicit surfaces the target set in `cargo +nightly build -p
+# mnem-fuzz`). `test = false` / `doc = false` skip unused steps.
+[[bin]]
+name = "car_import"
+path = "fuzz_targets/car_import.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "walk_ipld"
+path = "fuzz_targets/walk_ipld.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ingest_pdf"
+path = "fuzz_targets/ingest_pdf.rs"
+test = false
+doc = false
+bench = false

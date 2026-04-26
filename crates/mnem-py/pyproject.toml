@@ -1,0 +1,66 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+# PyPI distribution name. `mnem` on PyPI is an unrelated project, so
+# we publish under `mnem-py`. The Python import namespace differs
+# from the distribution name on purpose (same pattern as
+# `scikit-learn` -> `sklearn`, `opencv-python` -> `cv2`): we install
+# via `pip install mnem-py` and code imports as `import pymnem`.
+# The pure-Python package lives under `python/pymnem/`; the compiled
+# pyo3 extension is exposed as `pymnem._mnem`.
+name = "mnem-py"
+# Kept in sync with [workspace.package].version in ../../Cargo.toml.
+# Bump both together; the release workflow asserts they match.
+version = "0.1.0"
+description = "Python bindings for mnem: git for knowledge graphs, agent memory under a token budget."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "mnem contributors" }]
+keywords = ["knowledge-graph", "agent-memory", "retrieval", "llm", "rag", "learned-sparse", "neural-sparse", "vector-search"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage      = "https://github.com/Uranid/mnem"
+Repository    = "https://github.com/Uranid/mnem"
+Documentation = "https://github.com/Uranid/mnem/blob/main/docs/QUICKSTART.md"
+Benchmarks    = "https://github.com/Uranid/mnem/blob/main/docs/benchmarks/ai-native.md"
+Changelog     = "https://github.com/Uranid/mnem/releases"
+
+[tool.maturin]
+# Mixed project: pure-Python code lives under `python/pymnem/` and the
+# compiled Rust extension ships as the private `pymnem._mnem` submodule.
+# `python/pymnem/__init__.py` re-exports the Rust classes so
+# `from pymnem import Repo` works.
+#
+# This layout lets us ship optional Python companions - `pymnem.langchain`,
+# `pymnem.crewai` etc. - inside the same wheel.
+python-source = "python"
+module-name   = "pymnem._mnem"
+# abi3-py39 lets us ship a single wheel that works from 3.9 onward.
+features      = ["pyo3/extension-module"]
+
+[project.optional-dependencies]
+# Each extra gates a Python companion in `python/pymnem/<x>.py`. The
+# submodule is always present in the wheel but raises a helpful
+# ImportError at import-time if the extra wasn't installed.
+langchain = ["langchain-core>=0.3,<1"]
+crewai    = ["crewai>=0.80,<1"]

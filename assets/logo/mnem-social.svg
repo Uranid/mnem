@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img"
+     aria-label="mnem - git for knowledge graphs">
+  <title>mnem social preview</title>
+  <desc>Social / OpenGraph preview card. 1280x640. Warm cream background, slate diamond logo with rust corner joints, wordmark, tagline, and URL.</desc>
+
+  <!-- Background: warm cream so the slate + rust palette reads cleanly on both light and dark chrome. -->
+  <rect width="1280" height="640" fill="#f7f5f0" />
+
+  <!-- Rust accent bar pinned to the right edge, brand stamp. -->
+  <rect x="1240" y="0" width="40" height="640" fill="#d1642b" />
+
+  <!-- Logo: tightened geometry. Logo-local center (128, 128) lands at
+       the social-card center (320, 320); scale 2.0 so the 188-unit
+       visible artwork renders at 376px, filling the logo region
+       without any wasted padding. -->
+  <g transform="translate(64 64) scale(2)">
+    <g stroke="#1f2a36" stroke-width="20" stroke-linecap="butt" fill="none">
+      <line x1="128" y1="48"  x2="48"  y2="128" />
+      <line x1="48"  y1="128" x2="128" y2="208" />
+      <line x1="128" y1="208" x2="208" y2="128" />
+      <line x1="208" y1="128" x2="128" y2="48"  />
+    </g>
+    <g fill="#d1642b">
+      <polygon points="128,34  142,48  128,62  114,48"  />
+      <polygon points="48,114  62,128  48,142  34,128"  />
+      <polygon points="208,114 222,128 208,142 194,128" />
+      <polygon points="128,194 142,208 128,222 114,208" />
+    </g>
+  </g>
+
+  <!-- Wordmark block, right of the logo. -->
+  <g font-family="system-ui, -apple-system, 'Segoe UI', Inter, Helvetica, Arial, sans-serif">
+    <text x="640" y="264" font-size="128" font-weight="800" fill="#1f2a36" letter-spacing="-6">mnem</text>
+    <text x="640" y="330" font-size="38" font-weight="600" fill="#1f2a36">Git for knowledge graphs.</text>
+    <text x="640" y="380" font-size="24" font-weight="400" fill="#556070">Versioned · Content-addressed · Embeddable · Local-first.</text>
+
+    <rect x="640" y="414" width="96" height="6" fill="#d1642b" />
+
+    <text x="640" y="466" font-size="22" font-weight="500" fill="#d1642b" letter-spacing="0.5">github.com/Uranid/mnem</text>
+
+    <text x="640" y="520" font-size="18" font-weight="400" fill="#556070">Rust  ·  WASM  ·  redb  ·  Prolly trees  ·  Ed25519  ·  Apache-2.0</text>
+  </g>
+</svg>

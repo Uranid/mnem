@@ -1,0 +1,68 @@
+name: publish-dryrun
+
+# Lightweight guard: runs `scripts/release-dry-run.sh` on every PR that
+# touches publish metadata so a broken Cargo.toml never reaches the real
+# release workflow. Dry-run only - nothing is ever pushed to a registry.
+#
+# Path filters keep this off of unrelated PRs (a CI run for a README edit
+# wastes minutes and never fails meaningfully).
+
+on:
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/*/Cargo.toml"
+      - "crates/mnem-py/pyproject.toml"
+      - "Dockerfile"
+      - "scripts/release-dry-run.sh"
+      - ".github/workflows/publish-dryrun.yml"
+      - ".github/workflows/release.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/*/Cargo.toml"
+      - "crates/mnem-py/pyproject.toml"
+      - "Dockerfile"
+      - "scripts/release-dry-run.sh"
+  workflow_dispatch:
+
+# Cancel superseded runs on the same PR to save minutes.
+concurrency:
+  group: publish-dryrun-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dryrun:
+    name: cargo publish --dry-run (workspace) + maturin + docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install maturin
+        # Needed for the mnem-py wheel dry-build step inside the script.
+        # `pipx` keeps the host Python tree clean; `--force` re-installs
+        # if a cached layer had an older maturin.
+        run: |
+          pip install --user --upgrade pipx
+          pipx install maturin --force
+
+      - name: Run release-dry-run.sh
+        env:
+          # docker is available on ubuntu-latest runners; leave SKIP_DOCKER
+          # unset so the image build exercises the real path.
+          CARGO_TERM_COLOR: always
+        run: bash scripts/release-dry-run.sh

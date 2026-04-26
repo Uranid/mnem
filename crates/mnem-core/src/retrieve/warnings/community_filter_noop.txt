@@ -1,0 +1,1 @@
+community_filter was accepted but both authored edges and the vector index are empty; expander had no substrate to operate on.

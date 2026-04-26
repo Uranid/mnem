@@ -1,0 +1,60 @@
+# Local-development stack: mnem-http + ollama.
+#
+# Brings up mnem-http bound to 127.0.0.1:9876 with an ollama sibling
+# serving nomic-embed-text on 127.0.0.1:11434. Good enough to drive the
+# bake-off harness under benchmarks/, the Python bindings, and any
+# client SDK locally.
+#
+#   docker compose up --build
+#   curl http://127.0.0.1:9876/v1/healthz
+#
+# The `mnem-data` named volume survives `docker compose down`. Drop it
+# with `docker compose down -v` if you want a clean repo state.
+#
+# For the full competitor bake-off (mnem + bm25 + chroma + mem0 +
+# llamaindex + ...), follow the recipes in
+# docs/benchmarks/COMPETITOR-REPRODUCE.md - each competitor has a
+# standalone Docker build invocation so you only spin up what you need.
+
+services:
+  mnem-http:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        FEATURES: ""
+    image: mnem-http:dev
+    container_name: mnem-http
+    ports:
+      - "127.0.0.1:9876:9876"
+    volumes:
+      - mnem-data:/data
+      - mnem-models:/models
+    environment:
+      # Point the server at the ollama sibling for auto-embed.
+      # The config.toml at /data/.mnem/ takes priority when present.
+      RUST_LOG: info,mnem_http=debug
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: mnem-ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  mnem-data:
+  mnem-models:
+  ollama-models:

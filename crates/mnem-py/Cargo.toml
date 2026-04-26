@@ -1,0 +1,43 @@
+[package]
+name = "mnem-py"
+description = "Python bindings for mnem - git for knowledge graphs, agent memory under a token budget."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["knowledge-graph", "agent-memory", "retrieval", "llm", "rag"]
+categories = ["database", "api-bindings"]
+readme = "README.md"
+documentation = "https://docs.rs/mnem-py"
+
+# docs.rs: pyo3's `extension-module` feature disables the Python
+# linker shim and is required to build without a Python interpreter
+# available - which is how docs.rs builds Rust crates. No other
+# features to gate so `all-features = true` is equivalent to default.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+# Produce both a Python extension module (cdylib) and an rlib so that
+# Rust consumers (e.g. integration tests) can link against the wrappers
+# without pulling in the Python interpreter. `name = "_mnem"` matches
+# the `#[pymodule] fn _mnem` in src/lib.rs and maturin's
+# `module-name = "pymnem._mnem"` in pyproject.toml; the pure-Python
+# `python/pymnem/__init__.py` re-exports everything so user code that
+# imports from the top-level `pymnem` works.
+[lib]
+name = "_mnem"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+mnem-core         = { path = "../mnem-core", version = "=0.1.0" }
+mnem-backend-redb = { path = "../mnem-backend-redb", version = "=0.1.0" }
+bytes             = { workspace = true }
+ipld-core         = { workspace = true }
+pyo3              = { version = "0.28", features = ["extension-module", "abi3-py39"] }

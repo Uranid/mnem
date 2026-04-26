@@ -1,0 +1,10 @@
+---
+source: crates/mnem-ingest/src/md.rs
+expression: sections
+---
+- heading: Example
+  depth: 1
+  text: "Prelude paragraph.\n\n```rust\nfn main() {\n    println!(\"hi\");\n}\n```\nAnd a follow-up."
+  byte_range:
+    start: 0
+    end: 95

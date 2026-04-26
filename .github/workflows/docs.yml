@@ -1,0 +1,112 @@
+name: docs
+
+# Build the mdbook site under `docs/guide/` and deploy to GitHub Pages.
+# One-off setup (done by a maintainer once):
+#   1. GitHub repo Settings -> Pages -> Source: GitHub Actions.
+#   2. (Optional) Custom domain: set it in repo Settings -> Pages ->
+#      Custom domain, then the `Write CNAME` step below picks it up
+#      via the `MNEM_DOCS_DOMAIN` repo variable. Without a custom
+#      domain, the site publishes at the default
+#      `<owner>.github.io/mnem` URL.
+#
+# Trigger: pushes to `main` that touch docs/. Manual dispatch for
+# ad-hoc rebuilds. PRs run build-only so broken docs fail fast in CI
+# without publishing to production.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs.yml"
+      - "crates/**/src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  pull_request:
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs.yml"
+      - "crates/**/src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+# Allow one concurrent deploy per ref. In-progress runs are NOT
+# cancelled so we don't leave Pages in an inconsistent state.
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  rustdoc:
+    name: rustdoc 0-warnings gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Why this job guards every PR: the R2-B quality pass brought
+    # `cargo doc --no-deps --workspace --all-features` to zero
+    # warnings across the workspace. Without a CI gate, any PR that
+    # introduces a broken intra-doc link, an undocumented pub item, or
+    # a stale reference regresses that invariant silently and the
+    # docs.rs build (which uses `RUSTDOCFLAGS="-D warnings"`-class
+    # strictness) fails only after the crate is published. Catch it on
+    # the PR diff instead of in the release rear-view mirror.
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo doc (deny warnings)
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --no-deps --workspace --all-features
+
+  build:
+    name: build (mdbook)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install mdbook
+        run: |
+          set -euo pipefail
+          MDBOOK_VERSION="0.4.40"
+          curl -sSL "https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar xz -C /usr/local/bin
+
+      - name: Build book
+        run: mdbook build docs/
+
+      - name: Write CNAME for custom domain (if configured)
+        # Only when deploying from main AND a custom domain is
+        # configured via the `MNEM_DOCS_DOMAIN` repo variable. Without
+        # it, GitHub Pages serves at `<owner>.github.io/mnem`.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.MNEM_DOCS_DOMAIN != ''
+        run: echo "${{ vars.MNEM_DOCS_DOMAIN }}" > docs/book/CNAME
+
+      - name: Upload Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/book
+
+  deploy:
+    name: deploy to GitHub Pages
+    # Deploy only after rustdoc invariant AND mdbook build both pass.
+    # A new broken intra-doc link would otherwise block the publish
+    # path via the next release workflow run rather than this one.
+    needs: [build, rustdoc]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
