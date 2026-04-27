@@ -54,7 +54,7 @@ ureq = { version = "2.12", default-features = false, features = ["json", "tls"] 
 # pure-Rust WordPiece / BPE tokenizer crate. Both carry internal
 # unsafe. Leaving them optional lets the default build stay small
 # and keeps the crate importable on WASM (where neither compiles).
-ort = { version = "=2.0.0-rc.11", default-features = false, features = ["load-dynamic", "ndarray"], optional = true }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["load-dynamic", "ndarray"], optional = true }
 tokenizers = { version = "0.22", default-features = false, features = ["onig"], optional = true }
 ndarray = { version = "0.17", optional = true }
 # Model weights + tokenizer + idf.json are lazy-downloaded on first
