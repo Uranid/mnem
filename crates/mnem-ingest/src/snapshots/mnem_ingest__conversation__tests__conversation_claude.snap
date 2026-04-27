@@ -1,0 +1,16 @@
+---
+source: crates/mnem-ingest/src/conversation.rs
+expression: sections
+---
+- heading: "[user]"
+  depth: 2
+  text: What is 2+2?
+  byte_range:
+    start: 0
+    end: 12
+- heading: "[assistant]"
+  depth: 2
+  text: Four.
+  byte_range:
+    start: 13
+    end: 18

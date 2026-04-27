@@ -1,0 +1,58 @@
+title: "[Idea] "
+labels: ["enhancement", "discussion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea for mnem? Post it here so the community can refine it before it becomes
+        a feature request.
+
+        Before posting, skim [`docs/ROADMAP.md`](../../blob/main/docs/ROADMAP.md) so you do
+        not propose something already planned, in flight, or explicitly deferred.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: |
+        What are you actually trying to do? What is painful about today's behaviour?
+        Concrete examples beat abstract descriptions.
+      placeholder: |
+        When my agent calls `resolve_or_create_node` hundreds of times per transaction,
+        I want a progress signal so the UI can render. Today the agent blocks silently.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed shape
+      description: |
+        Sketch the API, CLI, or surface change. Even a one-line signature is useful.
+      placeholder: |
+        Add `Transaction::on_progress(|done, total| ...)` callback hook, fired every N nodes.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other shapes did you think about? Why is this one preferred?
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and out-of-scope
+      description: |
+        What is the smallest version of this idea? What explicitly should NOT be in scope?
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I checked ROADMAP.md and the existing issues + discussions.
+          required: true
+        - label: I am willing to author a PR if maintainers agree the idea is in scope.
+          required: false

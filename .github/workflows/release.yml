@@ -1,0 +1,817 @@
+name: release
+
+# Push to the `release` branch (or dispatch manually) to cut a new release.
+# The workflow:
+#   1. runs the full test matrix on Linux + macOS + Windows,
+#   2. extracts the version from [workspace.package] in Cargo.toml,
+#   3. fails if that tag already exists (bump the version before pushing),
+#   4. creates an annotated tag on the current commit,
+#   5. publishes a GitHub release with auto-generated notes.
+#
+# Pre-releases (any version containing a hyphen, e.g. 0.1.0-alpha.1) are
+# marked as GitHub "pre-release" automatically.
+
+on:
+  push:
+    branches: [release]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test (workspace)
+        run: cargo test --workspace --tests --lib
+
+      # Clippy on the release path: the CI workflow runs it on PRs,
+      # but re-running at release time catches warnings that snuck in
+      # via a direct push to main.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  release:
+    name: tag + publish release
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract workspace version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION=$(awk '/^\[workspace\.package\]/{flag=1;next} /^\[/{flag=0} flag && /^version[[:space:]]*=/' Cargo.toml | head -n1 | cut -d'"' -f2)
+          if [ -z "$VERSION" ]; then
+            echo "::error::Failed to parse [workspace.package].version from Cargo.toml"
+            exit 1
+          fi
+          TAG="v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" == *-* ]]; then
+            echo "prerelease=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Release target: $TAG (prerelease: $([[ "$VERSION" == *-* ]] && echo true || echo false))"
+
+      - name: Ensure tag is new (release-branch path only)
+        if: github.ref_type != 'tag'
+        run: |
+          if git rev-parse "refs/tags/${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::Tag ${{ steps.version.outputs.tag }} already exists. Bump [workspace.package].version in Cargo.toml before pushing to the release branch."
+            exit 1
+          fi
+
+      - name: Create and push annotated tag (release-branch path only)
+        if: github.ref_type != 'tag'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.tag }}" -m "mnem ${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Verify tag matches Cargo.toml version (tag-push path only)
+        if: github.ref_type == 'tag'
+        run: |
+          REF_TAG="${GITHUB_REF#refs/tags/}"
+          EXPECTED="${{ steps.version.outputs.tag }}"
+          if [ "$REF_TAG" != "$EXPECTED" ]; then
+            echo "::error::Pushed tag '$REF_TAG' does not match [workspace.package].version-derived tag '$EXPECTED'. Bump Cargo.toml or push the matching tag."
+            exit 1
+          fi
+          echo "Tag $REF_TAG matches Cargo.toml version."
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: mnem ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
+
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+
+  # Build and upload release archives for every (triple) the install
+  # scripts download. Archive name is `mnem-<triple>.tar.gz` (Unix) or
+  # `mnem-<triple>.zip` (Windows); contents are bare binaries at the
+  # archive root: `mnem`, `mnem-mcp`, `mnem-http`.
+  binaries:
+    name: binaries (${{ matrix.triple }})
+    needs: release
+    runs-on: ${{ matrix.runner }}
+    # cross-rs pulls a ~1GB docker image on first run; pad generously
+    # so an arm64 first-run doesn't get killed by the default 6h cap.
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - triple: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            archive: tar.gz
+            use_cross: false
+            ort_url: 'https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-1.20.1.tgz'
+            ort_lib_glob: 'libonnxruntime.so.1.20.1'
+          # aarch64 Linux via cross-rs so we don't have to maintain a
+          # self-hosted arm runner. Docker-based cross uses a
+          # manylinux-compatible toolchain so the wheel works on
+          # Debian/Ubuntu/Amazon Linux 2+.
+          - triple: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            archive: tar.gz
+            use_cross: true
+            ort_url: 'https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-aarch64-1.20.1.tgz'
+            ort_lib_glob: 'libonnxruntime.so.1.20.1'
+          - triple: x86_64-apple-darwin
+            runner: macos-13
+            archive: tar.gz
+            use_cross: false
+            ort_url: 'https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-osx-x86_64-1.20.1.tgz'
+            ort_lib_glob: 'libonnxruntime.1.20.1.dylib'
+          - triple: aarch64-apple-darwin
+            runner: macos-latest
+            archive: tar.gz
+            use_cross: false
+            ort_url: 'https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-osx-arm64-1.20.1.tgz'
+            ort_lib_glob: 'libonnxruntime.1.20.1.dylib'
+          - triple: x86_64-pc-windows-msvc
+            runner: windows-latest
+            archive: zip
+            use_cross: false
+            ort_url: 'https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-win-x64-1.20.1.zip'
+            ort_lib_glob: 'onnxruntime.dll'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust 1.95 (${{ matrix.triple }})
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+          targets: ${{ matrix.triple }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cross (aarch64-linux only)
+        if: matrix.use_cross
+        run: cargo install cross --locked --version 0.2.5
+
+      # cargo-auditable embeds a deterministic SBOM into every release
+      # binary via a `.dep-v0` ELF / Mach-O / PE section. The section
+      # contents are a sorted + gzipped view of Cargo.lock, so same
+      # lockfile == same bytes (reproducible-build friendly). Consumers
+      # can run `cargo audit bin mnem` on a shipped archive to get the
+      # same vuln report they'd get against the source tree.
+      - name: Install cargo-auditable
+        if: ${{ !matrix.use_cross }}
+        run: cargo install cargo-auditable --locked --version 0.6.7
+
+      # SOURCE_DATE_EPOCH + --remap-path-prefix make the binaries
+      # reproducible given the same toolchain + lockfile. The
+      # `reproducibility.yml` workflow independently asserts this with
+      # a dual-build diff on Linux-musl.
+      - name: Set SOURCE_DATE_EPOCH
+        shell: bash
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct HEAD)" >> "$GITHUB_ENV"
+
+      # Build mnem-cli + mnem-mcp without features (no onnx feature exists
+      # on those crates). Then build mnem-http with --features onnx so the
+      # shipped server binary can dynamically load the bundled
+      # libonnxruntime alongside it (see ort load-dynamic config in
+      # mnem-embed-providers / mnem-sparse-providers / mnem-rerank-providers).
+      - name: Build release binaries (mnem-cli + mnem-mcp)
+        if: ${{ !matrix.use_cross }}
+        env:
+          RUSTFLAGS: "-C strip=debuginfo --remap-path-prefix=${{ github.workspace }}=."
+        run: >
+          cargo auditable build --release --locked
+          --target ${{ matrix.triple }}
+          -p mnem-cli -p mnem-mcp
+
+      - name: Build mnem-http (--features onnx)
+        if: ${{ !matrix.use_cross }}
+        env:
+          RUSTFLAGS: "-C strip=debuginfo --remap-path-prefix=${{ github.workspace }}=."
+        run: >
+          cargo auditable build --release --locked
+          --target ${{ matrix.triple }}
+          -p mnem-http --features onnx
+
+      - name: Build release binaries (cross, mnem-cli + mnem-mcp)
+        if: matrix.use_cross
+        env:
+          RUSTFLAGS: "-C strip=debuginfo --remap-path-prefix=${{ github.workspace }}=."
+        run: >
+          cross build --release --locked
+          --target ${{ matrix.triple }}
+          -p mnem-cli -p mnem-mcp
+
+      - name: Build mnem-http (cross, --features onnx)
+        if: matrix.use_cross
+        env:
+          RUSTFLAGS: "-C strip=debuginfo --remap-path-prefix=${{ github.workspace }}=."
+        run: >
+          cross build --release --locked
+          --target ${{ matrix.triple }}
+          -p mnem-http --features onnx
+
+      # Download platform-specific onnxruntime and stage the dynamic
+      # library under `lib/` in the archive so users can run
+      # `mnem-http` out of the box. ort's load-dynamic mode resolves the
+      # library via ORT_DYLIB_PATH or platform default search paths;
+      # the bundled README install snippet documents how to point it at
+      # the sibling lib/ directory.
+      - name: Download onnxruntime (Unix)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ort-extract
+          curl -fsSL "${{ matrix.ort_url }}" -o ort.tgz
+          tar xzf ort.tgz -C ort-extract --strip-components=1
+          ls -la ort-extract/lib
+
+      - name: Download onnxruntime (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path ort-extract | Out-Null
+          Invoke-WebRequest -Uri "${{ matrix.ort_url }}" -OutFile ort.zip
+          Expand-Archive -Path ort.zip -DestinationPath ort-tmp -Force
+          # Microsoft ships ort zips with a single top-level dir; flatten.
+          $inner = Get-ChildItem -Directory ort-tmp | Select-Object -First 1
+          Move-Item "$($inner.FullName)\*" ort-extract\
+          Get-ChildItem ort-extract\lib
+
+      - name: Pack archive + checksum (Unix)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="mnem-${{ matrix.triple }}"
+          DIR="target/${{ matrix.triple }}/release"
+          mkdir -p "dist/$NAME/bin" "dist/$NAME/lib"
+          cp "$DIR/mnem" "$DIR/mnem-mcp" "$DIR/mnem-http" "dist/$NAME/bin/"
+          # Bundle libonnxruntime so mnem-http (built with --features onnx)
+          # can resolve it via ort's load-dynamic mode at runtime.
+          cp "ort-extract/lib/${{ matrix.ort_lib_glob }}" "dist/$NAME/lib/"
+          # Drop README + LICENSE at archive root for discoverability.
+          cp README.md LICENSE "dist/$NAME/" 2>/dev/null || cp README.md "dist/$NAME/"
+          # Install snippet pointing ORT_DYLIB_PATH at the bundled lib.
+          cat > "dist/$NAME/INSTALL.md" <<'EOF'
+          # Install (prebuilt mnem)
+
+          Extract this archive, then point `ORT_DYLIB_PATH` at the
+          bundled onnxruntime so `mnem-http --features onnx` works:
+
+          ```bash
+          tar xzf mnem-<version>-<triple>.tar.gz
+          cd mnem-<triple>
+          export ORT_DYLIB_PATH="$(pwd)/lib/${{ matrix.ort_lib_glob }}"
+          ./bin/mnem-http
+          ```
+
+          The `mnem` and `mnem-mcp` binaries do not require onnxruntime.
+          EOF
+          tar czf "dist/$NAME.tar.gz" -C dist "$NAME"
+          # SHA-256 alongside the archive so Homebrew / Scoop / the
+          # install.sh checker have an authoritative hash. The
+          # `shasum -a 256` form works on both macOS and Linux;
+          # GitHub's Ubuntu image has coreutils sha256sum and BSD
+          # shasum both. Use `shasum -a 256` for portability.
+          (cd dist && shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+          ls -la dist
+
+      - name: Pack archive + checksum (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Name = "mnem-${{ matrix.triple }}"
+          $Dir  = "target/${{ matrix.triple }}/release"
+          New-Item -ItemType Directory -Force -Path "dist/$Name/bin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "dist/$Name/lib" | Out-Null
+          foreach ($bin in @('mnem.exe', 'mnem-mcp.exe', 'mnem-http.exe')) {
+              Copy-Item -Path "$Dir/$bin" -Destination "dist/$Name/bin/" -Force
+          }
+          # Bundle onnxruntime.dll for mnem-http (--features onnx).
+          Copy-Item -Path "ort-extract/lib/${{ matrix.ort_lib_glob }}" -Destination "dist/$Name/lib/" -Force
+          Copy-Item -Path "README.md" -Destination "dist/$Name/" -Force
+          if (Test-Path "LICENSE") { Copy-Item -Path "LICENSE" -Destination "dist/$Name/" -Force }
+          $install = @"
+          # Install (prebuilt mnem)
+
+          Extract the archive, then point ``ORT_DYLIB_PATH`` at the bundled
+          onnxruntime so ``mnem-http`` (built with ``--features onnx``) works:
+
+          ``````powershell
+          Expand-Archive mnem-<version>-x86_64-pc-windows-msvc.zip
+          cd mnem-x86_64-pc-windows-msvc
+          `$env:ORT_DYLIB_PATH = "`$PWD\lib\onnxruntime.dll"
+          .\bin\mnem-http.exe
+          ``````
+
+          The ``mnem.exe`` and ``mnem-mcp.exe`` binaries do not require onnxruntime.
+          "@
+          Set-Content -Path "dist/$Name/INSTALL.md" -Value $install -Encoding utf8
+          Compress-Archive -Path "dist/$Name/*" -DestinationPath "dist/$Name.zip" -Force
+          # Emit checksum in the same two-column `<hash>  <file>`
+          # format `shasum -a 256` uses so mixed-OS consumers can
+          # parse uniformly.
+          $hash = (Get-FileHash -Algorithm SHA256 "dist/$Name.zip").Hash.ToLower()
+          "$hash  $Name.zip" | Out-File -FilePath "dist/$Name.zip.sha256" -Encoding ASCII -NoNewline
+          Get-ChildItem dist
+
+      - name: Upload archive + checksum to release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.release.outputs.tag }}
+          files: |
+            dist/mnem-${{ matrix.triple }}.${{ matrix.archive }}
+            dist/mnem-${{ matrix.triple }}.${{ matrix.archive }}.sha256
+          prerelease: ${{ needs.release.outputs.prerelease == 'true' }}
+
+  # -----------------------------------------------------------------
+  # SLSA v1.0 build-provenance. Reuses the SLSA framework's generic
+  # generator (pinned to @v2.0.0 via release-slsa.yml) to mint an
+  # in-toto attestation over every per-triple archive the `binaries`
+  # job just uploaded. The attestation lands as `<archive>.intoto.jsonl`
+  # on the same release, so users run
+  #   slsa-verifier verify-artifact \
+  #     --provenance-path <.jsonl> \
+  #     --source-uri github.com/Uranid/mnem \
+  #     <archive>
+  # to prove the archive came from this workflow at this commit.
+  #
+  # Pulled out to its own workflow file (`release-slsa.yml`) because
+  # SLSA's reusable generator MUST be referenced as a top-level
+  # `uses:` job, which rules out nesting it inside an existing job.
+  # -----------------------------------------------------------------
+  attest-slsa:
+    name: SLSA v1.0 provenance
+    needs: [release, binaries]
+    if: always() && needs.release.result == 'success' && needs.binaries.result == 'success'
+    permissions:
+      id-token: write
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release-slsa.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+      prerelease: ${{ needs.release.outputs.prerelease }}
+
+  # -----------------------------------------------------------------
+  # Cosign keyless signing (Sigstore). Signs every per-triple archive
+  # using the workflow's OIDC token -> Fulcio cert chain, so no
+  # long-lived keys are stored. Emits `<file>.sig` + `<file>.pem`
+  # (Fulcio cert) alongside each archive on the GitHub release.
+  #
+  # Consumer verification:
+  #   cosign verify-blob \
+  #     --certificate mnem-<triple>.tar.gz.pem \
+  #     --signature   mnem-<triple>.tar.gz.sig \
+  #     --certificate-identity-regexp \
+  #       "https://github.com/Uranid/mnem/.github/workflows/release.yml@refs/tags/v.*" \
+  #     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  #     mnem-<triple>.tar.gz
+  # -----------------------------------------------------------------
+  sign-artifacts:
+    name: cosign sign release archives
+    needs: [release, binaries]
+    if: always() && needs.release.result == 'success' && needs.binaries.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      id-token: write   # mint OIDC token for keyless Fulcio cert
+      contents: write   # upload .sig + .pem back to the release
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          # Pin deliberately for supply-chain hygiene. Bump after
+          # reviewing https://github.com/sigstore/cosign/releases .
+          cosign-release: "v2.4.1"
+
+      - name: Download release archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$TAG" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --dir dist \
+            --pattern 'mnem-*.tar.gz' \
+            --pattern 'mnem-*.zip' \
+            --pattern 'mnem-*.sha256'
+          ls -la dist
+
+      - name: Sign each archive (keyless, OIDC)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          cd dist
+          for f in mnem-*.tar.gz mnem-*.zip; do
+            [ -f "$f" ] || continue
+            echo ">> cosign sign-blob $f"
+            cosign sign-blob --yes \
+              --output-signature   "$f.sig" \
+              --output-certificate "$f.pem" \
+              "$f"
+          done
+          ls -la
+
+      - name: Upload signatures + certs to release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.release.outputs.tag }}
+          files: |
+            dist/mnem-*.tar.gz.sig
+            dist/mnem-*.tar.gz.pem
+            dist/mnem-*.zip.sig
+            dist/mnem-*.zip.pem
+          prerelease: ${{ needs.release.outputs.prerelease == 'true' }}
+
+  # Publish Rust crates to crates.io in dependency order. Uses
+  # `cargo publish --no-verify` per crate to avoid rebuilding in the
+  # registry sandbox (we already tested above). Skip any crate whose
+  # version is already on crates.io so re-running the workflow after a
+  # partial publish is idempotent.
+  #
+  # Requires:
+  #   - `CARGO_REGISTRY_TOKEN` repo secret with publish rights.
+  publish-crates:
+    name: publish crates.io
+    needs: [release, test]
+    if: needs.release.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    environment: production
+    # 10 crates * (cargo publish + 90s index-propagation sleep) =
+    # ~20 minutes worst-case; double it to absorb registry lag spikes.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+      - uses: Swatinem/rust-cache@v2
+      - name: Publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Leaves (no internal deps) first; then libs that depend on them.
+          CRATES=(
+            mnem-core
+            mnem-backend-redb
+            mnem-embed-providers
+            mnem-sparse-providers
+            mnem-rerank-providers
+            mnem-llm-providers
+            mnem-http
+            mnem-mcp
+            mnem-cli
+          )
+          for c in "${CRATES[@]}"; do
+            VERSION=$(cargo pkgid -p "$c" | sed 's/.*#//')
+            echo "publish $c@$VERSION"
+            # Idempotent: tolerate "already exists" from a prior partial run.
+            # cargo publish exits 101 with that exact substring on collision.
+            if cargo publish --no-verify --locked -p "$c" --token "$CARGO_REGISTRY_TOKEN" 2>&1 | tee /tmp/pub.log; then
+              echo "published $c@$VERSION"
+              # Crates.io index propagation: sleep so the next publish
+              # sees the new dep version. Typical propagation <60s.
+              sleep 90
+            elif grep -q "already exists" /tmp/pub.log; then
+              echo "skip $c@$VERSION already on crates.io"
+            else
+              echo "publish failed for $c@$VERSION" >&2
+              exit 1
+            fi
+          done
+
+  # Build + upload the Python wheel to PyPI. maturin-action runs a
+  # manylinux2014 Docker image (Linux), native toolchain (macOS +
+  # Windows). abi3-py39 means one wheel per (triple) works for
+  # 3.9 through 3.13.
+  #
+  # Requires either:
+  #   - PyPI "Trusted Publisher" configured for this repo + environment `pypi`, OR
+  #   - `PYPI_API_TOKEN` repo secret (fallback)
+  publish-pypi:
+    name: publish PyPI (${{ matrix.triple }})
+    needs: [release, test]
+    if: needs.release.outputs.prerelease == 'false'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - triple: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            manylinux: "2014"
+          - triple: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            manylinux: "2014"
+          - triple: x86_64-apple-darwin
+            runner: macos-13
+            manylinux: "auto"
+          - triple: aarch64-apple-darwin
+            runner: macos-latest
+            manylinux: "auto"
+          - triple: x86_64-pc-windows-msvc
+            runner: windows-latest
+            manylinux: "auto"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build wheel (maturin)
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          target: ${{ matrix.triple }}
+          args: --release --strip --manifest-path crates/mnem-py/Cargo.toml
+          manylinux: ${{ matrix.manylinux }}
+          sccache: "true"
+      - name: Upload wheel artifact
+        # v5+ artifacts are immutable per run. Each matrix job uploads
+        # to a unique name (`wheel-${{ matrix.triple }}`), so no name
+        # collision and no need for `overwrite: true`.
+        uses: actions/upload-artifact@v7
+        with:
+          name: wheel-${{ matrix.triple }}
+          path: target/wheels/*.whl
+
+  publish-pypi-upload:
+    name: upload wheels to PyPI
+    needs: [release, publish-pypi]
+    if: needs.release.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          pattern: wheel-*
+          merge-multiple: true
+      - name: Publish to PyPI (Trusted Publisher / OIDC)
+        # Auth via PyPI Trusted Publisher (OIDC). No password / token
+        # required: pypa/gh-action-pypi-publish exchanges the workflow
+        # OIDC token for a short-lived publish credential. Configure
+        # the project on PyPI: Account Settings -> Publishing ->
+        # owner=Uranid, repo=mnem, workflow=release.yml, environment=production.
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  # -----------------------------------------------------------------
+  # Multi-arch Docker image published to both GitHub Container Registry
+  # (always) and Docker Hub (when DOCKERHUB_USERNAME / DOCKERHUB_TOKEN
+  # secrets are set). Tags: `<version>`, `<major>.<minor>`, `latest`.
+  # Image is the mnem-http server with the `onnx` feature compiled in
+  # so the hybrid pipeline works out of the box inside the container.
+  # -----------------------------------------------------------------
+  publish-docker:
+    name: publish Docker (GHCR + Docker Hub)
+    needs: [release, test]
+    if: needs.release.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 60
+    # Job-level env so `if: env.DOCKERHUB_USERNAME != ''` on downstream
+    # steps evaluates BEFORE the step runs (step-level env isn't in
+    # scope for its own `if:` guard - a subtle GHA gotcha).
+    env:
+      DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up QEMU (multi-arch emulation)
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to Docker Hub (if configured)
+        if: env.DOCKERHUB_USERNAME != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Compute image tags
+        id: tags
+        env:
+          VERSION: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Strip the leading "v": v0.1.0 -> 0.1.0
+          V="${VERSION#v}"
+          # Major.Minor: 0.1.0 -> 0.1
+          MM="$(echo "$V" | cut -d. -f1,2)"
+          # GHCR + Docker Hub require lowercase repo names. github.repository_owner
+          # preserves the user-set case (e.g. `Uranid`), so we down-case here.
+          OWNER_LC="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          TAGS="ghcr.io/${OWNER_LC}/mnem:$V"
+          TAGS="$TAGS,ghcr.io/${OWNER_LC}/mnem:$MM"
+          TAGS="$TAGS,ghcr.io/${OWNER_LC}/mnem:latest"
+          if [ -n "${DOCKERHUB_USERNAME:-}" ]; then
+            TAGS="$TAGS,docker.io/${DOCKERHUB_USERNAME}/mnem:$V"
+            TAGS="$TAGS,docker.io/${DOCKERHUB_USERNAME}/mnem:$MM"
+            TAGS="$TAGS,docker.io/${DOCKERHUB_USERNAME}/mnem:latest"
+          fi
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+          echo "Image tags: $TAGS"
+      - name: Build + push multi-arch image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          # onnx feature in the image so `sparse.provider = "onnx"`
+          # works inside the container without a custom build.
+          build-args: |
+            FEATURES=onnx
+            VERSION=${{ needs.release.outputs.tag }}
+            VCS_REF=${{ github.sha }}
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Install cosign + sign the just-pushed image. Keyless OIDC ->
+      # Fulcio cert; signature lands in the registry at
+      # `<ref>@<digest>.sig` (cosign's native convention) so
+      # `cosign verify ghcr.io/.../mnem:<version>` works out of the box.
+      # Signing every tag is anchored to the manifest-list digest
+      # (not the mutable tag), so tag rewrites never invalidate an
+      # existing signature.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: "v2.4.1"
+
+      - name: cosign sign image (GHCR + optional Docker Hub)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra TAG_LIST <<< "$TAGS"
+          for tag in "${TAG_LIST[@]}"; do
+            ref="${tag}@${DIGEST}"
+            echo ">> cosign sign $ref"
+            cosign sign --yes "$ref"
+          done
+
+  # -----------------------------------------------------------------
+  # Homebrew tap bump. Assumes a separate `homebrew-mnem` repo owned
+  # by `Uranid` exists (see docs/RELEASE.md for the one-off
+  # bootstrap). The action computes SHA-256 of the macOS + Linux
+  # archives, bumps the formula's `version` / `sha256` fields, and
+  # opens a PR (or commits directly) against the tap.
+  # -----------------------------------------------------------------
+  publish-homebrew:
+    name: bump Homebrew formula
+    needs: [release, binaries]
+    if: needs.release.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - name: Bump mnem formula in Uranid/homebrew-tap
+        uses: dawidd6/action-homebrew-bump-formula@v7
+        with:
+          # Personal-access token with `public_repo` scope on
+          # Uranid/homebrew-tap. Stored as HOMEBREW_GH_TOKEN.
+          token: ${{ secrets.HOMEBREW_GH_TOKEN }}
+          # No `tap:` means the action writes to homebrew-core. We keep
+          # our own tap until maturity (homebrew-core wants 75+ stars +
+          # 1yr + passes audit). The tap is named `homebrew-tap` (the
+          # convention used by astral-sh, pola-rs, oven-sh/bun) so
+          # after `brew tap uranid/tap`, users run `brew
+          # install mnem` - no owner/tap qualifier.
+          tap: Uranid/homebrew-tap
+          formula: mnem
+          tag: ${{ needs.release.outputs.tag }}
+          revision: ${{ github.sha }}
+
+  # -----------------------------------------------------------------
+  # WinGet (Windows Package Manager) release PR. The action opens a PR
+  # against microsoft/winget-pkgs with an updated manifest that points
+  # at the Windows release archive uploaded by the `binaries` job.
+  # One-off: create the initial manifest in microsoft/winget-pkgs under
+  # `manifests/p/Uranid/mnem/<version>/` then enable this job.
+  # -----------------------------------------------------------------
+  publish-winget:
+    name: open WinGet PR
+    needs: [release, binaries]
+    if: needs.release.outputs.prerelease == 'false'
+    runs-on: windows-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - name: winget-releaser
+        uses: vedantmgoyal2009/winget-releaser@v2
+        with:
+          identifier: Uranid.mnem
+          max-versions-to-keep: 5
+          release-tag: ${{ needs.release.outputs.tag }}
+          # GitHub PAT with `public_repo` on a fork of microsoft/winget-pkgs.
+          # Stored as WINGET_GITHUB_TOKEN.
+          token: ${{ secrets.WINGET_GITHUB_TOKEN }}
+          installers-regex: 'mnem-x86_64-pc-windows-msvc\.zip$'
+
+  # -----------------------------------------------------------------
+  # Scoop (Windows) bucket update. Assumes a separate
+  # `Uranid/scoop-mnem` repo holds the manifest; this action
+  # recomputes the archive hash and pushes the new version. Safe to
+  # skip if the tap doesn't exist yet - the step fails loudly but the
+  # rest of the release remains intact.
+  # -----------------------------------------------------------------
+  publish-scoop:
+    name: bump Scoop manifest
+    needs: [release, binaries]
+    if: needs.release.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - name: Bump mnem manifest in Uranid/scoop-mnem
+        # Lightweight custom step so we don't add another third-party
+        # action for a JSON-patch. Downloads the manifest, rewrites
+        # version + URL + hash, commits back.
+        env:
+          GH_TOKEN: ${{ secrets.SCOOP_GH_TOKEN }}
+          TAG: ${{ needs.release.outputs.tag }}
+        if: env.GH_TOKEN != ''
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          ZIP_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/mnem-x86_64-pc-windows-msvc.zip"
+          # Compute sha256 of the just-released archive.
+          curl -sSL -o mnem.zip "$ZIP_URL"
+          SHA=$(sha256sum mnem.zip | cut -d' ' -f1)
+          # Clone the manifest repo, update, push.
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/Uranid/scoop-mnem.git"
+          cd scoop-mnem
+          jq --arg v "$VERSION" --arg url "$ZIP_URL" --arg sha "$SHA" \
+            '.version = $v | .architecture["64bit"].url = $url | .architecture["64bit"].hash = $sha' \
+            mnem.json > mnem.json.new
+          mv mnem.json.new mnem.json
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mnem.json
+          git commit -m "mnem $VERSION"
+          git push

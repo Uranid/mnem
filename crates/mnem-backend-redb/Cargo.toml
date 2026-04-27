@@ -1,0 +1,40 @@
+[package]
+name = "mnem-backend-redb"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Production embedded-KV backend for mnem - redb-backed Blockstore and OpHeadsStore."
+categories = ["database"]
+keywords = ["knowledge-graph", "content-addressed", "versioning", "mnem", "redb"]
+readme = "README.md"
+documentation = "https://docs.rs/mnem-backend-redb"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+[dependencies]
+mnem-core = { path = "../mnem-core", version = "=0.1.0" }
+mnem-ann  = { path = "../mnem-ann",  version = "=0.1.0", default-features = false }
+bytes     = { workspace = true }
+redb      = { workspace = true }
+
+[dev-dependencies]
+mnem-core-testutils = { path = "../mnem-core-testutils" }
+ipld-core           = { workspace = true }
+serde               = { workspace = true, features = ["derive"] }
+# Phase-B1b (PHASE-A-2 bench plan): criterion-driven backend-comparison
+# bench. `harness = false` keeps runtime zero; bench only runs on demand
+# via `cargo bench -p mnem-backend-redb`.
+criterion           = { workspace = true }
+
+[[bench]]
+name    = "redb_vs_memory"
+harness = false

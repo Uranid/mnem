@@ -1,0 +1,19 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition = "2024"
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+description = "Internal workspace tasks for mnem (CI linters, catalog validators). Not published."
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[dependencies]
+mnem-core = { path = "../mnem-core" }
+
+[lints]
+workspace = true

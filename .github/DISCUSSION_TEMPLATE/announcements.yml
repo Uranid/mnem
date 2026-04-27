@@ -1,0 +1,23 @@
+title: ""
+labels: ["announcement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Maintainer-only category for releases, breaking changes, planning notes, and
+        community-wide signals. Regular contributors should use Q&A, Ideas, or Show and tell.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One paragraph. What is the news?
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: |
+        Links, version pins, migration notes, deprecation timelines, scope.

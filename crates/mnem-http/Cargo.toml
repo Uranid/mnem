@@ -1,0 +1,123 @@
+[package]
+name = "mnem-http"
+description = "HTTP JSON API for mnem - REST surface over the core repo operations."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+categories = ["database", "web-programming::http-server"]
+keywords = ["mnem", "knowledge-graph", "http", "rest", "api"]
+readme = "README.md"
+documentation = "https://docs.rs/mnem-http"
+
+[[bin]]
+name = "mnem-http"
+path = "src/main.rs"
+
+[lib]
+path = "src/lib.rs"
+
+# docs.rs: render the default (no-onnx) surface. The `*-onnx` features
+# forward to the three provider crates' `onnx` features, which pull
+# `ort` with `download-binaries` - needs outbound network at build
+# time that the docs.rs sandbox blocks. The route/handler types
+# are feature-orthogonal so the default build already covers them.
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Forward `sparse-onnx` / `rerank-onnx` / `embed-onnx` into the
+# corresponding provider crate so `cargo build -p mnem-http
+# --features sparse-onnx` pulls in the native in-process encoders.
+# Leaving them off keeps the default HTTP build small and WASM-clean.
+sparse-onnx = ["mnem-sparse-providers/onnx"]
+rerank-onnx = ["mnem-rerank-providers/onnx"]
+embed-onnx  = ["mnem-embed-providers/onnx"]
+onnx        = ["sparse-onnx", "rerank-onnx", "embed-onnx"]
+# Path A bundled-embedder: in-process MiniLM via ort/download-binaries.
+# Mutually exclusive with `embed-onnx` (mnem-embed-providers enforces).
+# Use for benchmark harnesses where no host onnxruntime is available.
+embed-onnx-bundled = ["mnem-embed-providers/onnx-bundled"]
+onnx-bundled       = ["embed-onnx-bundled"]
+
+[dependencies]
+mnem-core             = { path = "../mnem-core", version = "=0.1.0" }
+mnem-backend-redb     = { path = "../mnem-backend-redb", version = "=0.1.0" }
+# Transport crate supplies CAR writer/reader primitives + protocol
+# constants (PROTOCOL_VERSION, PROTOCOL_HEADER, CAPABILITIES_HEADER,
+# Capability enum) that the `/remote/v1/*` routes advertise and frame
+# against. No runtime state crosses the boundary; this dep is
+# stateless codec + constant re-exports.
+mnem-transport       = { path = "../mnem-transport", version = "=0.1.0" }
+# BENCH-1 (C4): `mock` feature enables the deterministic blake3-based
+# MockEmbedder so the cold-start retrieve fallback in `handlers.rs`
+# can degrade gracefully when no `[embed]` is configured. Network-free,
+# always-available; the real provider config still wins when present.
+mnem-embed-providers  = { path = "../mnem-embed-providers", version = "=0.1.0", features = ["mock"] }
+mnem-rerank-providers = { path = "../mnem-rerank-providers", version = "=0.1.0" }
+mnem-llm-providers    = { path = "../mnem-llm-providers", version = "=0.1.0" }
+mnem-sparse-providers = { path = "../mnem-sparse-providers", version = "=0.1.0" }
+# Phase-B5d: wires `POST /v1/ingest`. Ingest pipeline (parse + chunk +
+# rule-based NER). `keybert` feature (C3 FIX-3) forwards the KeyBERT
+# statistical adapter so `POST /v1/ingest` with `extractor=keybert`
+# runs against the server's configured embedder; zero-cost otherwise.
+mnem-ingest           = { path = "../mnem-ingest", version = "=0.1.0", features = ["keybert"] }
+# E4 T2: Centroid+MMR extractive summarizer. Zero-impact when the
+# `?summarize=...` query parameters are absent from the request.
+mnem-graphrag         = { path = "../mnem-graphrag", version = "=0.1.0" }
+# E0 wire activation (Patch-B): when the authored-edges adjacency is
+# empty under `/v1/nodes/bulk` + retrieve, derive a deterministic
+# KNN-edge substrate from the brute-force vector index via
+# `mnem_ann::derive_knn_edges_from_vectors`. We explicitly disable
+# default features so the `hnsw` backend (and its `instant-distance`
+# dep) is NOT pulled in; we only need the vector-space KNN derivation
+# which is unconstrained.
+mnem-ann              = { path = "../mnem-ann", version = "=0.1.0", default-features = false }
+axum                 = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio", "matched-path", "multipart"] }
+tokio                = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net"] }
+tower                = "0.5"
+tower-http           = { version = "0.5", features = ["cors", "trace"] }
+serde                = { workspace = true, features = ["derive"] }
+serde_json           = "1"
+anyhow               = "1"
+clap                 = { version = "4.5", features = ["derive"] }
+tracing              = { workspace = true }
+tracing-subscriber   = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+toml                 = "1"
+ipld-core            = { workspace = true }
+bytes                = { workspace = true }
+# UUIDv7 for per-request correlation ids. Workspace already pins uuid
+# with `v7` + `std`; reusing the same crate avoids a second RNG path.
+# Correlation ids live in tracing-span fields and the `X-Request-Id`
+# response header ONLY; they are NEVER used as a metric label (would
+# explode cardinality). See docs/LOGGING.md.
+uuid                 = { workspace = true }
+# Prometheus text-exposition metrics on `/metrics`. `prometheus-client`
+# (vs the older `prometheus` crate) is the maintained, official
+# implementation: smaller dep graph, no internal `Mutex` in the hot
+# path (lock-free atomics for counters + histograms), and a static-typed
+# registry that catches duplicate-name regressions at compile time. The
+# per-request hit is one atomic increment per metric family, well under
+# 100 ns on x86-64, which is noise next to axum route dispatch.
+prometheus-client    = "0.23"
+
+[dev-dependencies]
+http-body-util       = "0.1"
+tower                = { version = "0.5", features = ["util"] }
+tempfile             = "3"
+# Used only by `examples/smoke_client.rs` to hit the spawned server over
+# a real TCP socket. Keeping this under dev-dependencies means a
+# downstream consumer pulling `mnem-http` as a library never builds
+# ureq transitively; it's only compiled for `cargo run --example`.
+ureq                 = { version = "2.12", default-features = false }
+# gap-06 proptest: `byte_cap_never_exceeds_budget` invariant for the
+# `/v1/explain` runtime-derived byte cap. Workspace-pinned so the
+# version tracks the rest of the workspace proptest users.
+proptest             = { workspace = true }

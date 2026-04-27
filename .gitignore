@@ -1,0 +1,114 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+*.profraw
+*.profdata
+
+# Bindings build output
+crates/mnem-py/target/
+crates/mnem-py/*.so
+crates/mnem-py/*.pyd
+crates/mnem-py/dist/
+crates/mnem-py/build/
+crates/mnem-py/*.egg-info/
+crates/mnem-wasm/pkg/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Node (if any tooling sneaks in)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+.vs/
+*.iml
+*.iws
+*.ipr
+*.swp
+*.swo
+*.swn
+*~
+.fleet/
+.zed/
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+.envrc
+.direnv/
+*.pem
+*.key
+secrets.local.*
+
+# Coverage
+lcov.info
+tarpaulin-report.*
+
+# mdbook output
+docs/book/
+
+# mnem local test artefacts
+.mnem/
+**/fixtures/.mnem/
+.mnem-*-scratch/
+
+# Bench / scratch output
+bench-out*/
+bench-results/
+benchmarks/results-local/
+*.bench.json
+
+# Logs / temp
+*.log
+*.tmp
+*.bak
+*.orig
+*.rej
+.tmp/
+tmp/
+
+# Git
+.worktrees/
+*.patch.local
+
+# Editor lockfiles
+.#*
+\#*\#

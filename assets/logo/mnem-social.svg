@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img"
+     aria-label="mnem - git for knowledge graphs">
+  <title>mnem social preview</title>
+  <desc>Social / OpenGraph preview card. 1280x640. Warm cream background, slate diamond logo with rust corner joints, wordmark, tagline, three-line description, popular tag pills, rust accent bar, and repo URL. Padding 80px on all sides.</desc>
+
+  <!-- Background: warm cream so the slate + rust palette reads cleanly on both light and dark chrome. -->
+  <rect width="1280" height="640" fill="#f7f5f0"/>
+
+  <!-- Logo: scale 2.4 with translate (12.8, 12.8) places visible bounds
+       at 80..560 in both axes. 480x480 visible mark, equal 80px padding
+       to top/bottom/left edges. Vertical center at y=320. -->
+  <g transform="translate(12.8 12.8) scale(2.4)">
+    <g stroke="#1f2a36" stroke-width="20" stroke-linecap="butt" fill="none">
+      <line x1="128" y1="48"  x2="48"  y2="128"/>
+      <line x1="48"  y1="128" x2="128" y2="208"/>
+      <line x1="128" y1="208" x2="208" y2="128"/>
+      <line x1="208" y1="128" x2="128" y2="48"/>
+    </g>
+    <g fill="#d1642b">
+      <polygon points="128,34  142,48  128,62  114,48"/>
+      <polygon points="48,114  62,128  48,142  34,128"/>
+      <polygon points="208,114 222,128 208,142 194,128"/>
+      <polygon points="128,194 142,208 128,222 114,208"/>
+    </g>
+  </g>
+
+  <!-- Right column: wordmark + tagline + description + tag pills + URL.
+       Left edge x=640 (80px gap from logo right edge at 560). -->
+  <g font-family="system-ui, -apple-system, 'Segoe UI', Inter, Helvetica, Arial, sans-serif">
+
+    <!-- Wordmark -->
+    <text x="640" y="195" font-size="160" font-weight="800" fill="#1f2a36" letter-spacing="-7">mnem</text>
+
+    <!-- Tagline -->
+    <text x="640" y="261" font-size="44" font-weight="700" fill="#1f2a36" letter-spacing="-0.5">Git for knowledge graphs.</text>
+
+    <!-- Description: three lines, secondary slate. -->
+    <text x="640" y="316" font-size="24" font-weight="400" fill="#556070">Versioned, mergeable agent memory with hybrid</text>
+    <text x="640" y="343" font-size="24" font-weight="400" fill="#556070">GraphRAG retrieval. Embed in Rust or Python,</text>
+    <text x="640" y="370" font-size="24" font-weight="400" fill="#556070">or wire into any MCP client. Local-first.</text>
+
+    <!-- Popular-tag pills: rust outline, slate text. -->
+    <g font-size="16" font-weight="600" fill="#1f2a36">
+      <rect x="640"  y="403" width="100" height="36" rx="18" fill="none" stroke="#d1642b" stroke-width="1.5"/>
+      <text x="690"  y="427" text-anchor="middle">graphrag</text>
+
+      <rect x="754"  y="403" width="146" height="36" rx="18" fill="none" stroke="#d1642b" stroke-width="1.5"/>
+      <text x="827"  y="427" text-anchor="middle">version-control</text>
+
+      <rect x="914"  y="403" width="140" height="36" rx="18" fill="none" stroke="#d1642b" stroke-width="1.5"/>
+      <text x="984"  y="427" text-anchor="middle">agent-memory</text>
+
+      <rect x="1068" y="403" width="115" height="36" rx="18" fill="none" stroke="#d1642b" stroke-width="1.5"/>
+      <text x="1125" y="427" text-anchor="middle">local-first</text>
+    </g>
+
+    <!-- Rust accent bar: visual anchor between tags and URL. -->
+    <rect x="640" y="478" width="120" height="5" fill="#d1642b"/>
+
+    <!-- URL -->
+    <text x="640" y="535" font-size="26" font-weight="500" fill="#d1642b" letter-spacing="0.5">github.com/Uranid/mnem</text>
+  </g>
+</svg>

@@ -1,0 +1,9 @@
+target
+artifacts
+Cargo.lock
+
+# Seed corpora (fuzz/corpus/<target>/*.car, *.bin, regressions/*.seed)
+# are CHECKED IN on this branch. libFuzzer-generated coverage inputs
+# should land under artifacts/ (which is gitignored above), so we do
+# NOT ignore corpus/ here any more. If you want to ignore local
+# non-seed additions, do it on a per-file basis.

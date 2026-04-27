@@ -1,0 +1,16 @@
+[package]
+name = "mnem-core-testutils"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Shared test fixtures for mnem-core and downstream crates. Internal use only."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+mnem-core = { path = "../mnem-core", version = "=0.1.0" }

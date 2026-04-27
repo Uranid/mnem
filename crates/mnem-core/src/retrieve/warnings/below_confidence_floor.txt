@@ -1,0 +1,1 @@
+every candidate ranked below the configured confidence floor; the response items[] is empty by gate, not by retrieval failure.

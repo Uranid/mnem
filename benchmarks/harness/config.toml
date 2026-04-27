@@ -1,0 +1,6 @@
+# Bench-lane mnem-http config. Bind-mounted into each lane at
+# /data/.mnem/config.toml. Drives the in-process bundled MiniLM-L6-v2.
+
+[embed]
+provider = "onnx"
+model = "all-MiniLM-L6-v2"

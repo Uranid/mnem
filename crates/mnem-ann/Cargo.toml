@@ -1,0 +1,48 @@
+[package]
+name = "mnem-ann"
+description = "Approximate-nearest-neighbour (HNSW) vector index for mnem. Feature-gated alternative to the built-in brute-force index in mnem-core."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["mnem", "hnsw", "ann", "vector-search", "nearest-neighbor"]
+categories = ["database", "algorithms"]
+readme = "README.md"
+documentation = "https://docs.rs/mnem-ann"
+
+# docs.rs: the only feature `hnsw` is default-on so `all-features = true`
+# is a no-op but kept for future-proofing against the planned
+# `diskann` / `ivfpq` feature set.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+[features]
+# `hnsw` is the only shipping backend today; kept behind a feature
+# flag so the crate layout accommodates a future `diskann` / `ivfpq`
+# backend without a layout churn. Default-on because downstream
+# consumers wiring `mnem-ann` into their dep graph want the HNSW
+# index the crate is named for.
+default = ["hnsw"]
+hnsw    = ["dep:instant-distance"]
+
+[dependencies]
+mnem-core  = { path = "../mnem-core", version = "=0.1.0" }
+serde      = { workspace = true }
+# instant-distance is a pure-Rust HNSW implementation (MIT licensed,
+# maintained by Dirkjan Ochtman). Chosen over hnsw_rs for active
+# maintenance, and over usearch for cxx-free build. No SIMD intrinsics
+# in its public surface, so wasm32 builds still compile (though
+# performance is baseline-only without SIMD).
+instant-distance = { version = "0.6", optional = true }
+
+[dev-dependencies]
+mnem-core-testutils = { path = "../mnem-core-testutils" }
+bytes               = { workspace = true }
+proptest            = { workspace = true }

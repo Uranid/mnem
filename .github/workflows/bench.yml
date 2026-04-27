@@ -1,0 +1,105 @@
+# Criterion benchmarks + regression gate.
+#
+# Phase-B1b (PHASE-A-2 bench plan §3). Bench targets live under each
+# crate's `benches/` directory (see `[[bench]]` stanzas in the affected
+# Cargo.toml files); this workflow is the on-demand runner + baseline
+# publisher.
+#
+# Current mode: BASELINE COLLECTION (v0.1.0).
+#   `fail-on-alert: false` — alerts are surfaced as PR comments only.
+#   This is a 1-week bake window while we accumulate a drift signature
+#   on the GitHub-hosted runner. See `docs/RELEASE.md` for the flip
+#   checklist that hard-enables the gate once the baseline has settled.
+#
+# Future mode (post-flip):
+#   `fail-on-alert: true` blocks merges on >10% regressions.
+#   Consider moving to a self-hosted Linux runner (CPU-pinned,
+#   governor=performance, SMT off) per PHASE-A-2 §5 — GitHub-hosted
+#   runners exhibit 15-40% noise on the shared hypervisor and will
+#   false-positive a 10% gate until that happens.
+name: bench
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [labeled, synchronize, reopened]
+
+permissions:
+  # `benchmark-action/github-action-benchmark` commits to `gh-pages`
+  # and posts PR comments. `contents: write` covers both.
+  contents: write
+  pull-requests: write
+  deployments: write
+
+jobs:
+  bench:
+    # On PRs, only run when the `benchmark` label is present — keeps
+    # vanilla PRs fast and avoids burning runner minutes on doc-only
+    # changes. Push-to-main always runs to keep the gh-pages baseline
+    # current.
+    if: >-
+      github.event_name == 'push'
+      || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'benchmark'))
+    # TODO(post-v0.1.0): flip to `[self-hosted, linux, bench]` once
+    # we stand up the CPU-pinned runner. Until then, GH-hosted is
+    # acceptable because the gate is off (see `fail-on-alert` below).
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bench-cache
+
+      - name: Run criterion benches
+        # `--output-format bencher` is the libtest-compatible output
+        # that `github-action-benchmark` expects when `tool: cargo`.
+        # `tee` keeps the same stream visible in the job log so we
+        # don't lose debug detail when the action re-parses.
+        run: |
+          cargo bench --workspace --benches -- --output-format bencher | tee output.txt
+
+      - name: Upload bench output artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-output
+          path: output.txt
+          retention-days: 30
+
+      - name: Check bench output non-empty
+        id: check_bench
+        run: |
+          if [ -s output.txt ]; then
+            echo "has_output=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_output=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No benchmark output produced; skipping baseline compare."
+          fi
+
+      - name: Store + compare against baseline
+        if: steps.check_bench.outputs.has_output == 'true'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: cargo
+          output-file-path: output.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Baseline push happens only on push-to-main; PR runs are
+          # compare-only and never rewrite gh-pages history.
+          auto-push: ${{ github.event_name == 'push' }}
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: bench
+          # 1.10x = 10% slower than baseline triggers a warning.
+          alert-threshold: "110%"
+          # v0.1.0 posture: WARN only, don't block merges. Flip to
+          # `true` after the 1-week baseline bake (see `docs/RELEASE.md`).
+          fail-on-alert: false
+          comment-on-alert: true
+          summary-always: true

@@ -1,0 +1,22 @@
+{
+  "harness": "mnem-membench-highlevel-movie",
+  "adapter": "mnem",
+  "dataset": "~/.mnem/bench-data/membench-highlevel-movie/highlevel.json",
+  "n_questions": 100,
+  "runtime_seconds": 13.4500336,
+  "timing": {
+    "ingest_s": 12.769019,
+    "retrieve_s": 0.6694397000000003,
+    "score_s": 0.00027899999999999995
+  },
+  "overall": {
+    "recall@10": 1.0,
+    "recall@5": 1.0
+  },
+  "by_category": {
+    "movie": {
+      "n": 100.0,
+      "recall@10": 1.0
+    }
+  }
+}

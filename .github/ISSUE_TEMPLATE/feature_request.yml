@@ -1,0 +1,73 @@
+name: Feature request
+description: Propose a new capability or a behavior change.
+title: "[feature] "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing. Before you write this up, please check
+        [docs/ROADMAP.md](../blob/main/docs/ROADMAP.md) - your idea may already
+        be planned, discussed, or explicitly deferred.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: |
+        What are you actually trying to do? What's painful about the current
+        behavior? Concrete examples > abstract descriptions.
+      placeholder: |
+        When my agent calls `resolve_or_create_node` hundreds of times per tx,
+        I want to see a progress signal so I can emit a UI update. Today there's
+        no hook, so the agent blocks silently for N seconds.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: |
+        Rough API sketch, behavior, or user-visible change. If you have a
+        preference for how it should be invoked (builder method, trait,
+        separate crate), say so.
+      render: rust
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else did you think about? Why is your proposal better?
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which part of mnem does this touch?
+      multiple: true
+      options:
+        - Format / SPEC
+        - mnem-core (library API)
+        - mnem-backend-redb
+        - mnem-cli (`mnem` binary)
+        - mnem-mcp (stdio JSON-RPC server)
+        - mnem-py (Python bindings)
+        - Retrieval (TextIndex / VectorIndex / Retriever)
+        - Remote protocol (planned, Phase 3)
+        - Other bindings (Node / WASM / Go, planned)
+        - Benchmarks
+        - Documentation
+        - CI / release tooling
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I checked ROADMAP.md and didn't find this already planned.
+          required: true
+        - label: I'm willing to author a PR if the maintainers agree the idea is in scope.
+          required: false

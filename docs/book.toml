@@ -1,0 +1,21 @@
+[book]
+authors = ["mnem contributors"]
+language = "en"
+src = "src"
+title = "mnem"
+description = "Knowledge-graph substrate. Content-addressed. Hybrid retrieval."
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/Uranid/mnem"
+edit-url-template = "https://github.com/Uranid/mnem/edit/main/docs/{path}"
+site-url = "/mnem/"
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.search]
+enable = true
+limit-results = 30

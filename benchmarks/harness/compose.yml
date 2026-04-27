@@ -1,0 +1,65 @@
+# Bench harness: 4 thread-pinned mnem-http lanes for parallel bench runs.
+# Image is built from the repo root Dockerfile with FEATURES=onnx-bundled
+# so the in-process MiniLM-L6-v2 embedder is baked in (no network).
+#
+# Usage:
+#   docker compose -f benchmarks/harness/compose.yml up -d
+#   bash benchmarks/harness/run_bench.sh
+#   docker compose -f benchmarks/harness/compose.yml down
+
+name: mnem-bench
+
+x-bench-base: &bench-base
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+    args:
+      FEATURES: "onnx-bundled"
+  image: mnem-http:bench-onnx-minilm
+  command: ["--in-memory", "--bind", "0.0.0.0:9876", "--repo", "/data"]
+  volumes:
+    - ./config.toml:/data/.mnem/config.toml:ro
+  environment: &bench-env
+    MNEM_EMBED_PROVIDER: "onnx"
+    MNEM_EMBED_MODEL: "all-MiniLM-L6-v2"
+    MNEM_BENCH: "1"
+    MNEM_HTTP_ALLOW_NON_LOOPBACK: "1"
+    MNEM_ORT_INTRA_THREADS: "4"
+    ORT_INTRA_OP_NUM_THREADS: "4"
+    ORT_INTER_OP_NUM_THREADS: "1"
+    OMP_NUM_THREADS: "4"
+    MKL_NUM_THREADS: "4"
+    OPENBLAS_NUM_THREADS: "4"
+    RAYON_NUM_THREADS: "4"
+    TOKENIZERS_PARALLELISM: "false"
+    RUST_LOG: "warn"
+  mem_limit: 3g
+  memswap_limit: 3g
+  healthcheck:
+    disable: true
+  restart: "no"
+
+services:
+  mnem-bench-1:
+    <<: *bench-base
+    container_name: mnem-bench-1
+    cpuset: "0-3"
+    ports: ["9876:9876"]
+
+  mnem-bench-2:
+    <<: *bench-base
+    container_name: mnem-bench-2
+    cpuset: "4-7"
+    ports: ["9877:9876"]
+
+  mnem-bench-3:
+    <<: *bench-base
+    container_name: mnem-bench-3
+    cpuset: "8-11"
+    ports: ["9878:9876"]
+
+  mnem-bench-4:
+    <<: *bench-base
+    container_name: mnem-bench-4
+    cpuset: "12-15"
+    ports: ["9879:9876"]

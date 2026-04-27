@@ -1,0 +1,130 @@
+name: release-slsa
+
+# SLSA v1.0 build-provenance attestations for mnem release artifacts.
+#
+# This workflow is triggered BY the primary `release.yml` (or manually for a
+# dry-run) after the `binaries` job has uploaded the per-triple archives to
+# the GitHub release. It consumes the SHA-256 checksums already attached to
+# the release and emits one `<artifact>.intoto.jsonl` per archive, built by
+# the SLSA framework's reusable workflow (the generator mints the attestation
+# from a trusted builder, so downstream users can verify provenance with
+# `slsa-verifier` without trusting this repo's own workflow output).
+#
+# Consumer story:
+#   gh release download vX.Y.Z -p 'mnem-*.tar.gz' -p 'mnem-*.intoto.jsonl'
+#   slsa-verifier verify-artifact \
+#     --provenance-path mnem-x86_64-unknown-linux-gnu.tar.gz.intoto.jsonl \
+#     --source-uri github.com/Uranid/mnem \
+#     mnem-x86_64-unknown-linux-gnu.tar.gz
+#
+# Pinning: the SLSA reusable workflow is pinned to `@v2.0.0` for
+# supply-chain hygiene (NEVER `@main`). Bump deliberately after reviewing
+# https://github.com/slsa-framework/slsa-github-generator/releases .
+
+on:
+  # Invoked by release.yml after the binaries job publishes archives.
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0). Must match an existing GitHub release."
+        required: true
+        type: string
+      prerelease:
+        description: "Whether this is a GitHub pre-release."
+        required: true
+        type: string
+  # Manual dispatch for rehearsing a tag that already published binaries.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0-rc.1)."
+        required: true
+        type: string
+      prerelease:
+        description: "Pre-release? (true/false)"
+        required: true
+        default: "true"
+        type: string
+
+permissions: {}
+
+jobs:
+  # Step 1: compute a digests blob (newline-delimited
+  # `<sha256>  <filename>`) over the release archives. The generator
+  # workflow consumes this blob as its `base64-subjects` input.
+  gather-digests:
+    name: gather artifact digests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      digests: ${{ steps.digests.outputs.digests }}
+    steps:
+      - name: Download release archives + checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Pull every platform archive we advertise. The binaries job
+          # uploads one archive + one .sha256 per triple.
+          gh release download "$TAG" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --dir dist \
+            --pattern 'mnem-*.tar.gz' \
+            --pattern 'mnem-*.zip' \
+            --pattern 'mnem-*.sha256'
+          ls -la dist
+
+      - name: Compute base64 digests blob
+        id: digests
+        run: |
+          set -euo pipefail
+          # The SLSA generator wants a base64-encoded newline-delimited
+          # `<sha256>  <filename>` blob (the `base64-subjects` input).
+          # We already shipped .sha256 sidecars from the binaries job;
+          # re-hash here so the attestation asserts over the exact
+          # bytes we saw at attestation time (defence-in-depth against
+          # a tampered sidecar).
+          cd dist
+          {
+            for f in mnem-*.tar.gz mnem-*.zip; do
+              [ -f "$f" ] || continue
+              sha256sum "$f"
+            done
+          } > subjects.txt
+          cat subjects.txt
+          DIGESTS=$(base64 -w0 < subjects.txt)
+          echo "digests=$DIGESTS" >> "$GITHUB_OUTPUT"
+
+  # Step 2: reusable SLSA v1.0 provenance generator (generic variant).
+  # Pinned to @v2.0.0. Produces one `<artifact>.intoto.jsonl` per
+  # subject and uploads them as release assets.
+  slsa-provenance:
+    name: SLSA v1.0 build-provenance
+    needs: [gather-digests]
+    permissions:
+      id-token: write      # needed for keyless OIDC token mint
+      contents: write      # needed to upload attestations to the release
+      actions: read        # needed by the generator's reusable workflow
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    with:
+      base64-subjects: ${{ needs.gather-digests.outputs.digests }}
+      upload-assets: true
+      upload-tag-name: ${{ inputs.tag }}
+      # Mark the attestation as pre-release when the source release is.
+      # Avoids a pre-release tag's attestation drifting onto the "latest"
+      # release view.
+      draft-release: false
+      provenance-name: "mnem-${{ inputs.tag }}.intoto.jsonl"
+
+  # Step 3 (optional extension): container image provenance. The docker
+  # publish job in release.yml produces a multi-arch image digest we can
+  # attest to. We emit a second SLSA attestation specifically for the
+  # container so `slsa-verifier verify-image ghcr.io/.../mnem@sha256:...`
+  # works alongside the binary attestations. Implemented as a follow-up
+  # when the docker job exports its image digest as a workflow output;
+  # scaffolding lives in release.yml (see the `publish-docker` job's
+  # `outputs.image-digest`).

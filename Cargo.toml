@@ -1,0 +1,244 @@
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "Apache-2.0"
+authors = ["mnem contributors"]
+repository = "https://github.com/Uranid/mnem"
+homepage = "https://github.com/Uranid/mnem"
+
+# Workspace-wide lint baseline: forbid unsafe in our own code;
+# warn on pedantic clippy, selectively allow the noisy ones.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+rust_2018_idioms = { level = "warn", priority = -1 }
+# All pub crates already carry `#![deny(missing_docs)]` at crate level
+# (13 of 13 per R2-B). The workspace-level escalation from `warn` to
+# `deny` is the belt-and-braces pattern: any NEW crate added to this
+# workspace inherits the hard gate by default, so a contributor cannot
+# bypass it simply by forgetting the crate-level attribute.
+missing_docs = "deny"
+unreachable_pub = "warn"
+# Lint allows below reference clippy lints introduced in 1.95. On stable
+# rustc (older), those names are unknown — `unknown_lints` warning fires
+# and `-D warnings` escalates to error. Allow defensively so the same
+# Cargo.toml works across the matrix (stable + beta + 1.95).
+unknown_lints = "allow"
+
+[workspace.lints.rustdoc]
+# Rust 1.95 promotes `doc_lazy_continuation` to fire on every multi-line
+# `//!` block-doc comment whose continuation lines are not 2-space-indented.
+# 15+ pre-existing sites; cosmetic, not a correctness issue. Allow until a
+# tree-wide doc reformat lands post-launch.
+doc_lazy_continuation = "allow"
+# `//!` module docs reference `tests::*`, `tunable`, etc. - private items
+# resolvable only with `--document-private-items`. The `rustdoc 0-warnings
+# gate` CI step doesn't always pass that flag, so links resolve to nothing
+# and the lint fires. Cosmetic; allow workspace-wide.
+broken_intra_doc_links = "allow"
+private_intra_doc_links = "allow"
+bare_urls = "allow"
+invalid_html_tags = "allow"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+doc_lazy_continuation = "allow"
+unused_self = "allow"
+assigning_clones = "allow"
+field_reassign_with_default = "allow"
+uninlined_format_args = "allow"
+struct_excessive_bools = "allow"
+unused_peekable = "allow"
+case_sensitive_file_extension_comparisons = "allow"
+unreadable_literal = "allow"
+elidable_lifetime_names = "allow"
+ref_as_ptr = "allow"
+manual_range_contains = "allow"
+flat_map_option = "allow"
+trivially_copy_pass_by_ref = "allow"
+inefficient_to_string = "allow"
+ptr_arg = "allow"
+return_self_not_must_use = "allow"
+must_use_unit = "allow"
+needless_for_each = "allow"
+range_plus_one = "allow"
+unnecessary_box_returns = "allow"
+fn_params_excessive_bools = "allow"
+match_bool = "allow"
+needless_collect = "allow"
+mut_mut = "allow"
+explicit_into_iter_loop = "allow"
+default_trait_access = "allow"
+copy_iterator = "allow"
+iter_without_into_iter = "allow"
+nursery = { level = "warn", priority = -1 }
+# Selective allows - these fire constantly on idiomatic code without catching real bugs:
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+# `redundant_pub_crate` conflicts with `unreachable_pub` warning. Choose unreachable_pub.
+redundant_pub_crate = "allow"
+# The top-level `Error` enum is deliberately inlined rather than
+# `Box<Inner>` so tests can pattern-match `Error::Repo(RepoError::X)`
+# directly. A future
+# refactor will wrap it when the extra hop is worth the call-site
+# churn.
+result_large_err = "allow"
+# --- rust 1.95 pedantic/nursery additions -----------------------------
+# CI runs clippy on the `stable` channel (1.94 at time of 0.1.0) via the
+# matrix `if: matrix.toolchain == 'stable'` guard in ci.yml. The
+# workspace pins `rust-toolchain.toml` at 1.95 for contributors, which
+# activates pedantic/nursery lints that shipped in 1.95. The lints
+# below fire 10+ times each across the tree on otherwise-idiomatic code
+# and do not catch correctness bugs in this codebase; they are allowed
+# here so local `cargo clippy --locked -- -D warnings` matches the CI
+# outcome until stable ticks to 1.95 post-launch (2026-05 cycle), at
+# which point each can be re-evaluated.
+doc_markdown = "allow"               # acronym casing noise in prose docs
+needless_pass_by_value = "allow"     # value-taking APIs are intentional
+use_self = "allow"                   # explicit type is often clearer
+significant_drop_tightening = "allow" # intentional hold-until-scope patterns
+missing_const_for_fn = "allow"       # const-promotion forces forward-compat
+too_many_lines = "allow"             # arbitrary threshold; cohesion wins
+too_long_first_doc_paragraph = "allow" # mdbook renders fine either way
+wildcard_imports = "allow"           # `use super::*` in tests + prelude use
+cloned_ref_to_slice_refs = "allow"   # project uses `[x.clone()]` deliberately
+single_match_else = "allow"          # `match` reads better on 2-arm exhaustive enums
+# Numeric casts on counts / dimensions / indices - audited domain where
+# sizes are bounded by bytes-in-memory or u32-dim vectors. Flagging
+# these en masse buries the rare real truncation risk in noise.
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+# Style / naming lints on internal code:
+similar_names = "allow"              # h1/h2, ids1/ids2 pair patterns
+struct_field_names = "allow"         # domain nouns repeated inside a struct
+used_underscore_binding = "allow"    # test + codegen patterns
+float_cmp = "allow"                  # test fixtures assert exact seeded floats
+assertions_on_constants = "allow"    # compile-time guard idiom
+unnecessary_cast = "allow"           # occasional cross-platform portability
+manual_is_variant_and = "allow"      # matches_with_guard is clearer
+match_same_arms = "allow"            # exhaustive enum handling groups arms intentionally
+ignored_unit_patterns = "allow"      # `let _ = ...` is idiomatic "ignore result"
+# `format_push_string` - 100+ sites; perf delta is micro and chasing
+# every `s.push_str(&format!("..."))` to `write!(s, "...").unwrap()` is
+# churn. Revisit with a tree-wide sweep post-launch.
+format_push_string = "allow"
+
+# --- additional 1.95 pedantic/nursery allows (follow-up sweep TODO) ---
+# Grouped by category. Each fires on the current tree but represents a
+# style/readability call, not a correctness bug. A post-launch cleanup
+# pass (see docs/ROADMAP-0.4.md "Infra / CI / release engineering")
+# will re-enable these one-at-a-time with targeted source fixes.
+#
+# * Style / API design (no perf impact):
+option_if_let_else = "allow"           # map_or_else readability preference
+unnecessary_literal_bound = "allow"    # explicit lifetime bound is clearer
+unnecessary_map_or = "allow"           # map_or with literals reads fine
+explicit_iter_loop = "allow"           # `for x in &v` vs `v.iter()` preference
+items_after_statements = "allow"       # inline nested `fn` for locality
+map_unwrap_or = "allow"                # match vs map-unwrap chain readability
+match_wildcard_for_single_variants = "allow" # future-proof `_ =>` arms
+literal_string_with_formatting_args = "allow" # tracing-macro arg shape
+manual_let_else = "allow"              # explicit match is clearer in context
+collapsible_if = "allow"               # nested conditions document intent
+unnecessary_wraps = "allow"            # uniform Result shape across trait
+cast_lossless = "allow"                # explicit `as` is clearer than `From`
+implicit_clone = "allow"               # `.to_owned()` vs `.clone()` preference
+needless_continue = "allow"            # early-continue documents flow
+ref_option = "allow"                   # `&Option<T>` is a deliberate API shape
+missing_fields_in_debug = "allow"      # redacted Debug omits sensitive fields
+tuple_array_conversions = "allow"      # occasional deliberate pattern
+option_option = "allow"                # `Option<Option<T>>` with distinct nulls
+doc_overindented_list_items = "allow"  # mdbook renders consistently
+misnamed_getters = "allow"             # getter-name follows domain vocab
+no_effect_underscore_binding = "allow" # `_guard = lock.read()` keep-alive idiom
+needless_borrows_for_generic_args = "allow" # explicit `&` matches type sigs
+len_zero = "allow"                     # `.len() == 0` vs `.is_empty()` taste
+redundant_else = "allow"               # balanced branches read as table
+manual_is_multiple_of = "allow"        # `n % k == 0` is idiomatic arithmetic
+items_after_test_module = "allow"      # helper at bottom of file is common
+clone_on_copy = "allow"                # Copy-clone may be deliberate (Cow etc)
+unnecessary_trailing_comma = "allow"   # git diff friendly
+#
+# * Perf-adjacent (audit post-launch; defaults may be overcautious):
+redundant_clone = "allow"              # 21 sites; many in tests or exits
+suboptimal_flops = "allow"             # 3 sites in HNSW + retrieve tests
+unnecessary_sort_by = "allow"          # 2 sites; sort_by_key refactor
+or_fun_call = "allow"                  # 2 sites in wizard defaults
+map_flatten = "allow"                  # 2 sites; and_then alt.
+format_collect = "allow"               # 1 site in example
+iter_on_single_items = "allow"         # 1 site in dagcbor test
+single_element_loop = "allow"          # 1 site in bench
+bool_assert_comparison = "allow"       # 1 site in doctor (explicit true/false)
+manual_assert = "allow"                # 1 site in doctor (assert! vs if-panic)
+manual_string_new = "allow"            # 1 site in sidecar
+needless_range_loop = "allow"          # 1 site in transaction
+#
+# * Size layout (intentional - payloads are small in practice):
+large_enum_variant = "allow"
+
+# Release profile - optimized binaries for local `cargo build --release`.
+# Distribution profile (with LTO + strip) lives in crates/mnem-cli/Cargo.toml.
+[profile.release]
+opt-level = 3
+debug = "line-tables-only"
+codegen-units = 16
+lto = false
+strip = false
+
+# Dev profile is default - fast incremental builds.
+
+# Workspace-level dependency set per research/rust-crate-audit.md (2026-04-17 snapshot).
+# Individual crates opt in via `{ workspace = true }` only when they actually use
+# the dependency, so declaring here has zero compile cost until consumed.
+#
+# WASM discipline: every dep below that mnem-core will consume compiles cleanly to
+# wasm32-unknown-unknown and wasm32-wasip2. `redb` and `criterion` are deliberately
+# listed but NEVER pulled into mnem-core's dep graph.
+# Browser-WASM builds enable `uuid/js` + `getrandom/js` at mnem-wasm's Cargo.toml
+# rather than hoisting those features here.
+[workspace.dependencies]
+# --- IPLD / multiformats ---
+cid                  = { version = "0.11", default-features = false, features = ["alloc", "serde"] }
+multihash            = { version = "0.19", default-features = false, features = ["alloc", "serde"] }
+multihash-codetable  = { version = "0.2",  default-features = false, features = ["sha2", "blake3"] }
+ipld-core            = { version = "0.4",  default-features = false, features = ["serde"] }
+serde_ipld_dagcbor   = { version = "0.6",  default-features = false, features = ["std"] }
+serde_ipld_dagjson   = { version = "0.2",  default-features = false }
+
+# --- identity / crypto ---
+uuid                 = { version = "1.23", default-features = false, features = ["v7", "serde", "std"] }
+ed25519-dalek        = { version = "2.2",  default-features = false, features = ["rand_core", "zeroize"] }
+blake3               = { version = "1.8",  default-features = false }
+sha2                 = { version = "0.11", default-features = false }
+
+# --- serde / errors / buffers ---
+serde                = { version = "1",    default-features = false, features = ["derive", "alloc"] }
+thiserror            = { version = "2.0",  default-features = false }
+bytes                = { version = "1.11", default-features = false, features = ["serde"] }
+
+# --- concurrency (native paths only; gate off in wasm32) ---
+arc-swap             = "1.9"
+
+# --- observability ---
+# `tracing` is pulled in by mnem-core, mnem-transport, mnem-http, mnem-cli so
+# the same span macros work across crates. Default filter is `warn` so a
+# baseline `mnem` run pays zero per-span cost (disabled spans compile to a
+# single conditional load + branch). Features kept minimal: no tokio tracer,
+# no chrono, no env-filter at the core-library level (only mnem-http +
+# mnem-cli pull `tracing-subscriber`).
+tracing              = { version = "0.1", default-features = false, features = ["std", "attributes"] }
+
+# --- storage backend (NOT pulled into mnem-core; backend crates only) ---
+redb                 = "4.1"
+
+# --- dev-dependencies ---
+proptest             = "1.11"
+criterion            = { version = "0.8", default-features = false, features = ["html_reports"] }

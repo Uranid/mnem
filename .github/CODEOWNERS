@@ -1,0 +1,8 @@
+# Default: every file requires review by the repo owner.
+* @projectmnemos
+
+# Workflow files: explicitly require owner review for any change.
+# Prevents a future contributor from sneaking through a workflow edit
+# that exfiltrates secrets or alters release behaviour.
+/.github/workflows/  @projectmnemos
+/.github/CODEOWNERS  @projectmnemos

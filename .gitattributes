@@ -1,0 +1,33 @@
+# Default: auto-detect text vs binary, normalize line endings to LF in
+# the index. Prevents CRLF leaking in from Windows checkouts and breaking
+# `cargo fmt --check` on Windows CI runners.
+* text=auto eol=lf
+
+# Explicit text files - always LF.
+*.rs       text eol=lf
+*.toml     text eol=lf
+*.md       text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.json     text eol=lf
+*.sh       text eol=lf
+*.py       text eol=lf
+*.html     text eol=lf
+*.css      text eol=lf
+*.js       text eol=lf
+
+# Windows scripts - keep CRLF.
+*.ps1      text eol=crlf
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+
+# Binary files - never normalize.
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.ico      binary
+*.pdf      binary
+*.onnx     binary
+*.parquet  binary
+*.car      binary
