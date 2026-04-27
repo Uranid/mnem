@@ -109,7 +109,7 @@ jobs:
       id-token: write      # needed for keyless OIDC token mint
       contents: write      # needed to upload attestations to the release
       actions: read        # needed by the generator's reusable workflow
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: ${{ needs.gather-digests.outputs.digests }}
       upload-assets: true
