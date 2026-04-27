@@ -106,7 +106,7 @@ uuid                 = { workspace = true }
 # registry that catches duplicate-name regressions at compile time. The
 # per-request hit is one atomic increment per metric family, well under
 # 100 ns on x86-64, which is noise next to axum route dispatch.
-prometheus-client    = "0.23"
+prometheus-client    = "0.24"
 
 [dev-dependencies]
 http-body-util       = "0.1"
