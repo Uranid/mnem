@@ -74,7 +74,7 @@ unicode-segmentation = "1.12"
 # Pure-Rust PDF text extraction; no C deps, always on.
 pdf-extract          = "0.7"
 # Advanced PDF fallback (optional, feature-gated).
-pdfium-render        = { version = "0.8", optional = true }
+pdfium-render        = { version = "0.9", optional = true }
 # Multi-pattern matcher used by the Session chunker boundary detector and
 # planned for heading-heuristic work in B5c.
 aho-corasick         = "1.1"
