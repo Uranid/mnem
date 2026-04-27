@@ -89,7 +89,7 @@ reqwest              = { version = "0.12", optional = true, default-features = f
 # Optional `which`-based binary discovery for sidecar escalation (Phase-B5e,
 # features `sidecar-docling` / `sidecar-unstructured`). Tiny crate (<5 KLoC);
 # the shell-out itself uses `std::process::Command` with zero extra deps.
-which                = { version = "6", optional = true }
+which                = { version = "8", optional = true }
 # Optional tempfile dep used to hand PDF bytes to the sidecar CLI via a
 # filesystem path (both docling and unstructured-ingest accept only
 # paths, not stdin). Also a dev-dep below — the Cargo resolver unifies
