@@ -1570,7 +1570,7 @@ checksum = "629d8f3bbeda9d148036d6b0de0a3ab947abd08ce90626327fc3547a49d59d97"
 dependencies = [
  "dirs",
  "http 1.4.0",
- "indicatif",
+ "indicatif 0.17.11",
  "libc",
  "log",
  "rand 0.9.4",
@@ -1960,6 +1960,17 @@ dependencies = [
  "portable-atomic",
  "unicode-width",
  "web-time",
+]
+
+[[package]]
+name = "indicatif"
+version = "0.18.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25470f23803092da7d239834776d653104d551bc4d7eacaf31e6837854b8e9eb"
+dependencies = [
+ "console 0.16.3",
+ "portable-atomic",
+ "unit-prefix",
 ]
 
 [[package]]
@@ -2357,7 +2368,7 @@ dependencies = [
  "dialoguer",
  "directories",
  "hex",
- "indicatif",
+ "indicatif 0.18.4",
  "ipld-core",
  "mnem-backend-redb",
  "mnem-core",
@@ -2381,7 +2392,7 @@ dependencies = [
  "clap_complete",
  "dialoguer",
  "dirs",
- "indicatif",
+ "indicatif 0.18.4",
  "ipld-core",
  "mnem-backend-redb",
  "mnem-bench",
@@ -4601,6 +4612,12 @@ name = "unicode_categories"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
+
+[[package]]
+name = "unit-prefix"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81e544489bf3d8ef66c953931f56617f423cd4b5494be343d9b9d3dda037b9a3"
 
 [[package]]
 name = "unsigned-varint"

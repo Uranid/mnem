@@ -127,7 +127,7 @@ tokio = { version = "1", default-features = false, features = ["rt", "macros"] }
 # and `mnem ingest --recursive` (per-file walk). Detects non-TTY
 # automatically and degrades to no-op output on redirected stdout, so
 # CI logs and shell pipelines stay clean. Default-on, no flag needed.
-indicatif = { version = "0.17", default-features = false }
+indicatif = { version = "0.18", default-features = false }
 
 [dev-dependencies]
 # CLI integration tests: assert_cmd drives the built binary in a
