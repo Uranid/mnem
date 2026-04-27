@@ -108,7 +108,7 @@ bytes = { workspace = true }
 # TUI for `mnem integrate`. Default features off so we avoid the
 # `fuzzy-select` + `console` colour bloat; fall back to plain prompts
 # on dumb terminals. Small, well-maintained, widely used.
-dialoguer = { version = "0.11", default-features = false }
+dialoguer = { version = "0.12", default-features = false }
 # Cross-platform home / config-dir detection for `mnem integrate` host
 # probes and `mnem doctor`.
 dirs = "6"
