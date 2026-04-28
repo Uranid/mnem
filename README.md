@@ -72,13 +72,14 @@ clients, raw HTTP, raw Python.
 ## Wire into any MCP client
 
 ```bash
-mnem mcp install     # auto-detects + writes the entry
+mnem integrate        # interactive: detect hosts + wire MCP entries
+mnem integrate --all # non-interactive: wire all detected hosts
 ```
 
 Auto-detects and configures: **Claude Desktop**, **Claude Code**,
 **Cursor**, **Continue**, **Zed**. Any other MCP-aware host works via a
-hand-edited `mcpServers` entry pointing at the `mnem mcp serve` stdio
-command (see [`docs/src/mcp.md`](docs/src/mcp.md)).
+hand-edited `mcpServers` entry pointing at the `mnem-mcp` stdio
+binary (see [`docs/src/mcp.md`](docs/src/mcp.md)).
 
 Restart your client. The agent gets `mnem_retrieve`, `mnem_ingest`,
 `mnem_traverse`, `mnem_stats`, `mnem_remove` (and 6 more) as native
@@ -93,14 +94,14 @@ tools. No extra daemon, no port to manage.
 | `mnem init` | create a new graph in the current dir |
 | `mnem ingest <file>` | add nodes from a file (md / pdf / chat-json) |
 | `mnem retrieve <query>` | hybrid retrieval (vector + sparse + graph) |
-| `mnem mcp install` | wire as MCP server in Claude / Cursor / Zed |
-| `mnem integrate` | **interactive setup wizard** for any client / provider |
+| `mnem integrate` | interactive setup: configure embedder, wire MCP hosts |
+| `mnem integrate --check` | report which hosts are wired; non-mutating |
 | `mnem doctor` | probe embedder + store + config; first-run sanity |
 | `mnem stats` | nodes, edges, refs, embedder health, repo size |
 | `mnem log` / `diff` / `branch` / `merge` | git-style history ops over the graph |
 | `mnem ref` / `cat-file` / `blame` | inspect refs and individual objects |
 | `mnem export` / `import` | CAR archives for ship-and-load |
-| `mnem-http --bind addr` | start the HTTP JSON server on `addr` |
+| `mnem-http --bind addr` | HTTP JSON API server (separate binary) |
 
 `mnem integrate` is the shortest path to a working agent: detects your
 environment, prompts for embedder + LLM choice, writes config,
@@ -206,7 +207,7 @@ cargo build --release --locked -p mnem-cli
 ./target/release/mnem --version
 ```
 
-Requires Rust 1.95+.
+Requires Rust 1.95+. If needed: `rustup install 1.95 && rustup default 1.95`.
 
 </details>
 
@@ -263,7 +264,7 @@ $\color{gray}{\textbf{(standard)}}$ = table-stakes done well.
 
 10. **WASM-clean core** $\color{gold}{\textbf{(unique among peers)}}$. `mnem-core` has no tokio, no filesystem, no network. Same retrieval logic compiles unchanged to `wasm32` → runs in Chrome, on Cloudflare Workers, on Lambda cold-start. Graphiti + mem0 are Python + external DB stacks; they cannot ship to the edge. → [Architecture overview](docs/src/architecture/overview.md)
 
-11. **Four surfaces, one core** $\color{orange}{\textbf{(rare)}}$. CLI, HTTP, MCP, and Python all wrap the same Rust engine. `mnem mcp install` and Claude Desktop has it natively. → [CLI reference](docs/src/cli.md) | [MCP](docs/src/mcp.md)
+11. **Four surfaces, one core** $\color{orange}{\textbf{(rare)}}$. CLI, HTTP, MCP, and Python all wrap the same Rust engine. `mnem integrate` wires the MCP server into Claude Desktop and other hosts. → [CLI reference](docs/src/cli.md) | [MCP](docs/src/mcp.md)
 
 12. **Skills as graphs, not markdown** $\color{gold}{\textbf{(unique angle)}}$. Today, agent skills live in flat `.md` files → downloaded, pasted into prompts, hand-edited, never queried. mnem promotes them to a versioned, queryable, mergeable graph. Export your graph, import someone else's, diff the two, merge the parts you want. → [Agent memory guide](docs/src/guides/agent-memory.md)
 

@@ -204,11 +204,12 @@ jobs:
         shell: bash
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct HEAD)" >> "$GITHUB_ENV"
 
-      # Build mnem-cli + mnem-mcp without features (no onnx feature exists
-      # on those crates). Then build mnem-http with --features onnx so the
-      # shipped server binary can dynamically load the bundled
-      # libonnxruntime alongside it (see ort load-dynamic config in
-      # mnem-embed-providers / mnem-sparse-providers / mnem-rerank-providers).
+      # Build mnem-cli + mnem-mcp with bundled-embedder so semantic retrieve
+      # works out of the box without an Ollama daemon. Then build mnem-http
+      # with the onnx features so the shipped server binary can dynamically
+      # load the bundled libonnxruntime alongside it (see ort load-dynamic
+      # config in mnem-embed-providers / mnem-sparse-providers /
+      # mnem-rerank-providers).
       - name: Build release binaries (mnem-cli + mnem-mcp)
         if: ${{ !matrix.use_cross }}
         env:
@@ -216,7 +217,7 @@ jobs:
         run: >
           cargo auditable build --release --locked
           --target ${{ matrix.triple }}
-          -p mnem-cli -p mnem-mcp
+          -p mnem-cli -p mnem-mcp --features bundled-embedder
 
       - name: Build mnem-http (--features onnx)
         if: ${{ !matrix.use_cross }}
@@ -225,7 +226,7 @@ jobs:
         run: >
           cargo auditable build --release --locked
           --target ${{ matrix.triple }}
-          -p mnem-http --features onnx
+          -p mnem-http --features embed-onnx,sparse-onnx,rerank-onnx
 
       - name: Build release binaries (cross, mnem-cli + mnem-mcp)
         if: matrix.use_cross
@@ -234,7 +235,7 @@ jobs:
         run: >
           cross build --release --locked
           --target ${{ matrix.triple }}
-          -p mnem-cli -p mnem-mcp
+          -p mnem-cli -p mnem-mcp --features bundled-embedder
 
       - name: Build mnem-http (cross, --features onnx)
         if: matrix.use_cross
@@ -243,7 +244,7 @@ jobs:
         run: >
           cross build --release --locked
           --target ${{ matrix.triple }}
-          -p mnem-http --features onnx
+          -p mnem-http --features embed-onnx,sparse-onnx,rerank-onnx
 
       # Download platform-specific onnxruntime and stage the dynamic
       # library under `lib/` in the archive so users can run

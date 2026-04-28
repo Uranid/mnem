@@ -464,7 +464,21 @@ fn set_embed_model(cfg: &mut Config, value: Option<&str>) -> Result<()> {
     match emb {
         ProviderConfig::Openai(c) => c.model = v.to_string(),
         ProviderConfig::Ollama(c) => c.model = v.to_string(),
-        ProviderConfig::Onnx(c) => c.model = v.to_string(),
+        ProviderConfig::Onnx(c) => {
+            const VALID_ONNX: &[&str] = &[
+                "bge-large-en-v1.5",
+                "bge-base-en-v1.5",
+                "bge-small-en-v1.5",
+                "all-MiniLM-L6-v2",
+            ];
+            if !VALID_ONNX.contains(&v) {
+                anyhow::bail!(
+                    "unknown embed.model `{v}` for onnx; known: {}",
+                    VALID_ONNX.join(", ")
+                );
+            }
+            c.model = v.to_string();
+        }
     }
     Ok(())
 }
