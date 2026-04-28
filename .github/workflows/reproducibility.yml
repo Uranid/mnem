@@ -1,0 +1,129 @@
+name: reproducibility
+
+# Two lanes:
+#   1. Same-runner dual-build on linux-gnu — HARD FAIL on diff.
+#   2. Cross-runner triple-build (linux-gnu / macOS / Windows) — warn-only.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'crates/**'
+      - 'scripts/repro-build.sh'
+      - '.github/workflows/reproducibility.yml'
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'crates/**'
+      - 'scripts/repro-build.sh'
+      - '.github/workflows/reproducibility.yml'
+  workflow_call:
+    inputs:
+      tag:
+        required: false
+        type: string
+      upload_to_release:
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reproducibility-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dual-build-gnu:
+    name: dual-build x86_64-unknown-linux-gnu (hard fail)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+          targets: x86_64-unknown-linux-gnu
+          components: rustfmt, clippy
+      - name: Install diffoscope
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y diffoscope
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: repro-gnu
+      - name: Run repro-build (strict)
+        run: bash scripts/repro-build.sh --triple x86_64-unknown-linux-gnu --strict
+      - name: Upload manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: repro-manifest-x86_64-unknown-linux-gnu
+          path: repro-manifest.json
+          retention-days: 90
+      - name: Attach to release
+        if: inputs.upload_to_release == true && inputs.tag != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cp repro-manifest.json "repro-manifest-x86_64-unknown-linux-gnu.json"
+          gh release upload "${{ inputs.tag }}" \
+            "repro-manifest-x86_64-unknown-linux-gnu.json" \
+            --clobber
+
+  cross-runner:
+    name: cross-runner ${{ matrix.triple }} (warn-only)
+    needs: dual-build-gnu
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - triple: x86_64-apple-darwin
+            runner: macos-latest
+          - triple: x86_64-pc-windows-msvc
+            runner: windows-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install Rust 1.95
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
+          targets: ${{ matrix.triple }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: repro-${{ matrix.triple }}
+      - name: Run repro-build (warn-only)
+        shell: bash
+        run: bash scripts/repro-build.sh --triple ${{ matrix.triple }} || true
+      - name: Upload manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: repro-manifest-${{ matrix.triple }}
+          path: repro-manifest.json
+          retention-days: 90
+      - name: Attach to release
+        if: inputs.upload_to_release == true && inputs.tag != ''
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cp repro-manifest.json "repro-manifest-${{ matrix.triple }}.json"
+          gh release upload "${{ inputs.tag }}" \
+            "repro-manifest-${{ matrix.triple }}.json" \
+            --clobber

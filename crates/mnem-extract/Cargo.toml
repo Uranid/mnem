@@ -1,0 +1,64 @@
+[package]
+name = "mnem-extract"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Statistical, embedding-based entity + relation extraction for mnem (KeyBERT-style, co-occurrence PMI). Sync, no LLM, no network."
+readme = "README.md"
+documentation = "https://docs.rs/mnem-extract"
+categories = ["text-processing", "science"]
+keywords = ["mnem", "keybert", "extraction", "ner", "knowledge-graph"]
+publish = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Opt-in typed-relation inference (gap 03). Default OFF; flipping to
+# on-by-default is gated on (a) adversarial suite green, (b) 1%
+# precision canary ≥ 0.90 over 30 consecutive days, (c) explicit
+# release-manager sign-off (solution.md R3).
+typed-relations = ["dep:sha2"]
+
+[dependencies]
+# Core types (Cid is re-exported for node identification; no network / tokio).
+mnem-core            = { path = "../mnem-core", version = "=0.1.0" }
+# SHA-256 author fingerprint for the rate limiter (typed-relations feature).
+sha2                 = { workspace = true, optional = true }
+# Embedder trait only; E3 reuses mnem's existing MiniLM/ONNX/OpenAI stack.
+# Default features (openai + ollama) are enabled so dead-code lints in
+# upstream `http.rs` (which only exercise under a real provider feature)
+# don't fire against our default-features-off build. We still don't
+# force the caller to use either adapter — the trait itself is what we
+# depend on, and the concrete adapters remain zero-cost-opt-in.
+mnem-embed-providers = { path = "../mnem-embed-providers", version = "=0.1.0" }
+serde                = { workspace = true, features = ["derive"] }
+thiserror            = { workspace = true }
+tracing              = { workspace = true }
+# Deterministic grapheme / word / sentence segmentation over arbitrary
+# Unicode (covers the 99% of real-world ingest text that the crude
+# split_whitespace / `char::is_alphabetic` path mis-segments).
+unicode-segmentation = "1.12"
+
+[dev-dependencies]
+# Property-based determinism test: identical input across two runs must
+# produce byte-identical Entity + Relation streams.
+proptest             = { workspace = true }
+# Stable serialisation for the determinism proptest (byte-identical
+# JSON iff every f32 bit matches).
+serde_json           = "1"
+# Needed so tests can instantiate a deterministic Embedder without any
+# network round-trip.
+mnem-embed-providers = { path = "../mnem-embed-providers", version = "=0.1.0", default-features = false, features = ["mock"] }
+# Used by the end-to-end integration test that runs KeyBERT over
+# mnem-ingest chunks. Path-only dev dep — no public API impact.
+mnem-ingest          = { path = "../mnem-ingest" }

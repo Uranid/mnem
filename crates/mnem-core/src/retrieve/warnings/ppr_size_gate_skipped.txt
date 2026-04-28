@@ -1,0 +1,1 @@
+PPR was requested but the graph exceeds the default-on size threshold (250000 nodes). PPR was skipped to prevent unbounded query latency. Set ppr_opt_in=true in the retrieve request to override and accept the cost, or upgrade to a sharded deployment.

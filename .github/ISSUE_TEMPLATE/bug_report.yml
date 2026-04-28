@@ -1,0 +1,104 @@
+name: Bug report
+description: Something's broken. File a reproducible report.
+title: "[bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug report. The more reproducible, the faster the fix.
+        For security issues, use [private reporting](https://github.com/Uranid/mnem/security/advisories/new) instead.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect to happen, and what actually happened?
+      placeholder: |
+        Expected: `Query::label("Person").execute()` returns all Person nodes.
+        Actual: it returns Ok(vec![]) even though `repo.lookup_node(alice.id)` finds Alice.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: |
+        Ideally a code snippet that compiles. If that's impractical, step-by-step
+        instructions. Include the CID / seed / input bytes that trigger the bug
+        when relevant - mnem is content-addressed, so those are deterministic.
+      render: rust
+      placeholder: |
+        let repo = ReadonlyRepo::init(bs, ohs)?;
+        // ...
+        let hits = repo.query().label("Person").execute()?;
+        assert!(!hits.is_empty()); // fails here
+    validations:
+      required: true
+
+  - type: input
+    id: mnem-version
+    attributes:
+      label: mnem version
+      description: Output of `cargo pkgid -p mnem-core` or the tag / commit you built from.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: rust-version
+    attributes:
+      label: Rust version
+      description: Output of `rustc --version`.
+      placeholder: "rustc 1.95.0 (stable)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      multiple: true
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - WASM (browser)
+        - WASM (edge / wasmtime)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend in use
+      multiple: true
+      options:
+        - MemoryBlockstore (mnem-core)
+        - RedbBlockstore (mnem-backend-redb)
+        - Other / custom
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / panic output
+      description: |
+        Full backtrace if you have one (`RUST_BACKTRACE=1 cargo test ...`).
+        Wrap in triple-backticks.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this isn't already reported.
+          required: true
+        - label: The bug reproduces on the latest `main`.
+          required: false
+        - label: I read the relevant SPEC sections before filing.
+          required: false

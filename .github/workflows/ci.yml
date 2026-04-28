@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Cancel in-flight runs on the same branch when new commits land.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+jobs:
+  # ----------------------------------------------------------------
+  # Core test matrix. Runs on every push/PR against all three OSes so
+  # the three platforms the README promises - Linux, macOS, Windows -
+  # stay visibly green. Three toolchain columns:
+  #
+  #   stable : the default contributor path.
+  #   beta   : catches upcoming-rustc regressions ~6 weeks early.
+  #            Allowed to fail - beta is a warning channel, not a
+  #            gate.
+  #   1.95   : the declared MSRV in `rust-toolchain.toml` and
+  #            `clippy.toml`. A silent MSRV break on a dependency
+  #            upgrade would let the "MSRV 1.95" badge quietly lie;
+  #            this column enforces it. NOT allowed to fail.
+  # ----------------------------------------------------------------
+  test:
+    name: test / ${{ matrix.os }} / ${{ matrix.toolchain }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        toolchain: [stable, beta, "1.95"]
+    # Beta is expected to occasionally surface upstream-rustc churn
+    # that doesn't affect released users; we don't want a beta
+    # regression to block a merge. MSRV and stable ARE blocking.
+    continue-on-error: ${{ matrix.toolchain == 'beta' }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: rustfmt, clippy
+      - name: Cache cargo artefacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-${{ matrix.os }}-${{ matrix.toolchain }}
+      - name: cargo fmt --check
+        # fmt is toolchain-invariant; only run on stable to avoid
+        # the MSRV channel's older rustfmt disagreeing with current.
+        if: matrix.toolchain == 'stable'
+        run: cargo fmt --all -- --check
+      - name: cargo test
+        run: cargo test --workspace --lib --tests
+      - name: cargo clippy
+        # Treats warnings as errors so a `#[warn]` lint added to the
+        # workspace baseline fails the build before it lands. Uses
+        # --all-targets so test + example code gets linted too.
+        # Only on stable: the MSRV channel ships an older clippy
+        # whose lint set diverges from stable's and we want the
+        # workspace lint config tuned to current stable.
+        if: matrix.toolchain == 'stable'
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: cargo doc (rustdoc links)
+        # `--no-deps` keeps runtime short; `RUSTDOCFLAGS=-Dwarnings`
+        # promotes broken intra-doc links to failures so README /
+        # crate-doc drift catches fast. Stable-only for the same
+        # reason clippy is stable-only.
+        if: matrix.toolchain == 'stable'
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --workspace --no-deps --locked
+      - name: cargo check mnem-py
+        run: cargo check -p mnem-py
+
+  # ----------------------------------------------------------------
+  # Smoke-test the runnable benchmarks. We only check that they
+  # compile and run to completion - not that they meet any particular
+  # threshold (hosted runners are noisy for latency claims). The
+  # docs/benchmarks/ai-native.md numbers come from a dedicated
+  # developer machine and are pinned in the doc.
+  # ----------------------------------------------------------------
+  # Dependency security audit. Separate job so it surfaces its own
+  # status badge and doesn't gate the test matrix on a CVE-advisory
+  # refresh (advisories update daily; we want test to stay green even
+  # when a new advisory lands mid-day).
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Don't fail the PR on a new advisory - the rustsec database gets
+    # new entries almost daily, often for deps we can't immediately
+    # update. Report in the UI, mark as failure for release.yml's
+    # benefit, but don't block main from merging PRs.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-audit
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: cargo audit
+        run: cargo audit --deny warnings
+
+  benchmarks-smoke:
+    name: benchmarks smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-bench
+      - name: agent_retrieve_under_budget
+        run: cargo run --release -p mnem-core --example agent_retrieve_under_budget
+      - name: index_scaling_bench
+        run: cargo run --release -p mnem-core --example index_scaling_bench
+      - name: hnsw_vs_brute (mnem-ann)
+        run: cargo run --release -p mnem-ann --example hnsw_vs_brute
+      - name: redb_vs_memory (mnem-backend-redb)
+        run: cargo run --release -p mnem-backend-redb --example redb_vs_memory
+
+  # ----------------------------------------------------------------
+  # Python adapter + scorer: syntax-check only. Running run_mem0.py
+  # end-to-end would require an OPENAI_API_KEY, which we do NOT want
+  # on a push-based CI. A separate manually-triggered workflow will
+  # publish the head-to-head numbers when a maintainer has a key.
+  # ----------------------------------------------------------------
+  python-adapters:
+    name: python adapters (syntax)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'

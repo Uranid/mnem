@@ -1,0 +1,43 @@
+{
+  "harness": "mnem-locomo",
+  "adapter": "mnem",
+  "dataset": "~/.mnem/bench-data/locomo/locomo10.json",
+  "n_questions": 1977,
+  "runtime_seconds": 63.0985735,
+  "timing": {
+    "ingest_s": 30.4250713,
+    "retrieve_s": 32.582919199999935,
+    "score_s": 0.06410639999999997
+  },
+  "overall": {
+    "recall@10": 0.8568538189175519,
+    "recall@5": 0.7268588770864947
+  },
+  "by_category": {
+    "common-sense": {
+      "n": 446.0,
+      "recall@10": 0.8408071748878924,
+      "recall@5": 0.7309417040358744
+    },
+    "multi-hop": {
+      "n": 320.0,
+      "recall@10": 0.834375,
+      "recall@5": 0.709375
+    },
+    "open-domain": {
+      "n": 89.0,
+      "recall@10": 0.797752808988764,
+      "recall@5": 0.5955056179775281
+    },
+    "single-hop": {
+      "n": 281.0,
+      "recall@10": 0.9074733096085409,
+      "recall@5": 0.7758007117437722
+    },
+    "temporal": {
+      "n": 841.0,
+      "recall@10": 0.8632580261593341,
+      "recall@5": 0.7288941736028538
+    }
+  }
+}

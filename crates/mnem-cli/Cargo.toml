@@ -1,0 +1,137 @@
+[package]
+name = "mnem-cli"
+description = "Command-line interface for mnem - git for knowledge graphs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+categories = ["command-line-utilities", "database"]
+keywords = ["mnem", "knowledge-graph", "cli", "vcs"]
+readme = "README.md"
+documentation = "https://docs.rs/mnem-cli"
+
+[[bin]]
+name = "mnem"
+path = "src/main.rs"
+
+# docs.rs rendering: the CLI is a binary + tiny library surface (mostly
+# `config`, `commands` helpers exported for integration tests). No
+# optional features on this crate, so the default build is the full API.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+# Bundled-embedder default: the `bundled-embedder` feature opts
+# the CLI into shipping a self-contained dense embedder so first-time
+# users do not have to run `ollama serve` on a separate terminal AND
+# do not have to issue `mnem config set embed.provider …` before
+# semantic retrieve works. Forwards to `mnem-embed-providers`'s
+# `onnx-bundled` feature, which uses `ort/download-binaries` so
+# `cargo install` produces a single binary.
+#
+# When the feature is on, `config::resolve_embedder()` falls back to
+# `OnnxConfig { model: "all-MiniLM-L6-v2", … }` whenever the per-
+# repo and user-global configs are silent. The model itself (~92MB)
+# is lazy-downloaded from HuggingFace on first use and cached under
+# `~/.cache/huggingface/hub`.
+#
+# Switching to a custom embedder later: `mnem config set embed.provider
+# ollama|openai|onnx` (per-repo) or write `~/.mnem/config.toml`
+# (user-global). Either overrides the bundled fallback.
+[features]
+default = []
+bundled-embedder = ["mnem-embed-providers/onnx-bundled"]
+# GPU execution-provider variants. Forward to the matching feature on
+# `mnem-embed-providers` so the CLI ships a self-contained binary that
+# routes inference through CUDA or DirectML when available, with the
+# CPU EP as a runtime fallback. 5-15x speedup on a supported GPU; same
+# vectors as the CPU build (small fp rounding differences only).
+bundled-embedder-cuda = ["mnem-embed-providers/onnx-bundled-cuda"]
+bundled-embedder-directml = ["mnem-embed-providers/onnx-bundled-directml"]
+
+# cargo-binstall metadata: lets `cargo binstall mnem-cli` fetch the
+# prebuilt archive from the GitHub release instead of compiling from
+# source. The URL template matches the archive names produced by
+# `.github/workflows/release.yml` (`binaries` job).
+# See https://github.com/cargo-bins/cargo-binstall for the spec.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/mnem-{ target }.{ archive-format }"
+bin-dir = "mnem-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+
+[dependencies]
+mnem-core = { path = "../mnem-core", version = "=0.1.0" }
+mnem-backend-redb = { path = "../mnem-backend-redb", version = "=0.1.0" }
+mnem-transport = { path = "../mnem-transport", version = "=0.1.0", features = ["client"] }
+mnem-embed-providers = { path = "../mnem-embed-providers", version = "=0.1.0", features = ["mock"] }
+mnem-rerank-providers = { path = "../mnem-rerank-providers", version = "=0.1.0" }
+mnem-llm-providers = { path = "../mnem-llm-providers", version = "=0.1.0" }
+# Ingest pipeline (Phase-B5c): parses Markdown / text / PDF / chat-JSON
+# sources into Doc + Chunk + Entity subgraphs. Wired here behind the
+# `mnem ingest` subcommand (Phase-B5d). The `keybert` feature (C3 FIX-3)
+# forwards the statistical KeyBERT adapter so `mnem ingest --extractor
+# keybert <file>` runs end-to-end against the operator's configured
+# embedder; zero-cost when the flag is absent.
+mnem-ingest = { path = "../mnem-ingest", version = "=0.1.0", features = ["keybert"] }
+# E4 T2: Centroid+MMR extractive summarizer, wired behind the
+# `--summarize` flag on `mnem retrieve`. Zero-impact without the
+# flag: the crate is only called when `args.summarize` is true.
+mnem-graphrag = { path = "../mnem-graphrag", version = "=0.1.0" }
+# v1.0 benchmark harness for `mnem bench`. The crate compiles standalone
+# (path-only dep, no version pin while v1.0 stabilises) and pulls its
+# own dialoguer + indicatif + ureq + sha2 surface; we link by path so
+# the workspace builds cleanly without a release of mnem-bench yet.
+mnem-bench = { path = "../mnem-bench", version = "=0.1.0", default-features = false }
+# `info_span` + `info!` in `mnem ingest`; per-file progress rides the
+# standard tracing subscriber so `RUST_LOG=mnem_ingest=info` shows it.
+tracing = { workspace = true }
+clap = { version = "4.5", features = ["derive"] }
+# Shell-completion generator: emits bash / zsh / fish / powershell /
+# elvish scripts from the same `Cli` derive that drives the main
+# binary. Small crate, widely used, same release cadence as `clap`.
+clap_complete = "4.5"
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1"
+toml = "1"
+anyhow = "1"
+ipld-core = { workspace = true }
+bytes = { workspace = true }
+# TUI for `mnem integrate`. Default features off so we avoid the
+# `fuzzy-select` + `console` colour bloat; fall back to plain prompts
+# on dumb terminals. Small, well-maintained, widely used.
+dialoguer = { version = "0.11", default-features = false }
+# Cross-platform home / config-dir detection for `mnem integrate` host
+# probes and `mnem doctor`.
+dirs = "6"
+# Used by `mnem doctor` to probe embedding-provider reachability
+# (`GET {base}/api/tags` on Ollama, `GET /v1/models` on OpenAI).
+# `mnem-embed-providers` already ships ureq transitively; we re-declare
+# here so this crate builds in isolation (e.g. via `cargo install`).
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+# Async runtime for the remote-transport verbs (`mnem fetch` / `push`
+# / `pull`). Single-threaded current-thread runtime is enough: the
+# CLI blocks on a single round-trip, there is no parallel fan-out.
+# Feature set mirrors `mnem-transport`'s `client` feature so the
+# runtime boundaries line up.
+tokio = { version = "1", default-features = false, features = ["rt", "macros"] }
+# Progress bars for long-running ops: `mnem reindex` (per-node embed)
+# and `mnem ingest --recursive` (per-file walk). Detects non-TTY
+# automatically and degrades to no-op output on redirected stdout, so
+# CI logs and shell pipelines stay clean. Default-on, no flag needed.
+indicatif = { version = "0.17", default-features = false }
+
+[dev-dependencies]
+# CLI integration tests: assert_cmd drives the built binary in a
+# temp-dir repo and asserts on stdout + exit code. `tempfile` gives us
+# isolated per-test directories.
+assert_cmd = "2.0"
+tempfile = "3.14"

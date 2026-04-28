@@ -1,0 +1,40 @@
+title: ""
+labels: ["show-and-tell"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Built something with mnem? Share it here. Demos, blog posts, agent integrations,
+        weird experiments, all welcome.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What did you build
+      description: |
+        One or two sentences. Link a repo, screenshot, screencast, or post if you have one.
+      placeholder: |
+        I wired mnem into my CLI agent so every command invocation lands as a node and every
+        env var as an edge. Demo: <link>.
+    validations:
+      required: true
+
+  - type: textarea
+    id: how
+    attributes:
+      label: How did mnem help
+      description: |
+        Which surface did you use, and what made it easier than rolling your own?
+
+  - type: textarea
+    id: rough-edges
+    attributes:
+      label: Rough edges hit
+      description: |
+        Anything missing, broken, or surprising that we should know about?
+
+  - type: input
+    id: mnem-version
+    attributes:
+      label: mnem version
+      placeholder: "0.1.0"

@@ -1,0 +1,156 @@
+name: fuzz
+
+# Nightly coverage-guided fuzz sweep for the two highest-value
+# parser surfaces in mnem: `car_import` and `walk_ipld`. Each
+# target runs for 600 seconds, corpora are cached across runs so
+# the coverage map accumulates, and any crash uploads BOTH the
+# crashing input and the full corpus+regressions tree for
+# post-mortem.
+#
+# Not wired into the main CI workflow because (a) fuzzing needs
+# nightly Rust which the main gate does not, and (b) a 10-minute
+# sweep per target does not belong on every PR - it is a weekly
+# signal, not a merge gate.
+
+on:
+  schedule:
+    # 05:00 UTC every day. Cron uses UTC regardless of repo tz.
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+    # Manual trigger for ad-hoc sweeps after a risky parser change.
+
+permissions:
+  contents: read
+
+concurrency:
+  # Only one fuzz sweep at a time; a manual trigger on top of a
+  # nightly run would just duplicate coverage work.
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  fuzz:
+    name: fuzz / ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      # Don't cancel the second target just because one crashed -
+      # each target has its own corpus to preserve on failure.
+      fail-fast: false
+      matrix:
+        target:
+          - car_import
+          - walk_ipld
+          - ingest_pdf
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      # Cache the corpus so week-over-week coverage accumulates.
+      # The cache key uses the fuzz sources + this target name so
+      # that a change to the target invalidates only its own
+      # corpus. `restore-keys` lets a new day's run fall back to
+      # the most recent corpus when the exact hash misses.
+      - name: Restore fuzz corpus cache
+        uses: actions/cache@v4
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ hashFiles('fuzz/fuzz_targets/*.rs', 'fuzz/Cargo.toml') }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.target }}-${{ hashFiles('fuzz/fuzz_targets/*.rs', 'fuzz/Cargo.toml') }}-
+            fuzz-corpus-${{ matrix.target }}-
+
+      # Also cache the fuzz build artifacts. libFuzzer binaries
+      # take a couple of minutes to link with the SanitizerCoverage
+      # pass; caching cuts the next run to ~30s of build time.
+      - name: Cache fuzz target/
+        uses: actions/cache@v4
+        with:
+          path: fuzz/target
+          key: fuzz-target-${{ matrix.target }}-${{ hashFiles('fuzz/Cargo.lock', 'fuzz/fuzz_targets/*.rs') }}
+          restore-keys: |
+            fuzz-target-${{ matrix.target }}-
+
+      - name: Run ${{ matrix.target }} (600s)
+        id: run
+        run: |
+          # -max_total_time caps the run; libFuzzer exits 0 when
+          # the wall-clock limit is hit without a crash, non-zero
+          # on crash. `cargo fuzz run` forwards that exit code so
+          # the step fails the workflow on crash.
+          cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=600
+
+      # On crash, upload the crash input. `fuzz/artifacts/` is
+      # where libFuzzer writes crash-<sha1>, leak-<sha1>,
+      # timeout-<sha1> files.
+      - name: Upload crash artifact
+        if: failure() && steps.run.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # Also upload the corpus so a maintainer can replay locally.
+      # Separate artifact from the crash so the crash alone can be
+      # downloaded quickly without the (potentially larger) corpus
+      # tree tagging along.
+      - name: Upload corpus snapshot on failure
+        if: failure() && steps.run.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-${{ matrix.target }}
+          path: fuzz/corpus/${{ matrix.target }}/
+          if-no-files-found: warn
+          retention-days: 30
+
+  # Optional badge updater. Writes a shields.io-compatible JSON
+  # blob to a user-managed Gist on a successful full-matrix run.
+  # Gated on `secrets.GIST_ID` + `secrets.GIST_TOKEN` being
+  # defined, so the workflow is a no-op until the repo owner
+  # creates a Gist and adds those secrets. Without them the
+  # badge URL in README simply 404s; no CI failure.
+  badge:
+    name: update badge gist
+    runs-on: ubuntu-latest
+    needs: fuzz
+    if: success() && vars.GIST_ID != ''
+    steps:
+      - name: Write badge JSON
+        run: |
+          cat > fuzz.json <<'EOF'
+          {
+            "schemaVersion": 1,
+            "label": "fuzz",
+            "message": "passing",
+            "color": "brightgreen"
+          }
+          EOF
+
+      - name: Push badge to Gist
+        env:
+          GIST_ID: ${{ vars.GIST_ID }}
+          GH_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: |
+          # Update Gist file fuzz.json via REST API.
+          JSON=$(cat fuzz.json | jq -Rs .)
+          curl -sSf -X PATCH \
+            -H "Authorization: token ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/gists/${GIST_ID}" \
+            -d "{\"files\":{\"fuzz.json\":{\"content\":${JSON}}}}" \
+            > /dev/null

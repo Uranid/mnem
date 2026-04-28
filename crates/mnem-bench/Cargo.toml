@@ -1,0 +1,61 @@
+[package]
+name = "mnem-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "v1.0 benchmark harness for mnem - download, run, score LongMemEval / LoCoMo against the cpu-local adapter."
+readme = "README.md"
+documentation = "https://docs.rs/mnem-bench"
+categories = ["development-tools"]
+keywords = ["mnem", "benchmark", "longmemeval", "locomo", "retrieval"]
+
+[lints]
+workspace = true
+
+[features]
+# `onnx-minilm` forwards to `mnem-embed-providers/onnx-bundled` so the
+# bench harness ships with a real, in-process MiniLM-L6-v2 (384-dim,
+# byte-for-byte parity with ChromaDB's DefaultEmbeddingFunction). The
+# bundled flavour uses `ort/download-binaries` so no host onnxruntime
+# install is required - same plumbing the `mnem-cli --features
+# bundled-embedder` build uses.
+#
+# Default-on because the harness's only headline number is retrieval
+# quality, and the toy bag-of-tokens embedder caps recall@5 around
+# 0.2 on LongMemEval. The workspace already pulls heavy deps for
+# mnem-http builds, so the extra ~30-50MB at link time is no
+# regression for the typical contributor.
+default     = ["onnx-minilm"]
+onnx-minilm = ["mnem-embed-providers/onnx-bundled"]
+
+[dependencies]
+mnem-core           = { path = "../mnem-core", version = "=0.1.0" }
+mnem-embed-providers = { path = "../mnem-embed-providers", version = "=0.1.0", features = ["mock"] }
+mnem-backend-redb   = { path = "../mnem-backend-redb", version = "=0.1.0" }
+
+# CLI deps
+anyhow              = "1"
+thiserror           = { workspace = true }
+serde               = { workspace = true, features = ["derive"] }
+serde_json          = "1"
+
+# TUI + progress
+dialoguer           = { version = "0.11", default-features = false }
+indicatif           = { version = "0.17", default-features = false }
+
+# downloads
+ureq                = { version = "2", default-features = false, features = ["tls"] }
+sha2                = { workspace = true }
+
+# utility
+directories         = "5"
+hex                 = "0.4"
+bytes               = { workspace = true }
+ipld-core           = { workspace = true }
+
+[dev-dependencies]
+tempfile            = "3"

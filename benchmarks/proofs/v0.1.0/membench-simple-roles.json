@@ -1,0 +1,22 @@
+{
+  "harness": "mnem-membench-simple-roles",
+  "adapter": "mnem",
+  "dataset": "~/.mnem/bench-data/membench-simple-roles/simple.json",
+  "n_questions": 100,
+  "runtime_seconds": 213.3792669,
+  "timing": {
+    "ingest_s": 211.66600450000004,
+    "retrieve_s": 1.5906199,
+    "score_s": 0.00040950000000000003
+  },
+  "overall": {
+    "recall@10": 0.96,
+    "recall@5": 0.96
+  },
+  "by_category": {
+    "roles": {
+      "n": 100.0,
+      "recall@10": 0.96
+    }
+  }
+}

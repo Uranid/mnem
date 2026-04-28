@@ -1,0 +1,56 @@
+title: "[Q&A] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question about using mnem? Ask away.
+
+        For bug reports use [issues](../../issues/new?template=bug_report.yml) instead.
+        For security issues use [private reporting](../../security/advisories/new).
+
+  - type: textarea
+    id: question
+    attributes:
+      label: What are you trying to do
+      description: |
+        Describe the goal, not just the symptom. Concrete examples beat abstract descriptions.
+      placeholder: |
+        I want to add 50k facts to a fresh repo and have `mnem retrieve` return the top 5 results
+        under 50 ms p95 on a laptop. My add loop is taking 8 seconds for 1000 facts. What is the
+        right knob?
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you already tried or read
+      description: |
+        Link any SPEC sections, docs pages, or example code you have already consulted so we
+        do not repeat an answer that is already in the tree.
+      placeholder: |
+        - Read `docs/src/quickstart.md` and `docs/src/guides/retrieval-tuning.md`.
+        - Tried `mnem add --batch 100` but throughput did not change.
+
+  - type: input
+    id: mnem-version
+    attributes:
+      label: mnem version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface
+      multiple: true
+      options:
+        - CLI
+        - HTTP
+        - MCP
+        - Python (mnem-py)
+        - Rust library
+    validations:
+      required: true

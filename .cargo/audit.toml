@@ -1,0 +1,21 @@
+# cargo-audit configuration. Read by `cargo audit` from the project root.
+#
+# We deny *vulnerabilities* (default), but tolerate the three transitive
+# `unmaintained` advisories below. None is a CVE — each is a notice that
+# the upstream crate is no longer actively maintained. Replacing them
+# requires upstream-dep churn (indicatif, console, dioxus deps) that we
+# defer to a post-launch sweep.
+
+[advisories]
+ignore = [
+    # async-std discontinued. Pulled in transitively; replacement is
+    # tokio everywhere. Tracked for post-launch dep-graph cleanup.
+    "RUSTSEC-2025-0052",
+    # number_prefix unmaintained. Pulled in via indicatif's progress
+    # formatting; harmless utility crate, no CVE.
+    "RUSTSEC-2025-0119",
+    # paste unmaintained. Pulled in via various proc-macro consumers.
+    # Replacement (`pastey`) is a drop-in but requires upstream deps
+    # to migrate first. No CVE.
+    "RUSTSEC-2024-0436",
+]

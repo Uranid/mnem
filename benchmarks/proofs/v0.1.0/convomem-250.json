@@ -1,0 +1,38 @@
+{
+  "harness": "mnem-convomem",
+  "adapter": "mnem",
+  "dataset": "~/.mnem/bench-data/convomem/convomem_evidence.json",
+  "n_questions": 250,
+  "runtime_seconds": 148.4766686,
+  "timing": {
+    "ingest_s": 144.65823299999994,
+    "retrieve_s": 3.7534145000000003,
+    "score_s": 0.0020183999999999996
+  },
+  "overall": {
+    "avg_recall": 0.976,
+    "n": 250.0
+  },
+  "by_category": {
+    "abstention_evidence": {
+      "avg_recall": 0.92,
+      "n": 50.0
+    },
+    "assistant_facts_evidence": {
+      "avg_recall": 1.0,
+      "n": 50.0
+    },
+    "implicit_connection_evidence": {
+      "avg_recall": 0.98,
+      "n": 50.0
+    },
+    "preference_evidence": {
+      "avg_recall": 1.0,
+      "n": 50.0
+    },
+    "user_evidence": {
+      "avg_recall": 0.98,
+      "n": 50.0
+    }
+  }
+}

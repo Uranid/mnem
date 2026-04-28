@@ -1,0 +1,16 @@
+---
+source: crates/mnem-ingest/src/conversation.rs
+expression: sections
+---
+- heading: "[user]"
+  depth: 2
+  text: ping
+  byte_range:
+    start: 0
+    end: 4
+- heading: "[assistant]"
+  depth: 2
+  text: pong
+  byte_range:
+    start: 5
+    end: 9

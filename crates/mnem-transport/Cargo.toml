@@ -1,0 +1,99 @@
+[package]
+name = "mnem-transport"
+description = "Offline transport for mnem: CAR v1 export/import of content-addressed subtrees."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+categories = ["encoding", "filesystem", "database"]
+keywords = ["mnem", "car", "ipld", "content-addressed", "export"]
+readme = "README.md"
+documentation = "https://docs.rs/mnem-transport"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true
+
+[features]
+# Default feature set keeps the crate WASM-clean (no tokio, no reqwest).
+# The `client` feature opts into the async `HttpRemoteClient` and pulls
+# in reqwest + tokio + futures-util. CAR framing and capability logic
+# stay feature-free so server-side crates and browser builds get the
+# pure-sync surface without cost.
+default = []
+client = ["dep:reqwest", "dep:tokio", "dep:futures-util", "dep:async-stream", "dep:serde_json"]
+# Gates the 256-case proptest variant in
+# `tests/car_round_trip_properties.rs`. Matches the sibling flag on
+# `mnem-core`; see that crate's manifest for the rationale.
+ci-slow = []
+
+# Pure std::io::{Read, Write} interface by default. No tokio, no filesystem
+# hooks, no network. WASM-clean so the same code runs in browser exports.
+# The `client` feature (above) opts into the HTTP client surface.
+[dependencies]
+mnem-core           = { path = "../mnem-core", version = "=0.1.0" }
+bytes               = { workspace = true }
+cid                 = { workspace = true }
+ipld-core           = { workspace = true }
+serde               = { workspace = true }
+serde_ipld_dagcbor  = { workspace = true }
+thiserror           = { workspace = true }
+# Varint framing per the CARv1 spec. Minimal crate (<300 LoC), zero
+# transitive dependencies under the default feature set. Used only for
+# our own tiny varint helpers in `car.rs`, kept as a dep so we're
+# spec-aligned if we ever need the larger codec helpers.
+unsigned-varint     = "0.8"
+# Remote-transport config lives under `[remote.<name>]` in
+# `.mnem/config.toml`. We parse that section here so the runtime
+# `RemoteConfig` type is home to the TOML shape too; mnem-cli's
+# top-level config wraps over. `toml = "1"` matches the CLI crate.
+toml                = { version = "1", default-features = false, features = ["parse", "display", "serde"] }
+# Bloom-filter have-set for `fetch-blocks` / `push-blocks`. `default-
+# features = false` turns off the `getrandom`-based `random` backend;
+# we build bloom filters with a fixed 32-byte seed for determinism.
+bloomfilter         = { version = "3", default-features = false }
+# Tracing spans on CAR export / import . No subscriber pulled in
+# here - that's mnem-cli / mnem-http's job.
+tracing             = { workspace = true }
+
+# --- optional (gated behind `client` feature) ---
+# Async HTTP for `HttpRemoteClient`. rustls-tls keeps us off native-TLS
+# so the dep graph matches mnem-embed-providers' ureq setup. `stream`
+# turns on `Response::bytes_stream` / `Body::wrap_stream` used by
+# framing.
+reqwest             = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"], optional = true }
+tokio               = { version = "1", default-features = false, features = ["rt", "macros", "sync"], optional = true }
+futures-util        = { version = "0.3", default-features = false, features = ["std"], optional = true }
+async-stream        = { version = "0.3", optional = true }
+serde_json          = { version = "1", optional = true }
+
+[dev-dependencies]
+# Capability JSON round-trip tests use serde_json (mnem-core doesn't
+# need JSON, so this is a transport-test-only dep). When the `client`
+# feature is on it's already a hard dep; `dev-dependencies` is the
+# base-build surface for tests.
+serde_json          = "1"
+# Property-based CAR round-trip tests live in
+# `tests/car_round_trip_properties.rs` and generalise the fixed-case
+# example over arbitrary graph shapes.
+proptest            = { workspace = true }
+# Phase-B1b (PHASE-A-2 bench plan): criterion-driven CAR export/import
+# bench. `harness = false` keeps runtime zero; bench only runs on demand
+# via `cargo bench -p mnem-transport`.
+criterion           = { workspace = true }
+ipld-core           = { workspace = true }
+# `httpmock` for the `HttpRemoteClient` test suite. Only compiled when
+# the `client` feature is enabled and tests are run.
+httpmock            = "0.7"
+tokio               = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
+futures-util        = { version = "0.3", default-features = false, features = ["std"] }
+
+[[bench]]
+name    = "car"
+harness = false

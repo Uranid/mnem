@@ -1,0 +1,69 @@
+# LongMemEval
+
+500 questions on `longmemeval_s_cleaned.json` (xiaowu0162/longmemeval-cleaned).
+Session-level retrieval: aggregate turn hits to session via MAX score.
+
+## Summary
+
+| System | R@5 | R@10 | Source |
+|--------|----:|-----:|--------|
+| MemPalace | 0.966 | 0.982 | published |
+| **mnem 0.1.0** | **0.966** | **0.982** | `proofs/v0.1.0/longmemeval-500q.jsonl` |
+
+Matches MemPalace exactly. No daylight either way.
+
+## Hybrid v4 (harness helper)
+
+| System | R@5 | Source |
+|--------|----:|--------|
+| MemPalace | 0.982 | published |
+| **mnem 0.1.0** | **0.976** | `proofs/v0.1.0/longmemeval-500q-hybrid-v4.jsonl` |
+
+`--hybrid-v4-boost` mirrors MemPalace's harness-side BM25-derived score
+boost. Apple-to-apple bench helper, NOT a default for production.
+
+## Configuration (dense baseline)
+
+- Embedder: ONNX MiniLM-L6-v2 (bundled, in-process)
+- Retrieve: dense only (vector + top-10)
+- `--limit 500 --top-k 10`
+- `MNEM_BENCH=1` for per-question label scoping
+- 4 cores, `MNEM_ORT_INTRA_THREADS=4`
+
+## Reproduce
+
+```bash
+docker compose -f benchmarks/harness/compose.yml up -d mnem-bench-1
+
+PYTHONUTF8=1 python benchmarks/harness/adapters/longmemeval_session.py \
+    --dataset benchmarks/datasets/longmemeval/longmemeval_s_cleaned.json \
+    --mnem-http http://127.0.0.1:9876 \
+    --limit 500 --top-k 10 \
+    --out benchmarks/results/v0.1.0/longmemeval-500q.json
+
+docker compose -f benchmarks/harness/compose.yml down
+```
+
+Expected: `recall@5 = 0.966`, `recall@10 = 0.982` (within +/-0.005 sample
+variance).
+
+For the hybrid-v4 row, add `--hybrid-v4-boost` and rename the output file.
+
+## Latency
+
+| Run | retrieve mean | total wall (500 Q) |
+|-----|--------------:|-------------------:|
+| Dense | 711 ms | 1127 s (~19 min) |
+| Hybrid v4 | 729 ms | 1133 s (~19 min) |
+
+Per-question retrieve dominated by HNSW lookup over the per-question
+label scope; hybrid-v4 boost is a near-free post-filter pass.
+
+## Artifacts
+
+| File | Description |
+|------|-------------|
+| `longmemeval-500q.json` | summary: overall + per-question-type recall |
+| `longmemeval-500q.jsonl` | per-question rows: qid, qtype, top-5 sessions, hit@5/hit@10 |
+| `longmemeval-500q-hybrid-v4.json` | summary for hybrid-v4 run |
+| `longmemeval-500q-hybrid-v4.jsonl` | per-question rows for hybrid-v4 |

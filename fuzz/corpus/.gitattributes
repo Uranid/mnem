@@ -1,0 +1,8 @@
+# Fuzz corpus seeds are binary. Force -text so git's autocrlf
+# cannot rewrite embedded CRLF bytes (0x0d 0x0a) into LF on
+# check-in, which would silently mutate the seed and break any
+# crash reproducibility. Also disable diff/merge so `git show`
+# on a seed dump doesn't try to text-diff a 256-byte CBOR blob.
+*.car -text diff=binary merge=binary
+*.bin -text diff=binary merge=binary
+*.seed -text diff=binary merge=binary
