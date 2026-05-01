@@ -33,6 +33,13 @@ pub(in crate::tools) fn commit(server: &mut Server, args: Value) -> Result<Strin
     let repo = server.load_repo()?;
     let mut tx = repo.start_transaction();
 
+    // Open embedder once for the whole commit (provider failures are
+    // non-fatal: nodes are committed without a vector and can be
+    // backfilled with `mnem reindex`).
+    #[cfg(feature = "summarize")]
+    let opt_embedder = crate::tools::embed::resolve_embed_cfg(server.repo_path())
+        .and_then(|pc| mnem_embed_providers::open(&pc).ok());
+
     let mut created_nodes: Vec<(String, NodeId)> = Vec::new();
 
     if let Some(nodes) = args.get("nodes").and_then(Value::as_array) {
@@ -53,9 +60,10 @@ pub(in crate::tools) fn commit(server: &mut Server, args: Value) -> Result<Strin
             } else {
                 Node::DEFAULT_NTYPE
             };
+            let summary_text = nv.get("summary").and_then(Value::as_str).map(str::to_string);
             let mut node = Node::new(NodeId::new_v7(), ntype);
-            if let Some(summary) = nv.get("summary").and_then(Value::as_str) {
-                node = node.with_summary(summary);
+            if let Some(ref s) = summary_text {
+                node = node.with_summary(s);
             }
             if let Some(Value::Object(props)) = nv.get("props") {
                 for (k, v) in props {
@@ -65,7 +73,15 @@ pub(in crate::tools) fn commit(server: &mut Server, args: Value) -> Result<Strin
             if let Some(content) = nv.get("content").and_then(Value::as_str) {
                 node = node.with_content(bytes::Bytes::from(content.to_string().into_bytes()));
             }
-            tx.add_node(&node)?;
+            let node_cid = tx.add_node(&node)?;
+            #[cfg(feature = "summarize")]
+            if let (Some(embedder), Some(text)) = (&opt_embedder, &summary_text) {
+                if let Ok(vec) = embedder.embed(text) {
+                    let model = embedder.model().to_string();
+                    let emb = mnem_embed_providers::to_embedding(&model, &vec);
+                    let _ = tx.set_embedding(node_cid, model, emb);
+                }
+            }
             created_nodes.push((ntype.to_string(), node.id));
         }
     }

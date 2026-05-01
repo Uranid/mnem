@@ -101,6 +101,8 @@ pub(crate) fn run(_override: Option<&Path>, args: Args) -> Result<()> {
         }
     }
 
+    seed_anchor_node(&r, &data_dir);
+
     println!("initialised mnem repo in {}", data_dir.display());
     println!(" root op: {}", r.op_id());
 
@@ -121,10 +123,43 @@ pub(crate) fn init_mnem_dir(parent: &Path) -> Result<()> {
         return Ok(());
     }
     let (bs, ohs) = repo::create_or_open_stores(&data_dir)?;
-    let _r = ReadonlyRepo::init(bs, ohs)?;
+    let r = ReadonlyRepo::init(bs, ohs)?;
     let cfg_path = config::path_of(&data_dir);
     if !cfg_path.exists() {
         let _ = std::fs::write(&cfg_path, DEFAULT_CONFIG_TOML);
     }
+    seed_anchor_node(&r, &data_dir);
     Ok(())
+}
+
+/// Commit a minimal anchor node to a freshly-initialised repo.
+/// Non-fatal: store or embed failures are silently swallowed so they
+/// never block `mnem init` or `mnem integrate`. The node gives the
+/// embedder a warm-up write and makes the graph non-empty from the
+/// first second, so `mnem global retrieve` has something to return
+/// without a manual `mnem reindex` run.
+fn seed_anchor_node(repo: &ReadonlyRepo, data_dir: &std::path::Path) {
+    let node = Node::new(NodeId::new_v7(), "Meta")
+        .with_summary("mnem is a persistent knowledge graph.")
+        .with_prop("name".to_string(), Ipld::String("mnem".to_string()));
+
+    let mut tx = repo.start_transaction();
+    let node_cid = match tx.add_node(&node) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    if let Ok(cfg) = config::load(data_dir) {
+        if let Some(pc) = config::resolve_embedder(&cfg) {
+            if let Ok(embedder) = mnem_embed_providers::open(&pc) {
+                if let Ok(vec) = embedder.embed("mnem is a persistent knowledge graph.") {
+                    let model = embedder.model().to_string();
+                    let emb = mnem_embed_providers::to_embedding(&model, &vec);
+                    let _ = tx.set_embedding(node_cid, model, emb);
+                }
+            }
+        }
+    }
+
+    let _ = tx.commit("mnem init", "seed anchor node");
 }

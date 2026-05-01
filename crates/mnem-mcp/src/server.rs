@@ -105,11 +105,8 @@ impl Server {
     }
 
     /// Read-only accessor for the backing repo path. Used by handlers
-    /// that need to resolve sibling config files (e.g.
-    /// `mnem_community_summarize` reading `<repo>/config.toml` for
-    /// the `[embed]` section when no `MNEM_EMBED_*` env vars are
-    /// set).
-    #[cfg(feature = "summarize")]
+    /// that need to resolve sibling config files (e.g. reading
+    /// `<repo>/config.toml` for the `[embed]` section).
     pub(crate) fn repo_path(&self) -> &std::path::Path {
         &self.repo_path
     }

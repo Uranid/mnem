@@ -81,43 +81,60 @@ pub(in crate::tools) fn commit_relation(server: &mut Server, args: Value) -> Res
     let repo = server.load_repo()?;
     let mut tx = repo.start_transaction();
 
+    // Open the embedder once for both subject and object. Provider
+    // failures are non-fatal: nodes are committed without a vector
+    // and can be backfilled with `mnem reindex`.
+    #[cfg(feature = "summarize")]
+    let opt_embedder = crate::tools::embed::resolve_embed_cfg(server.repo_path())
+        .and_then(|pc| mnem_embed_providers::open(&pc).ok());
+
     // Step 1: resolve-or-create the subject node anchored on
-    // (subject_kind, anchor) == subject.
+    // (subject_kind, anchor) == subject. Always write the node so we
+    // get a CID back for embedding.
     let subject_value = json_to_ipld(&Value::String(subject.clone()))?;
     let subject_id = tx
         .resolve_or_create_node(&subject_kind, &anchor, subject_value.clone())
         .with_context(|| format!("resolve_or_create subject `{subject}` ({subject_kind})"))?;
 
-    // Optional extra props on the subject - only material if the
-    // node was just created. We always overwrite with the richer
-    // version because re-asserting props on an existing node is
-    // a no-op when values match and a deliberate update otherwise.
-    if let Some(Value::Object(map)) = args.get("subject_props")
-        && !map.is_empty()
-    {
-        let mut node =
-            Node::new(subject_id, subject_kind.clone()).with_prop(anchor.clone(), subject_value);
+    let mut subject_node =
+        Node::new(subject_id, subject_kind.clone()).with_prop(anchor.clone(), subject_value);
+    if let Some(Value::Object(map)) = args.get("subject_props") {
         for (k, v) in map {
-            node = node.with_prop(k.clone(), json_to_ipld(v)?);
+            subject_node = subject_node.with_prop(k.clone(), json_to_ipld(v)?);
         }
-        tx.add_node(&node)?;
+    }
+    let subject_cid = tx.add_node(&subject_node)?;
+    #[cfg(feature = "summarize")]
+    if let Some(ref embedder) = opt_embedder {
+        if let Ok(vec) = embedder.embed(&subject) {
+            let model = embedder.model().to_string();
+            let emb = mnem_embed_providers::to_embedding(&model, &vec);
+            let _ = tx.set_embedding(subject_cid, model, emb);
+        }
     }
 
     // Step 2: resolve-or-create the object node anchored on
-    // (object_kind, anchor) == object.
+    // (object_kind, anchor) == object. Always write for embedding.
     let object_value = json_to_ipld(&Value::String(object.clone()))?;
     let object_id = tx
         .resolve_or_create_node(&object_kind, &anchor, object_value.clone())
         .with_context(|| format!("resolve_or_create object `{object}` ({object_kind})"))?;
-    if let Some(Value::Object(map)) = args.get("object_props")
-        && !map.is_empty()
-    {
-        let mut node =
-            Node::new(object_id, object_kind.clone()).with_prop(anchor.clone(), object_value);
+
+    let mut object_node =
+        Node::new(object_id, object_kind.clone()).with_prop(anchor.clone(), object_value);
+    if let Some(Value::Object(map)) = args.get("object_props") {
         for (k, v) in map {
-            node = node.with_prop(k.clone(), json_to_ipld(v)?);
+            object_node = object_node.with_prop(k.clone(), json_to_ipld(v)?);
         }
-        tx.add_node(&node)?;
+    }
+    let object_cid = tx.add_node(&object_node)?;
+    #[cfg(feature = "summarize")]
+    if let Some(ref embedder) = opt_embedder {
+        if let Ok(vec) = embedder.embed(&object) {
+            let model = embedder.model().to_string();
+            let emb = mnem_embed_providers::to_embedding(&model, &vec);
+            let _ = tx.set_embedding(object_cid, model, emb);
+        }
     }
 
     // Step 3: add the typed edge from subject to object.

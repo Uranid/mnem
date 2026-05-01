@@ -99,18 +99,31 @@ pub(in crate::tools) fn resolve_or_create(server: &mut Server, args: Value) -> R
     let mut tx = repo.start_transaction();
     let id = tx.resolve_or_create_node(&label, &prop_name, value.clone())?;
 
-    // Build the richer node when extra_props or _global_anchor need stamping.
-    let need_node_write = !extra_props.is_empty() || global_anchor_uuid.is_some();
-    if need_node_write {
-        let mut node = Node::new(id, label.clone()).with_prop(prop_name.clone(), value);
-        for (k, v) in &extra_props {
-            node = node.with_prop(k.clone(), json_to_ipld(v)?);
+    // Always write the node explicitly so we get a CID back for
+    // embedding. Including extra_props and _global_anchor as before.
+    let mut node = Node::new(id, label.clone()).with_prop(prop_name.clone(), value);
+    for (k, v) in &extra_props {
+        node = node.with_prop(k.clone(), json_to_ipld(v)?);
+    }
+    if let Some(ref anchor) = global_anchor_uuid {
+        use ipld_core::ipld::Ipld;
+        node = node.with_prop("_global_anchor".to_string(), Ipld::String(anchor.clone()));
+    }
+    let node_cid = tx.add_node(&node)?;
+
+    // Embed the anchor value as the node's text (e.g. "Hanan", "jalebi").
+    // Non-fatal: committed without vector if embedder is unavailable.
+    #[cfg(feature = "summarize")]
+    if let Some(text) = value_json.as_str() {
+        if let Some(pc) = crate::tools::embed::resolve_embed_cfg(server.repo_path()) {
+            if let Ok(embedder) = mnem_embed_providers::open(&pc) {
+                if let Ok(vec) = embedder.embed(text) {
+                    let model = embedder.model().to_string();
+                    let emb = mnem_embed_providers::to_embedding(&model, &vec);
+                    let _ = tx.set_embedding(node_cid, model, emb);
+                }
+            }
         }
-        if let Some(ref anchor) = global_anchor_uuid {
-            use ipld_core::ipld::Ipld;
-            node = node.with_prop("_global_anchor".to_string(), Ipld::String(anchor.clone()));
-        }
-        tx.add_node(&node)?;
     }
 
     let new_repo = tx.commit(&agent_id, "mnem_mcp resolve_or_create")?;
