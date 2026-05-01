@@ -484,7 +484,7 @@ the user can audit which agent wrote what.
 
 If the `mnem_*` MCP tools are not listed as available, fall back to CLI:
 - **Read**: `mnem global retrieve "query text"`
-- **Write**: `mnem global add --summary "complete sentence" --ntype Preference`
+- **Write**: `mnem global add node -s "complete sentence" --label Preference`
 - **NEVER** use bare `mnem commit` or `mnem retrieve` — those operate on
   the local repo store, not the global memory, so facts silently vanish
   the next session.
@@ -576,7 +576,7 @@ edge from the old node to the new. The old fact stops surfacing automatically.
 ## CLI fallback (if MCP tools are unavailable)
 
 - **Read**: `mnem global retrieve "query text"`
-- **Write**: `mnem global add --summary "complete sentence" --ntype Preference`
+- **Write**: `mnem global add node -s "complete sentence" --label Preference`
 - **NEVER** use bare `mnem commit` or `mnem retrieve` — those use the
   local repo store; facts will be invisible next session.
 
@@ -646,7 +646,7 @@ edge from the old node to the new. The old fact stops surfacing automatically.
 ## CLI fallback (if MCP tools are unavailable)
 
 - **Read**: `mnem global retrieve "query text"`
-- **Write**: `mnem global add --summary "complete sentence" --ntype Preference`
+- **Write**: `mnem global add node -s "complete sentence" --label Preference`
 - **NEVER** use bare `mnem commit` or `mnem retrieve` — those use the
   local repo store; facts will be invisible next session.
 
