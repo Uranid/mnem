@@ -65,7 +65,7 @@ jobs:
       # corpus. `restore-keys` lets a new day's run fall back to
       # the most recent corpus when the exact hash misses.
       - name: Restore fuzz corpus cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: fuzz/corpus/${{ matrix.target }}
           key: fuzz-corpus-${{ matrix.target }}-${{ hashFiles('fuzz/fuzz_targets/*.rs', 'fuzz/Cargo.toml') }}-${{ github.run_id }}
@@ -77,7 +77,7 @@ jobs:
       # take a couple of minutes to link with the SanitizerCoverage
       # pass; caching cuts the next run to ~30s of build time.
       - name: Cache fuzz target/
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: fuzz/target
           key: fuzz-target-${{ matrix.target }}-${{ hashFiles('fuzz/Cargo.lock', 'fuzz/fuzz_targets/*.rs') }}
