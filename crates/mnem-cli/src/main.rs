@@ -21,6 +21,7 @@ mod global;
 mod http;
 mod integrate;
 mod mcp;
+mod unintegrate;
 mod repo;
 mod wizard;
 
@@ -263,6 +264,17 @@ Examples:
     /// Wire mnem into every detected MCP agent host (Claude Desktop,
     /// Cursor, Continue, Zed) with atomic backups of the originals.
     Integrate(integrate::Args),
+    /// Remove mnem wiring from one or more agent hosts. Reads
+    /// `~/.mnemglobal/integrations.toml` to show what is currently
+    /// integrated; interactive if no host names are given.
+    #[command(after_long_help = "\
+Examples:
+  mnem unintegrate                  # interactive: pick hosts to remove
+  mnem unintegrate claude-code      # remove a specific host
+  mnem unintegrate --all            # remove everything
+  mnem unintegrate --dry-run --all  # preview without changes
+")]
+    Unintegrate(unintegrate::UnintegrateArgs),
     /// Non-mutating health check: binaries, repo, config, embedder,
     /// wired hosts. Exits 1 if any check fails.
     Doctor(doctor::Args),
@@ -365,6 +377,7 @@ fn main() {
         Some(Cmd::Fsck(a)) => commands::deferred::run_fsck(cli.repo.as_deref(), a),
         Some(Cmd::Gc(a)) => commands::deferred::run_gc(cli.repo.as_deref(), a),
         Some(Cmd::Integrate(args)) => integrate::run(args),
+        Some(Cmd::Unintegrate(args)) => unintegrate::run(args),
         Some(Cmd::Doctor(args)) => doctor::run(cli.repo.as_deref(), args),
         Some(Cmd::Completions(args)) => commands::completions::run(args),
         Some(Cmd::Bench(args)) => commands::bench::run(args),

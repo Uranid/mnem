@@ -11,7 +11,104 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+
+// ---------- Integration registry ----------
+
+/// One per integrated host, written to `~/.mnemglobal/integrations.toml`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct IntegrationRecord {
+    pub slug: String,
+    pub display: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hooks_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_prompt_path: Option<String>,
+    /// Epoch-seconds timestamp of the last successful integrate.
+    pub integrated_at: u64,
+    /// Which components were wired: "mcp", "hooks", "system_prompt".
+    #[serde(default)]
+    pub components: Vec<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub(crate) struct IntegrationRegistry {
+    #[serde(default)]
+    pub hosts: Vec<IntegrationRecord>,
+}
+
+impl IntegrationRegistry {
+    pub(crate) fn load() -> Self {
+        let path = global_dir().join("integrations.toml");
+        let text = match std::fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(_) => return Self::default(),
+        };
+        toml::from_str(&text).unwrap_or_default()
+    }
+
+    fn save(&self) -> Result<()> {
+        let dir = global_dir();
+        std::fs::create_dir_all(&dir)
+            .with_context(|| format!("creating {}", dir.display()))?;
+        let text = toml::to_string_pretty(self).context("serialising integrations.toml")?;
+        let path = dir.join("integrations.toml");
+        atomic_write(&path, &text)?;
+        Ok(())
+    }
+
+    /// Upsert a record for `host`.
+    pub(crate) fn upsert(&mut self, record: IntegrationRecord) {
+        if let Some(existing) = self.hosts.iter_mut().find(|r| r.slug == record.slug) {
+            *existing = record;
+        } else {
+            self.hosts.push(record);
+        }
+    }
+
+    /// Remove a record for `host` slug. Returns true if anything was removed.
+    pub(crate) fn remove(&mut self, slug: &str) -> bool {
+        let before = self.hosts.len();
+        self.hosts.retain(|r| r.slug != slug);
+        self.hosts.len() < before
+    }
+}
+
+fn global_dir() -> std::path::PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".mnemglobal")
+}
+
+/// Record a successful integration into `~/.mnemglobal/integrations.toml`.
+fn record_integration(host: Host, components: Vec<String>) {
+    let mut reg = IntegrationRegistry::load();
+    let record = IntegrationRecord {
+        slug: host.slug().to_string(),
+        display: host.display().to_string(),
+        config_path: host.config_path().map(|p| p.display().to_string()),
+        hooks_path: host.hooks_path().map(|p| p.display().to_string()),
+        system_prompt_path: host.system_prompt_path().map(|p| p.display().to_string()),
+        integrated_at: now_millis(),
+        components,
+    };
+    reg.upsert(record);
+    if let Err(e) = reg.save() {
+        eprintln!("(warning: could not update integrations.toml: {e})");
+    }
+}
+
+/// Remove a host's record from `~/.mnemglobal/integrations.toml`.
+pub(crate) fn deregister_integration(host: Host) {
+    let mut reg = IntegrationRegistry::load();
+    reg.remove(host.slug());
+    if let Err(e) = reg.save() {
+        eprintln!("(warning: could not update integrations.toml: {e})");
+    }
+}
 
 // ---------- Host model ----------
 
@@ -534,9 +631,14 @@ pub(crate) fn run(args: Args) -> Result<()> {
     let stamp = timestamp();
     println!("Writing configs (backing up with .bak-{stamp}):");
     for host in selected {
+        let mut components: Vec<String> = Vec::new();
+        let mut any_ok = false;
+
         match do_wire(host, &target, &stamp, args.dry_run) {
             Ok(WireOutcome::Wrote) => {
                 println!("  ok {}  wired -> {}", host.display(), target.display());
+                components.push("mcp".to_string());
+                any_ok = true;
             }
             Ok(WireOutcome::DryRun(diff)) => {
                 println!("  -- {} (dry-run)\n{diff}", host.display());
@@ -547,6 +649,8 @@ pub(crate) fn run(args: Args) -> Result<()> {
                     host.display(),
                     target.display()
                 );
+                components.push("mcp".to_string());
+                any_ok = true;
             }
             Err(e) => {
                 println!("  !  {}  {e}", host.display());
@@ -559,12 +663,16 @@ pub(crate) fn run(args: Args) -> Result<()> {
             match do_wire_hooks(host, &stamp, args.dry_run) {
                 Ok(WireOutcome::Wrote) => {
                     println!("  ok {}  hooks wired", host.display());
+                    components.push("hooks".to_string());
+                    any_ok = true;
                 }
                 Ok(WireOutcome::DryRun(diff)) => {
                     println!("  -- {} hooks (dry-run)\n{diff}", host.display());
                 }
                 Ok(WireOutcome::AlreadyWired) => {
                     println!("  =  {}  hooks already wired", host.display());
+                    components.push("hooks".to_string());
+                    any_ok = true;
                 }
                 Err(e) => {
                     println!("  !  {}  hooks: {e}", host.display());
@@ -579,17 +687,25 @@ pub(crate) fn run(args: Args) -> Result<()> {
             match do_wire_system_prompt(host, &stamp, args.dry_run) {
                 Ok(WireOutcome::Wrote) => {
                     println!("  ok {}  system prompt wired", host.display());
+                    components.push("system_prompt".to_string());
+                    any_ok = true;
                 }
                 Ok(WireOutcome::DryRun(diff)) => {
                     println!("  -- {} system prompt (dry-run)\n{diff}", host.display());
                 }
                 Ok(WireOutcome::AlreadyWired) => {
                     println!("  =  {}  system prompt already wired", host.display());
+                    components.push("system_prompt".to_string());
+                    any_ok = true;
                 }
                 Err(e) => {
                     println!("  !  {}  system prompt: {e}", host.display());
                 }
             }
+        }
+        // Persist integration state so `mnem unintegrate` can find it.
+        if any_ok && !args.dry_run {
+            record_integration(host, components);
         }
     }
 
@@ -1024,7 +1140,7 @@ fn entry_is_mnem_hook(entry: &Value) -> bool {
         })
 }
 
-fn do_undo(host: Host, dry_run: bool) -> Result<()> {
+pub(crate) fn do_undo(host: Host, dry_run: bool) -> Result<()> {
     let path = match host.config_path() {
         Some(p) => p,
         None => {
