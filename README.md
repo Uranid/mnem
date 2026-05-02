@@ -46,17 +46,17 @@ Every node carries a cryptographic identity derived from DAG-CBOR + BLAKE3: the 
 
 2. <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> **Content-addressed objects**. Every node / tree / sidecar / commit has a CID derived from canonical DAG-CBOR + BLAKE3. Identical content collapses across machines. Determinism + replay become real, not a slogan. Peers use opaque UUIDs. → [Core concepts](docs/src/core-concepts.md)
 
-3. <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> **Token-budget transparency**. Every retrieve emits `tokens_used`, `candidates_seen`, `dropped` counters. No silent truncation. No other agent-memory system exposes this as first-class response fields. → [Observability](docs/src/architecture/retrieval.md)
+3. <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> **Token-budget transparency**. Every retrieve emits `tokens_used`, `candidates_seen`, `dropped` counters. No silent truncation. No other agent-memory system exposes this as first-class response fields.
 
-4. <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> **WASM-clean core**. `mnem-core` has no tokio, no filesystem, no network. Same retrieval logic compiles unchanged to `wasm32` - runs in Chrome, on Cloudflare Workers, on Lambda cold-start. Graphiti + mem0 are Python + external DB stacks; they cannot ship to the edge. → [Architecture overview](docs/src/architecture/overview.md)
+4. <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> **WASM-clean core**. `mnem-core` has no tokio, no filesystem, no network. Same retrieval logic compiles unchanged to `wasm32` - runs in Chrome, on Cloudflare Workers, on Lambda cold-start. Graphiti + mem0 are Python + external DB stacks; they cannot ship to the edge.
 
-5. <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> **Skills as graphs, not markdown**. Today, agent skills live in flat `.md` files - downloaded, pasted into prompts, hand-edited, never queried. mnem promotes them to a versioned, queryable, mergeable graph. Export your graph, import someone else's, diff the two, merge the parts you want. → [Agent memory guide](docs/src/guides/agent-memory.md)
+5. <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> **Skills as graphs, not markdown**. Today, agent skills live in flat `.md` files - downloaded, pasted into prompts, hand-edited, never queried. mnem promotes them to a versioned, queryable, mergeable graph. Export your graph, import someone else's, diff the two, merge the parts you want.
 
 6. <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> **Best-in-class retrieval recall**. Beats open-source peers on LoCoMo (+0.218 R@5), ConvoMem (+0.047), and MemBench (+0.120) under the same embedder; matches MemPalace on LongMemEval (R@5 0.966). Numbers reproducible with the shipped harness. → [Benchmarks](benchmarks/README.md)
 
 7. <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> **Plug-and-play**. Bundled ONNX MiniLM-L6-v2 runs in-process. No Ollama, no API keys, no cold-start network call. `mnem init` and you're retrieving. mem0 + Graphiti both require an external LLM endpoint at ingest. → [Install](docs/src/install.md)
 
-8. <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> **Single binary**. ~40 MB Docker image. Embedded redb store. No daemon, no cloud, no account. Runs offline. → [Architecture overview](docs/src/architecture/overview.md)
+8. <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> **Single binary**. ~40 MB Docker image. Embedded redb store. No daemon, no cloud, no account. Runs offline.
 
 9. <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> **Deterministic ingest**. No LLM at ingest. parse + chunk + extract is statistical (KeyBERT optional), so same bytes in produces same CIDs out. Audit-friendly, fuzz-tested, byte-identical across machines. → [Ingest pipeline](docs/src/guides/ingest.md)
 
@@ -66,7 +66,7 @@ Every node carries a cryptographic identity derived from DAG-CBOR + BLAKE3: the 
 
 12. <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> **Property + fuzz tests**. Parsers are property-tested + fuzz-harnessed; CAR round-trip and merge-commit are byte-identical. Trust signal usually only seen at the infra-DB tier.
 
-13. **Hybrid GraphRAG retrieval**. Vector (HNSW) + sparse (BM25 / SPLADE) + graph traversal, fused via RRF. GraphRAG built in and optional: on for multi-hop, off when dense saturates. → [Retrieval architecture](docs/src/architecture/retrieval.md)
+13. **Hybrid GraphRAG retrieval**. Vector (HNSW) + sparse (BM25 / SPLADE) + graph traversal, fused via RRF. GraphRAG built in and optional: on for multi-hop, off when dense saturates.
 
 ---
 
@@ -371,8 +371,7 @@ mnem ingest --extractor keybert notes.md
 - **Recall ceiling needed**: stack `--rerank` on top
 - **Keyphrase-enriched ingest**: `mnem ingest --extractor keybert` at ingest time
 
-Full retrieval architecture: [`docs/src/architecture/retrieval.md`](docs/src/architecture/retrieval.md)
-Tuning playbook: [`docs/src/guides/retrieval-tuning.md`](docs/src/guides/retrieval-tuning.md)
+Full retrieval architecture: [`docs/src/cli.md`](docs/src/cli.md) (retrieve flags)
 
 ---
 
@@ -453,7 +452,6 @@ Methodology, raw artifacts, per-bench breakdowns: [`benchmarks/`](benchmarks/) a
 
 ## Compared to others
 
-- [mnem vs Graphiti](docs/src/comparisons/graphiti.md) - bitemporal substrate, Neo4j-bound
 - [mnem vs mem0](docs/src/comparisons/mem0.md) - agent memory layer, OSS leader
 - [mnem vs MemPalace](docs/src/comparisons/mempalace.md) - methodology peer
 - [mnem vs Supermemory](docs/src/comparisons/supermemory.md) - closed-cloud incumbent
