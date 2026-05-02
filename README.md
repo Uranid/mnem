@@ -17,6 +17,10 @@
 
 ---
 
+**[What it is](#what-it-is)** · **[Install](#install)** · **[Quickstart](#quickstart)** · **[Integrate](#mnem-integrate---wire-into-any-agent-host)** · **[Commands](#commands)** · **[GraphRAG](#graphrag)** · **[Benchmarks](#benchmarks)** · **[vs others](#compared-to-others)** · **[Docs](#documentation)** · **[Contributing](#contributing)**
+
+---
+
 ## What it is
 
 **A content-addressed knowledge graph with hybrid GraphRAG retrieval, versioned commits, and deterministic ingest, built as a persistent memory substrate for AI agents.**
@@ -470,12 +474,6 @@ Full matrix: [`docs/src/comparisons/README.md`](docs/src/comparisons/README.md).
 
 ---
 
-## Architecture
-
-15-crate Rust workspace. WASM-clean core, async/IO at the edges. Per-commit embedding sidecars; node identity is decoupled from the embedder. Three retrieval lanes (vector + sparse + graph) fused with RRF.
-
-Full overview: [`docs/src/architecture/overview.md`](docs/src/architecture/overview.md).
-
 ## Crates
 
 | Crate | Role |
@@ -508,7 +506,6 @@ Full overview: [`docs/src/architecture/overview.md`](docs/src/architecture/overv
 - [MCP server](docs/src/mcp.md) - tools exposed, client wiring
 - [Core concepts](docs/src/core-concepts.md) - CIDs, commits, labels
 - [Configuration](docs/src/configuration.md) - env vars, config.toml
-- [Architecture overview](docs/src/architecture/overview.md)
 - [Benchmarks methodology](docs/src/benchmarks/methodology.md)
 - [Reproduce benchmarks](docs/src/benchmarks/reproduce.md)
 - [Retrieval tuning](docs/src/guides/retrieval-tuning.md)
