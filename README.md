@@ -365,7 +365,7 @@ MemPalace's harness helper. Reproduce: `bash benchmarks/harness/run_bench.sh`.
 | ConvoMem | 250 (5x50) | avg recall | 0.929 | <font color="#4caf6f">**0.976**</font> | **+0.047** |
 | MemBench | simple/roles 100 | R@5 | 0.840 | <font color="#4caf6f">**0.960**</font> | **+0.120** |
 | MemBench | highlevel/movie 100 | R@5 | 0.950 | <font color="#4caf6f">**1.000**</font> | **+0.050** |
-| LongMemEval | 500 Q hybrid-v4 | R@5 session | 0.982 | <font color="#e05c4b">0.976</font> | -0.006 |
+| LongMemEval | 500 Q hybrid-v4 | R@5 session | 0.982 | <font color="#e05c4b">**0.976**</font> | **-0.006** |
 
 ### vs mem0
 

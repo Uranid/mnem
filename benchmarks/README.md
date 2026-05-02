@@ -18,7 +18,7 @@ helper. No LLM rerank. ONNX MiniLM-L6-v2 in-process.
 | ConvoMem | 250 (5x50) | avg recall | 0.929 | <font color="#4caf6f">**0.976**</font> | **+0.047** | 398 (retr) |
 | MemBench | simple/roles 100 | R@5 | 0.840 | <font color="#4caf6f">**0.960**</font> | **+0.120** | 1874 (e2e) |
 | MemBench | highlevel/movie 100 | R@5 | 0.950 | <font color="#4caf6f">**1.000**</font> | **+0.050** | 491 (e2e) |
-| LongMemEval | 500 Q hybrid-v4 | R@5 session | 0.982 | <font color="#e05c4b">0.976</font> | -0.006 | 729 (retr) |
+| LongMemEval | 500 Q hybrid-v4 | R@5 session | 0.982 | <font color="#e05c4b">**0.976**</font> | **-0.006** | 729 (retr) |
 
 `(retr)` = retrieve-only mean from summary timing.
 `(e2e)` = end-to-end mean (runtime / n) when the adapter doesn't expose phase timing.

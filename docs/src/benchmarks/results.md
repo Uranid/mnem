@@ -14,7 +14,7 @@ ONNX MiniLM-L6-v2 (bundled, in-process). 4 cores per lane.
 | ConvoMem | 5 cat × 50 items (250) | avg recall | 0.929 | <font color="#4caf6f">**0.976**</font> | **+0.047** | 398 (retr) |
 | MemBench | simple/roles, 100 items | R@5 | 0.840 | <font color="#4caf6f">**0.960**</font> | **+0.120** | 1874 (e2e) |
 | MemBench | highlevel/movie, 100 items | R@5 | 0.950 | <font color="#4caf6f">**1.000**</font> | **+0.050** | 491 (e2e) |
-| LongMemEval | 500 Q, Hybrid v4 | R@5 session | 0.982 | <font color="#e05c4b">0.976</font> | -0.006 | 729 (retr) |
+| LongMemEval | 500 Q, Hybrid v4 | R@5 session | 0.982 | <font color="#e05c4b">**0.976**</font> | **-0.006** | 729 (retr) |
 
 `(retr)` = retrieve-only mean (from summary timing).
 `(e2e)` = end-to-end mean (runtime / n) when adapter doesn't expose phase timing.
