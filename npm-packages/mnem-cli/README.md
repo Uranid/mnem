@@ -1,11 +1,11 @@
-# @uranid/mnem
+# mnem-cli
 
 **Git for knowledge graphs** — versioned, content-addressed, embeddable agent memory.
 
 ## Install
 
 ```bash
-npm install -g @uranid/mnem
+npm install -g mnem-cli
 ```
 
 Or with bundled embedder (recommended):
