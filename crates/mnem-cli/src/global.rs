@@ -72,8 +72,8 @@ impl RepoRegistry {
         if !path.exists() {
             return Ok(Self::default());
         }
-        let text = fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let text =
+            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
     }
 
@@ -151,8 +151,7 @@ pub(crate) fn bootstrap(global_dir: &Path) -> Result<bool> {
     if mnem_dir.exists() {
         return Ok(false);
     }
-    fs::create_dir_all(global_dir)
-        .with_context(|| format!("creating {}", global_dir.display()))?;
+    fs::create_dir_all(global_dir).with_context(|| format!("creating {}", global_dir.display()))?;
     crate::commands::init::init_mnem_dir(global_dir)
         .with_context(|| format!("initialising graph in {}", global_dir.display()))?;
     Ok(true)

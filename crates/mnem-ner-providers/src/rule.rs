@@ -7,16 +7,30 @@ use crate::provider::{NamedEntity, NerProvider};
 
 /// Common leading words that should not start an entity span.
 const COMMON_DENYLIST: &[&str] = &[
-    "The", "This", "That", "These", "Those", "A", "An", "And", "Or", "But", "If", "In", "On",
-    "At", "To", "From", "With", "By", "For", "Of", "As", "Is", "Was", "Are", "Were", "Be",
-    "Been", "Being", "I", "We", "You", "He", "She", "It", "They", "My", "Our", "Your", "His",
-    "Her", "Their", "Mr", "Mrs", "Ms", "Dr",
+    "The", "This", "That", "These", "Those", "A", "An", "And", "Or", "But", "If", "In", "On", "At",
+    "To", "From", "With", "By", "For", "Of", "As", "Is", "Was", "Are", "Were", "Be", "Been",
+    "Being", "I", "We", "You", "He", "She", "It", "They", "My", "Our", "Your", "His", "Her",
+    "Their", "Mr", "Mrs", "Ms", "Dr",
 ];
 
 /// Suffix tokens that promote a capitalized run to Organization.
 const ORG_SUFFIXES: &[&str] = &[
-    "Inc", "Inc.", "LLC", "Ltd", "Ltd.", "Corp", "Corp.", "Corporation", "Company", "Co", "Co.",
-    "GmbH", "AG", "SA", "BV", "PLC",
+    "Inc",
+    "Inc.",
+    "LLC",
+    "Ltd",
+    "Ltd.",
+    "Corp",
+    "Corp.",
+    "Corporation",
+    "Company",
+    "Co",
+    "Co.",
+    "GmbH",
+    "AG",
+    "SA",
+    "BV",
+    "PLC",
 ];
 
 /// Rule-based [`NerProvider`] that detects Person and Organization spans

@@ -60,7 +60,10 @@ pub(in crate::tools) fn commit(server: &mut Server, args: Value) -> Result<Strin
             } else {
                 Node::DEFAULT_NTYPE
             };
-            let summary_text = nv.get("summary").and_then(Value::as_str).map(str::to_string);
+            let summary_text = nv
+                .get("summary")
+                .and_then(Value::as_str)
+                .map(str::to_string);
             let mut node = Node::new(NodeId::new_v7(), ntype);
             if let Some(ref s) = summary_text {
                 node = node.with_summary(s);

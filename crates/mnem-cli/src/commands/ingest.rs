@@ -283,7 +283,10 @@ pub(crate) fn run(override_path: Option<&Path>, a: Args) -> Result<()> {
         };
         let mut ing = Ingester::new(config);
         if let Some(emb) = &keybert_embedder {
-            ing = ing.with_extractor(Box::new(mnem_ingest::KeyBertAdapter::new(emb.clone(), "Keyword")));
+            ing = ing.with_extractor(Box::new(mnem_ingest::KeyBertAdapter::new(
+                emb.clone(),
+                "Keyword",
+            )));
         }
         if let Some(cb) = &progress_cb {
             ing = ing.with_progress(cb.clone());

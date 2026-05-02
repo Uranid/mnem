@@ -124,7 +124,11 @@ impl RuleExtractor {
             r"(?i)\b(?:joined|founded|acquired|owns|hired|created|launched|bought|leads|runs)\b",
         )
         .expect("verb regex compiles");
-        Self { cfg, verb_window, ner }
+        Self {
+            cfg,
+            verb_window,
+            ner,
+        }
     }
 
     /// Build with the default [`mnem_ner_providers::RuleNer`] provider.
@@ -151,9 +155,13 @@ impl Extractor for RuleExtractor {
             .extract(text)
             .into_iter()
             .filter_map(|ne| {
-                if ne.label.trim().is_empty() { return None; }
+                if ne.label.trim().is_empty() {
+                    return None;
+                }
                 let slice = text.get(ne.byte_start..ne.byte_end)?.to_string();
-                if slice.is_empty() { return None; }
+                if slice.is_empty() {
+                    return None;
+                }
                 Some(EntitySpan {
                     kind: ne.label,
                     text: slice,
@@ -247,20 +255,14 @@ mod tests {
             ents.iter().any(|e| e.text == "Alice Johnson"),
             "got: {ents:?}"
         );
-        assert!(
-            ents.iter().any(|e| e.text == "Bob Lee"),
-            "got: {ents:?}"
-        );
+        assert!(ents.iter().any(|e| e.text == "Bob Lee"), "got: {ents:?}");
     }
 
     #[test]
     fn ner_detects_org() {
         let s = section("Acme Corp and Foo Inc signed the deal.");
         let ents = extract_entities(&s);
-        assert!(
-            ents.iter().any(|e| e.text == "Acme Corp"),
-            "got: {ents:?}"
-        );
+        assert!(ents.iter().any(|e| e.text == "Acme Corp"), "got: {ents:?}");
     }
 
     #[test]
@@ -312,12 +314,18 @@ mod tests {
         use mnem_ner_providers::NullNer;
         let ext = RuleExtractor::new(ExtractorConfig::default(), Arc::new(NullNer));
         let s = section("Alice Johnson founded Acme Corp.");
-        assert!(ext.extract_entities(&s).is_empty(), "NullNer must produce nothing");
+        assert!(
+            ext.extract_entities(&s).is_empty(),
+            "NullNer must produce nothing"
+        );
     }
 
     #[test]
     fn extract_ner_false_produces_no_entities() {
-        let cfg = ExtractorConfig { extract_ner: false, ..ExtractorConfig::default() };
+        let cfg = ExtractorConfig {
+            extract_ner: false,
+            ..ExtractorConfig::default()
+        };
         let ext = RuleExtractor::with_default_ner(cfg);
         let s = section("Alice Johnson founded Acme Corp.");
         assert!(ext.extract_entities(&s).is_empty());

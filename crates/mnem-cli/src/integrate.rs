@@ -52,8 +52,7 @@ impl IntegrationRegistry {
 
     fn save(&self) -> Result<()> {
         let dir = global_dir();
-        std::fs::create_dir_all(&dir)
-            .with_context(|| format!("creating {}", dir.display()))?;
+        std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
         let text = toml::to_string_pretty(self).context("serialising integrations.toml")?;
         let path = dir.join("integrations.toml");
         atomic_write(&path, &text)?;
@@ -989,9 +988,7 @@ fn do_wire_system_prompt(host: Host, stamp: &str, dry_run: bool) -> Result<WireO
         return Ok(WireOutcome::AlreadyWired);
     };
     match host.system_prompt_kind() {
-        SystemPromptKind::MarkdownMarker => {
-            do_wire_sp_markdown(host, &path, stamp, dry_run)
-        }
+        SystemPromptKind::MarkdownMarker => do_wire_sp_markdown(host, &path, stamp, dry_run),
         SystemPromptKind::JsonField(field) => {
             do_wire_sp_json(host, &path, &[field], stamp, dry_run)
         }
@@ -1062,7 +1059,9 @@ fn do_wire_sp_json(
             .with_context(|| format!("parsing {}", path.display()))?
     };
 
-    let current_str = json_get_str(&root, field_path).unwrap_or_default().to_string();
+    let current_str = json_get_str(&root, field_path)
+        .unwrap_or_default()
+        .to_string();
     let new_str = merge_json_prompt(&current_str, host.system_prompt_content());
 
     if new_str == current_str {
@@ -1129,11 +1128,17 @@ fn json_set_str(root: &mut Value, path: &[&str], val: String) {
 /// `[mnem-prompt:start/end]` text markers. Appends if no markers yet;
 /// replaces between markers on re-runs.
 fn merge_json_prompt(existing: &str, prompt: &str) -> String {
-    let block = format!("\n{}\n{}\n{}", JSON_MARKER_START, prompt.trim_end(), JSON_MARKER_END);
+    let block = format!(
+        "\n{}\n{}\n{}",
+        JSON_MARKER_START,
+        prompt.trim_end(),
+        JSON_MARKER_END
+    );
 
-    if let (Some(start), Some(end_start)) =
-        (existing.find(JSON_MARKER_START), existing.find(JSON_MARKER_END))
-    {
+    if let (Some(start), Some(end_start)) = (
+        existing.find(JSON_MARKER_START),
+        existing.find(JSON_MARKER_END),
+    ) {
         if end_start > start {
             let tail = end_start + JSON_MARKER_END.len();
             return format!("{}{}{}", &existing[..start], &block[1..], &existing[tail..]);
@@ -1145,9 +1150,10 @@ fn merge_json_prompt(existing: &str, prompt: &str) -> String {
 
 /// Remove the `[mnem-prompt:start/end]` block from a JSON string field value.
 fn remove_json_prompt(existing: &str) -> String {
-    if let (Some(start), Some(end_start)) =
-        (existing.find(JSON_MARKER_START), existing.find(JSON_MARKER_END))
-    {
+    if let (Some(start), Some(end_start)) = (
+        existing.find(JSON_MARKER_START),
+        existing.find(JSON_MARKER_END),
+    ) {
         if end_start > start {
             let tail = end_start + JSON_MARKER_END.len();
             let head = existing[..start].trim_end_matches('\n');
@@ -1175,7 +1181,9 @@ fn undo_json_prompt(host: Host, path: &Path, field_path: &[&str], dry_run: bool)
         serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?
     };
 
-    let current = json_get_str(&root, field_path).unwrap_or_default().to_string();
+    let current = json_get_str(&root, field_path)
+        .unwrap_or_default()
+        .to_string();
     let stripped = remove_json_prompt(&current);
     if stripped == current {
         return Ok(false);
@@ -1341,8 +1349,7 @@ fn do_wire_hooks(host: Host, stamp: &str, dry_run: bool) -> Result<WireOutcome> 
     {
         let script_path = windows_hook_script_path();
         if let Some(parent) = script_path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("creating {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
         }
         let content = windows_hook_script_content(&resolve_mnem_command());
         atomic_write(&script_path, &content)?;
@@ -1490,8 +1497,8 @@ pub(crate) fn do_undo(host: Host, dry_run: bool) -> Result<()> {
     {
         match host.system_prompt_kind() {
             SystemPromptKind::MarkdownMarker => {
-                let s = fs::read_to_string(&pp)
-                    .with_context(|| format!("reading {}", pp.display()))?;
+                let s =
+                    fs::read_to_string(&pp).with_context(|| format!("reading {}", pp.display()))?;
                 let new_s = remove_system_prompt(&s);
                 if new_s == s {
                     false
@@ -1512,14 +1519,15 @@ pub(crate) fn do_undo(host: Host, dry_run: bool) -> Result<()> {
                         );
                     } else {
                         atomic_write(&pp, &new_s)?;
-                        println!("  ok {}  removed mnem system-prompt section", host.display());
+                        println!(
+                            "  ok {}  removed mnem system-prompt section",
+                            host.display()
+                        );
                     }
                     true
                 }
             }
-            SystemPromptKind::JsonField(field) => {
-                undo_json_prompt(host, &pp, &[field], dry_run)?
-            }
+            SystemPromptKind::JsonField(field) => undo_json_prompt(host, &pp, &[field], dry_run)?,
             SystemPromptKind::JsonNestedField(parent, child) => {
                 undo_json_prompt(host, &pp, &[parent, child], dry_run)?
             }
@@ -2194,13 +2202,25 @@ mod tests {
                 "Windows hook must reference the .ps1 script: {cmd}"
             );
             let script = windows_hook_script_content("mnem");
-            assert!(script.contains("global retrieve"), "PS1 must call global retrieve: {script}");
-            assert!(script.contains("mnem"), "PS1 must reference the binary: {script}");
+            assert!(
+                script.contains("global retrieve"),
+                "PS1 must call global retrieve: {script}"
+            );
+            assert!(
+                script.contains("mnem"),
+                "PS1 must reference the binary: {script}"
+            );
         }
         #[cfg(not(target_os = "windows"))]
         {
-            assert!(cmd.contains("global retrieve"), "hook must call global retrieve: {cmd}");
-            assert!(cmd.contains("mnem"), "hook must reference the binary: {cmd}");
+            assert!(
+                cmd.contains("global retrieve"),
+                "hook must call global retrieve: {cmd}"
+            );
+            assert!(
+                cmd.contains("mnem"),
+                "hook must reference the binary: {cmd}"
+            );
         }
     }
 
@@ -2347,7 +2367,11 @@ mod tests {
         // this test will start returning the absolute path; either
         // outcome is correct, so we accept both.
         let cmd = resolve_mnem_mcp_command();
-        let ok = cmd == "mnem" || cmd.ends_with("/mnem") || cmd.ends_with("\\mnem") || cmd.ends_with("/mnem.exe") || cmd.ends_with("\\mnem.exe");
+        let ok = cmd == "mnem"
+            || cmd.ends_with("/mnem")
+            || cmd.ends_with("\\mnem")
+            || cmd.ends_with("/mnem.exe")
+            || cmd.ends_with("\\mnem.exe");
         assert!(ok, "resolver returned unexpected value: {cmd}");
     }
 
@@ -2424,10 +2448,7 @@ fn setup_global(interactive: bool) -> Result<()> {
         global_dir.clone(),
     )];
     if cwd != global_dir {
-        choices.push((
-            format!("{}  (current directory)", cwd.display()),
-            cwd,
-        ));
+        choices.push((format!("{}  (current directory)", cwd.display()), cwd));
     }
 
     let default_repo = if interactive {
@@ -2444,13 +2465,12 @@ fn setup_global(interactive: bool) -> Result<()> {
     };
 
     reg.register(&default_repo, true);
-    reg.save(&global_dir)
-        .with_context(|| {
-            format!(
-                "saving {}",
-                crate::global::registry_path(&global_dir).display()
-            )
-        })?;
+    reg.save(&global_dir).with_context(|| {
+        format!(
+            "saving {}",
+            crate::global::registry_path(&global_dir).display()
+        )
+    })?;
 
     if interactive || fresh {
         println!("  ok default repo  {}", default_repo.display());

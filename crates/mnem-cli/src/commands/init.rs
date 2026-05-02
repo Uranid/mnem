@@ -132,6 +132,13 @@ pub(crate) fn init_mnem_dir(parent: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Fixed UUID for the Meta anchor node so `content_cid` is deterministic
+/// across any two fresh repos that ingest the same user data.
+/// audit-2026-04-25 P0-1 fix: using new_v7() here made every init produce a
+/// different node ID, which propagated into the node-tree root CID and
+/// ultimately into content_cid, breaking the determinism invariant.
+const ANCHOR_NODE_ID: &str = "00000000-0000-7000-8000-6d6e656d0001";
+
 /// Commit a minimal anchor node to a freshly-initialised repo.
 /// Non-fatal: store or embed failures are silently swallowed so they
 /// never block `mnem init` or `mnem integrate`. The node gives the
@@ -139,7 +146,9 @@ pub(crate) fn init_mnem_dir(parent: &Path) -> Result<()> {
 /// first second, so `mnem global retrieve` has something to return
 /// without a manual `mnem reindex` run.
 fn seed_anchor_node(repo: &ReadonlyRepo, data_dir: &std::path::Path) {
-    let node = Node::new(NodeId::new_v7(), "Meta")
+    let anchor_id = NodeId::parse_uuid(ANCHOR_NODE_ID)
+        .expect("ANCHOR_NODE_ID is a valid UUID; this is a compile-time constant");
+    let node = Node::new(anchor_id, "Meta")
         .with_summary("mnem is a persistent knowledge graph.")
         .with_prop("name".to_string(), Ipld::String("mnem".to_string()));
 

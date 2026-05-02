@@ -5,13 +5,13 @@
 
 pub(super) mod commit;
 pub(super) mod commit_relation;
-pub(super) mod global_add;
-pub(super) mod global_ingest;
-pub(super) mod global_retrieve;
 #[cfg(feature = "summarize")]
 pub(super) mod community_summarize;
 pub(super) mod delete_node;
 pub(super) mod get_node;
+pub(super) mod global_add;
+pub(super) mod global_ingest;
+pub(super) mod global_retrieve;
 pub(super) mod ingest;
 pub(super) mod list_nodes;
 pub(super) mod recent;

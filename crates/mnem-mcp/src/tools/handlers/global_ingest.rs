@@ -180,13 +180,24 @@ fn embed_global_nodes(
     let mut to_embed: Vec<(Cid, String)> = Vec::new();
     for entry in cursor {
         let Ok((_k, node_cid)) = entry else { continue };
-        let Ok(Some(bytes)) = bs.get(&node_cid) else { continue };
-        let Ok(node) = from_canonical_bytes::<Node>(&bytes) else { continue };
-        let Some(summary) = node.summary.as_deref() else { continue };
+        let Ok(Some(bytes)) = bs.get(&node_cid) else {
+            continue;
+        };
+        let Ok(node) = from_canonical_bytes::<Node>(&bytes) else {
+            continue;
+        };
+        let Some(summary) = node.summary.as_deref() else {
+            continue;
+        };
         if summary.trim().is_empty() {
             continue;
         }
-        if repo.embedding_for(&node_cid, &model).ok().flatten().is_some() {
+        if repo
+            .embedding_for(&node_cid, &model)
+            .ok()
+            .flatten()
+            .is_some()
+        {
             continue;
         }
         to_embed.push((node_cid, summary.to_string()));
@@ -199,16 +210,20 @@ fn embed_global_nodes(
     let mut tx = repo.start_transaction();
     let mut count = 0usize;
     for (node_cid, text) in &to_embed {
-        let Ok(vec) = embedder.embed(text) else { continue };
+        let Ok(vec) = embedder.embed(text) else {
+            continue;
+        };
         let emb = mnem_embed_providers::to_embedding(&model, &vec);
-        if tx.set_embedding(node_cid.clone(), model.clone(), emb).is_ok() {
+        if tx
+            .set_embedding(node_cid.clone(), model.clone(), emb)
+            .is_ok()
+        {
             count += 1;
         }
     }
 
     if count > 0 {
-        let opts =
-            mnem_core::repo::CommitOptions::new(agent_id, "mnem_global_ingest: embed nodes");
+        let opts = mnem_core::repo::CommitOptions::new(agent_id, "mnem_global_ingest: embed nodes");
         let _ = tx.commit_opts(opts);
     }
 

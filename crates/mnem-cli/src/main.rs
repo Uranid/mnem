@@ -21,8 +21,8 @@ mod global;
 mod http;
 mod integrate;
 mod mcp;
-mod unintegrate;
 mod repo;
+mod unintegrate;
 mod wizard;
 
 #[derive(Parser)]

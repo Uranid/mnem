@@ -26,7 +26,9 @@
 
 #![cfg(feature = "summarize")]
 
-use mnem_embed_providers::{OllamaConfig, OnnxConfig, OpenAiConfig, ProviderConfig as EmbedProviderConfig};
+use mnem_embed_providers::{
+    OllamaConfig, OnnxConfig, OpenAiConfig, ProviderConfig as EmbedProviderConfig,
+};
 use serde::Deserialize;
 
 /// Default model picked when the `bundled-embedder` cargo feature

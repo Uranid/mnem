@@ -106,7 +106,9 @@ impl HttpServer {
         loop {
             if Instant::now() > deadline {
                 let _ = child.kill();
-                panic!("mnem http serve did not come up on {base_url} within 5s: last={last_err:?}");
+                panic!(
+                    "mnem http serve did not come up on {base_url} within 5s: last={last_err:?}"
+                );
             }
             match ureq::get(&healthz)
                 .timeout(Duration::from_millis(250))

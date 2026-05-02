@@ -84,10 +84,7 @@ pub(in crate::tools) fn resolve_or_create(server: &mut Server, args: Value) -> R
     // the local node. Best-effort: if the global graph is unreachable
     // (not yet initialised, missing dir, store error), the local commit
     // proceeds normally and a stderr note is emitted instead of failing.
-    let want_global = args
-        .get("global")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let want_global = args.get("global").and_then(Value::as_bool).unwrap_or(false);
 
     let global_anchor_uuid: Option<String> = if want_global {
         try_stamp_global(&label, &prop_name, &value, &agent_id)

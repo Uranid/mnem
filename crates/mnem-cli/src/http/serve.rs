@@ -30,9 +30,7 @@ pub(crate) struct ServeArgs {
 pub(crate) fn run(args: ServeArgs) -> Result<()> {
     init_tracing();
 
-    if !args.bind.ip().is_loopback()
-        && std::env::var_os("MNEM_HTTP_ALLOW_NON_LOOPBACK").is_none()
-    {
+    if !args.bind.ip().is_loopback() && std::env::var_os("MNEM_HTTP_ALLOW_NON_LOOPBACK").is_none() {
         eprintln!(
             "mnem http: refusing to bind non-loopback address {} without explicit opt-in.\n\
              mnem http has NO authentication layer in v1. Set MNEM_HTTP_ALLOW_NON_LOOPBACK=1 to bypass.",
@@ -68,7 +66,7 @@ pub(crate) fn run(args: ServeArgs) -> Result<()> {
 
 fn init_tracing() {
     #[allow(unused_imports)]
-	use tracing_subscriber::{EnvFilter, fmt};
+    use tracing_subscriber::{EnvFilter, fmt};
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "mnem_http=info,tower_http=warn".into());
     let fmt = std::env::var("MNEM_LOG_FORMAT")
@@ -83,9 +81,7 @@ fn init_tracing() {
             .init(),
         "text" => tracing_subscriber::fmt().with_env_filter(env_filter).init(),
         other => {
-            eprintln!(
-                "mnem http: unrecognised MNEM_LOG_FORMAT={other:?}; falling back to `text`"
-            );
+            eprintln!("mnem http: unrecognised MNEM_LOG_FORMAT={other:?}; falling back to `text`");
             tracing_subscriber::fmt().with_env_filter(env_filter).init();
         }
     }

@@ -44,7 +44,11 @@ fn cmd_list(global_dir: &Path) -> Result<()> {
             .as_deref()
             .map(|l| format!("  [{l}]"))
             .unwrap_or_default();
-        let exists = if entry.path.exists() { "" } else { "  (missing)" };
+        let exists = if entry.path.exists() {
+            ""
+        } else {
+            "  (missing)"
+        };
         println!("{marker} {}{label}{exists}", entry.path.display());
     }
     if let Some(d) = reg.default_repo() {

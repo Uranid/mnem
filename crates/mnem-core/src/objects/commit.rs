@@ -135,17 +135,21 @@ impl Commit {
         self
     }
 
-    /// (partial): a deterministic CID over only
-    /// the data-DAG portion of the commit -- the three Prolly tree
-    /// roots (nodes, edges, schema), the optional indexes root, and
-    /// the parents list. Excludes time, change_id, author, message,
-    /// agent_id, task_id, signature, and extra.
+    /// A deterministic CID over only the data-DAG portion of the commit --
+    /// the three Prolly tree roots (nodes, edges, schema) and the optional
+    /// indexes root. Excludes time, change_id, author, message, agent_id,
+    /// task_id, signature, extra, and **parents**.
     ///
-    /// Two ingest runs against byte-identical input on different
-    /// machines (or at different times) MUST produce the same
-    /// `content_cid`. The standard `commit_cid` continues to embed
-    /// wall-clock + UUIDv7 metadata for audit-trail purposes; that
-    /// CID is intentionally time-varying.
+    /// Two ingest runs against byte-identical input on different machines
+    /// (or at different times) MUST produce the same `content_cid`. The
+    /// standard `commit_cid` continues to embed wall-clock + UUIDv7
+    /// metadata for audit-trail purposes; that CID is intentionally
+    /// time-varying.
+    ///
+    /// Parents are excluded because they are `commit_cid`s of ancestor
+    /// commits, which embed timestamps and are therefore time-varying.
+    /// Including them would make `content_cid` non-deterministic across
+    /// independent repos even when the graph data is identical.
     ///
     /// # Errors
     /// Propagates encoding failures from
@@ -156,22 +160,14 @@ impl Commit {
     /// existing fields, so older blockstores stay readable. A
     /// follow-up may persist `content_cid` alongside `commit_cid` in
     /// the operation log for cheap lookup.
+    /// schema_version 2: parents removed from payload (audit fix P0-1).
     pub fn content_cid(&self) -> Result<Cid, crate::error::CodecError> {
-        // Sort parents to make the hash insensitive to merge order
-        // (a future merge that swaps the parent list order would
-        // otherwise produce a different content_cid for an identical
-        // resulting graph). Parent order is not semantically meaningful
-        // for content-addressing.
-        let mut parents = self.parents.clone();
-        parents.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
-
         let payload = ContentCidPayload {
-            schema_version: 1,
+            schema_version: 2,
             nodes: self.nodes.clone(),
             edges: self.edges.clone(),
             schema: self.schema.clone(),
             indexes: self.indexes.clone(),
-            parents,
         };
         let (_bytes, cid) = crate::codec::dagcbor::hash_to_cid(&payload)?;
         Ok(cid)
@@ -181,9 +177,10 @@ impl Commit {
 /// Stable wire shape for `Commit::content_cid()`. The struct is
 /// intentionally NOT exposed publicly: `content_cid` is purely a
 /// derived value, and the on-disk Commit format does not change.
-/// Schema version 1 is the post-audit baseline; any future
-/// content_cid layout change MUST bump `schema_version` so that two
-/// versions of the codebase agree on whether they would compare equal.
+/// Schema version 2 (post audit-2026-04-25 P0-1): parents removed so
+/// that content_cid is deterministic across independent repos with the
+/// same graph data. Any future layout change MUST bump `schema_version`
+/// so that two versions of the codebase agree on whether they compare equal.
 #[derive(Serialize)]
 struct ContentCidPayload {
     schema_version: u8,
@@ -192,7 +189,6 @@ struct ContentCidPayload {
     schema: Cid,
     #[serde(skip_serializing_if = "Option::is_none")]
     indexes: Option<Cid>,
-    parents: Vec<Cid>,
 }
 
 // ---------------- Serde ----------------

@@ -27,7 +27,9 @@ use std::time::Instant;
 
 use axum::Json;
 use axum::extract::{Multipart, State};
-use mnem_ingest::{ChunkerAuto, ChunkerKind, IngestConfig, Ingester, NerConfig, SourceKind, auto_chunker};
+use mnem_ingest::{
+    ChunkerAuto, ChunkerKind, IngestConfig, Ingester, NerConfig, SourceKind, auto_chunker,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 

@@ -20,8 +20,8 @@ pub(crate) mod descriptions;
 pub(crate) mod embed;
 // Shared NER resolver for the ingest handler (always present since
 // mnem-ingest is an unconditional dep of mnem-mcp).
-pub(crate) mod ner;
 mod handlers;
+pub(crate) mod ner;
 
 pub use descriptions::all_tools;
 
