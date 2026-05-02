@@ -99,11 +99,11 @@ cargo install --locked mnem-cli --features bundled-embedder-directml
 <summary><b>npm / Node.js</b></summary>
 
 ```bash
-npm install -g @uranid/mnem
+npm install -g mnem-cli
 mnem --version
 
 # or without a global install (one-shot)
-npx @uranid/mnem --version
+npx mnem-cli --version
 ```
 
 Downloads the prebuilt native binary for your platform at install time. Node 18+ required. Bundled embedder included — no Ollama or API key needed.

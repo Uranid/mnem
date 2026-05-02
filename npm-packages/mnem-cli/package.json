@@ -1,5 +1,5 @@
 {
-  "name": "@uranid/mnem",
+  "name": "mnem-cli",
   "version": "0.2.0",
   "description": "Git for knowledge graphs - versioned, content-addressed, embeddable agent memory",
   "author": "mnem contributors",

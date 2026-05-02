@@ -816,7 +816,7 @@ jobs:
   # Requires: NPM_TOKEN repo secret (Automation token from npmjs.com).
   # -----------------------------------------------------------------
   publish-npm:
-    name: publish npm (@uranid/mnem)
+    name: publish npm (mnem-cli)
     needs: [release, binaries]
     if: needs.release.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
@@ -838,10 +838,10 @@ jobs:
           cd npm-packages/mnem-cli
           npm version "$VERSION" --no-git-tag-version --allow-same-version
       - name: Publish
-        run: npm publish --access public --provenance
+        run: npm publish --provenance
         working-directory: npm-packages/mnem-cli
         # No NODE_AUTH_TOKEN - uses npm OIDC trusted publishing.
-        # Requires @uranid/mnem to exist on npmjs.com (first publish is manual)
+        # Requires mnem-cli to exist on npmjs.com (first publish is manual)
         # and this workflow registered as a trusted publisher in the npm package settings.
 
   # -----------------------------------------------------------------
