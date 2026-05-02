@@ -13,7 +13,7 @@ use mnem_core::objects::{Edge, Node};
 use serde_json::Value;
 use std::path::PathBuf;
 
-pub(in crate::tools) fn global_add(server: &mut Server, args: Value) -> Result<String> {
+pub(in crate::tools) fn global_add(server: &Server, args: Value) -> Result<String> {
     let global_data = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".mnemglobal")

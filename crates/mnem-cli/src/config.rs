@@ -782,10 +782,10 @@ pub(crate) fn resolve_embedder(cfg: &Config) -> Option<ProviderConfig> {
 pub(crate) fn bundled_embedder_default() -> Option<ProviderConfig> {
     #[cfg(feature = "bundled-embedder")]
     {
-        return Some(ProviderConfig::Onnx(OnnxConfig {
+        Some(ProviderConfig::Onnx(OnnxConfig {
             model: BUNDLED_EMBEDDER_DEFAULT_MODEL.to_string(),
             ..Default::default()
-        }));
+        }))
     }
     #[cfg(not(feature = "bundled-embedder"))]
     None

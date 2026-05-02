@@ -105,7 +105,7 @@ fn cmd_retrieve(global_dir: &Path, args: GlobalRetrieveArgs) -> Result<()> {
         None
     } else {
         let cfg = config::load(&global_mnem).ok();
-        let pc = cfg.as_ref().and_then(|c| config::resolve_embedder(c));
+        let pc = cfg.as_ref().and_then(config::resolve_embedder);
         if let Some(pc) = pc {
             match mnem_embed_providers::open(&pc) {
                 Ok(embedder) => match embedder.embed(&query) {
@@ -125,7 +125,7 @@ fn cmd_retrieve(global_dir: &Path, args: GlobalRetrieveArgs) -> Result<()> {
         }
     };
 
-    let r = repo::open_repo(Some(global_dir.as_ref()))?;
+    let r = repo::open_repo(Some(global_dir))?;
     let mut ret = r.retrieve().limit(limit).query_text(query);
     if let Some((model, vec)) = &opt_vec {
         ret = ret.vector(model.clone(), vec.clone());

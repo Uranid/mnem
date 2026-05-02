@@ -99,10 +99,10 @@ pub(crate) fn resolve_embed_cfg(repo_path: &std::path::Path) -> Option<EmbedProv
 pub(crate) fn bundled_embedder_default() -> Option<EmbedProviderConfig> {
     #[cfg(feature = "bundled-embedder")]
     {
-        return Some(EmbedProviderConfig::Onnx(OnnxConfig {
+        Some(EmbedProviderConfig::Onnx(OnnxConfig {
             model: BUNDLED_EMBEDDER_DEFAULT_MODEL.to_string(),
             ..Default::default()
-        }));
+        }))
     }
     #[cfg(not(feature = "bundled-embedder"))]
     None
