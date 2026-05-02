@@ -48,30 +48,30 @@ embed-onnx-bundled = ["mnem-embed-providers/onnx-bundled"]
 onnx-bundled       = ["embed-onnx-bundled"]
 
 [dependencies]
-mnem-core             = { path = "../mnem-core", version = "=0.1.2" }
-mnem-backend-redb     = { path = "../mnem-backend-redb", version = "=0.1.2" }
+mnem-core             = { path = "../mnem-core", version = "=0.1.3" }
+mnem-backend-redb     = { path = "../mnem-backend-redb", version = "=0.1.3" }
 # Transport crate supplies CAR writer/reader primitives + protocol
 # constants (PROTOCOL_VERSION, PROTOCOL_HEADER, CAPABILITIES_HEADER,
 # Capability enum) that the `/remote/v1/*` routes advertise and frame
 # against. No runtime state crosses the boundary; this dep is
 # stateless codec + constant re-exports.
-mnem-transport       = { path = "../mnem-transport", version = "=0.1.2" }
+mnem-transport       = { path = "../mnem-transport", version = "=0.1.3" }
 # BENCH-1 (C4): `mock` feature enables the deterministic blake3-based
 # MockEmbedder so the cold-start retrieve fallback in `handlers.rs`
 # can degrade gracefully when no `[embed]` is configured. Network-free,
 # always-available; the real provider config still wins when present.
-mnem-embed-providers  = { path = "../mnem-embed-providers", version = "=0.1.2", features = ["mock"] }
-mnem-rerank-providers = { path = "../mnem-rerank-providers", version = "=0.1.2" }
-mnem-llm-providers    = { path = "../mnem-llm-providers", version = "=0.1.2" }
-mnem-sparse-providers = { path = "../mnem-sparse-providers", version = "=0.1.2" }
+mnem-embed-providers  = { path = "../mnem-embed-providers", version = "=0.1.3", features = ["mock"] }
+mnem-rerank-providers = { path = "../mnem-rerank-providers", version = "=0.1.3" }
+mnem-llm-providers    = { path = "../mnem-llm-providers", version = "=0.1.3" }
+mnem-sparse-providers = { path = "../mnem-sparse-providers", version = "=0.1.3" }
 # Phase-B5d: wires `POST /v1/ingest`. Ingest pipeline (parse + chunk +
 # rule-based NER). `keybert` feature (C3 FIX-3) forwards the KeyBERT
 # statistical adapter so `POST /v1/ingest` with `extractor=keybert`
 # runs against the server's configured embedder; zero-cost otherwise.
-mnem-ingest           = { path = "../mnem-ingest", version = "=0.1.2", features = ["keybert"] }
+mnem-ingest           = { path = "../mnem-ingest", version = "=0.1.3", features = ["keybert"] }
 # E4 T2: Centroid+MMR extractive summarizer. Zero-impact when the
 # `?summarize=...` query parameters are absent from the request.
-mnem-graphrag         = { path = "../mnem-graphrag", version = "=0.1.2" }
+mnem-graphrag         = { path = "../mnem-graphrag", version = "=0.1.3" }
 # E0 wire activation (Patch-B): when the authored-edges adjacency is
 # empty under `/v1/nodes/bulk` + retrieve, derive a deterministic
 # KNN-edge substrate from the brute-force vector index via
@@ -79,7 +79,7 @@ mnem-graphrag         = { path = "../mnem-graphrag", version = "=0.1.2" }
 # default features so the `hnsw` backend (and its `instant-distance`
 # dep) is NOT pulled in; we only need the vector-space KNN derivation
 # which is unconstrained.
-mnem-ann              = { path = "../mnem-ann", version = "=0.1.2", default-features = false }
+mnem-ann              = { path = "../mnem-ann", version = "=0.1.3", default-features = false }
 axum                 = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio", "matched-path", "multipart"] }
 tokio                = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net"] }
 tower                = "0.5"

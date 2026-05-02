@@ -70,31 +70,31 @@ pkg-fmt = "tgz"
 pkg-fmt = "zip"
 
 [dependencies]
-mnem-core = { path = "../mnem-core", version = "=0.1.2" }
-mnem-backend-redb = { path = "../mnem-backend-redb", version = "=0.1.2" }
-mnem-transport = { path = "../mnem-transport", version = "=0.1.2", features = ["client"] }
-mnem-embed-providers = { path = "../mnem-embed-providers", version = "=0.1.2", features = ["mock"] }
-mnem-rerank-providers = { path = "../mnem-rerank-providers", version = "=0.1.2" }
-mnem-llm-providers = { path = "../mnem-llm-providers", version = "=0.1.2" }
-mnem-ner-providers = { path = "../mnem-ner-providers", version = "=0.1.2" }
+mnem-core = { path = "../mnem-core", version = "=0.1.3" }
+mnem-backend-redb = { path = "../mnem-backend-redb", version = "=0.1.3" }
+mnem-transport = { path = "../mnem-transport", version = "=0.1.3", features = ["client"] }
+mnem-embed-providers = { path = "../mnem-embed-providers", version = "=0.1.3", features = ["mock"] }
+mnem-rerank-providers = { path = "../mnem-rerank-providers", version = "=0.1.3" }
+mnem-llm-providers = { path = "../mnem-llm-providers", version = "=0.1.3" }
+mnem-ner-providers = { path = "../mnem-ner-providers", version = "=0.1.3" }
 # Ingest pipeline (Phase-B5c): parses Markdown / text / PDF / chat-JSON
 # sources into Doc + Chunk + Entity subgraphs. Wired here behind the
 # `mnem ingest` subcommand (Phase-B5d). The `keybert` feature (C3 FIX-3)
 # forwards the statistical KeyBERT adapter so `mnem ingest --extractor
 # keybert <file>` runs end-to-end against the operator's configured
 # embedder; zero-cost when the flag is absent.
-mnem-ingest = { path = "../mnem-ingest", version = "=0.1.2", features = ["keybert"] }
+mnem-ingest = { path = "../mnem-ingest", version = "=0.1.3", features = ["keybert"] }
 # E4 T2: Centroid+MMR extractive summarizer, wired behind the
 # `--summarize` flag on `mnem retrieve`. Zero-impact without the
 # flag: the crate is only called when `args.summarize` is true.
-mnem-graphrag = { path = "../mnem-graphrag", version = "=0.1.2" }
+mnem-graphrag = { path = "../mnem-graphrag", version = "=0.1.3" }
 # After v0.2.0 merge: `mnem mcp serve` subcommand wraps the MCP server
 # library. Default features (`summarize`) bring in embed-providers +
 # graphrag so `mnem_community_summarize` works in the merged binary.
-mnem-mcp = { path = "../mnem-mcp", version = "=0.1.2", default-features = false, features = ["summarize"] }
+mnem-mcp = { path = "../mnem-mcp", version = "=0.1.3", default-features = false, features = ["summarize"] }
 # After v0.2.0 merge: `mnem http serve` subcommand wraps the HTTP API
 # library. Brings in tokio + axum for the HTTP server runtime.
-mnem-http = { path = "../mnem-http", version = "=0.1.2" }
+mnem-http = { path = "../mnem-http", version = "=0.1.3" }
 # Direct re-export of axum (used by http::serve's `axum::serve`) since
 # the transitive dep from mnem-http is not re-exported to top-level.
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio", "matched-path", "multipart"] }
@@ -107,7 +107,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"]
 # (path-only dep, no version pin while v1.0 stabilises) and pulls its
 # own dialoguer + indicatif + ureq + sha2 surface; we link by path so
 # the workspace builds cleanly without a release of mnem-bench yet.
-mnem-bench = { path = "../mnem-bench", version = "=0.1.2", default-features = false }
+mnem-bench = { path = "../mnem-bench", version = "=0.1.3", default-features = false }
 # `info_span` + `info!` in `mnem ingest`; per-file progress rides the
 # standard tracing subscriber so `RUST_LOG=mnem_ingest=info` shows it.
 tracing = { workspace = true }

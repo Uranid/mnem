@@ -37,7 +37,7 @@ ci-slow = []
 # hooks, no network. WASM-clean so the same code runs in browser exports.
 # The `client` feature (above) opts into the HTTP client surface.
 [dependencies]
-mnem-core           = { path = "../mnem-core", version = "=0.1.2" }
+mnem-core           = { path = "../mnem-core", version = "=0.1.3" }
 bytes               = { workspace = true }
 cid                 = { workspace = true }
 ipld-core           = { workspace = true }
