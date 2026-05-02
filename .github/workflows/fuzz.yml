@@ -98,7 +98,7 @@ jobs:
       # timeout-<sha1> files.
       - name: Upload crash artifact
         if: failure() && steps.run.outcome == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-crash-${{ matrix.target }}
           path: fuzz/artifacts/${{ matrix.target }}/
@@ -111,7 +111,7 @@ jobs:
       # tree tagging along.
       - name: Upload corpus snapshot on failure
         if: failure() && steps.run.outcome == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-corpus-${{ matrix.target }}
           path: fuzz/corpus/${{ matrix.target }}/
