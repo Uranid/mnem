@@ -2,8 +2,8 @@
 //!
 //! Drives the built `mnem` binary against a temp-dir repo:
 //!
-//! 1. `branch list` on a fresh repo prints `<no branches>`.
-//! 2. `branch create` without any commits yet errors actionably.
+//! 1. `branch list` after `mnem init` shows the seeded `main` branch.
+//! 2. `branch create` after `mnem init` succeeds (init seeds a commit).
 //! 3. Create + list + delete round-trip against a committed head.
 //! 4. `branch create` refuses to overwrite an existing branch.
 
@@ -24,7 +24,8 @@ fn mnem(repo: &Path, args: &[&str]) -> Command {
 }
 
 #[test]
-fn branch_list_empty_repo_prints_no_branches() {
+fn branch_list_after_init_shows_main() {
+    // `mnem init` seeds an anchor commit and a `main` branch ref.
     let dir = TempDir::new().unwrap();
     mnem(dir.path(), &["init", dir.path().to_str().unwrap()])
         .assert()
@@ -32,27 +33,26 @@ fn branch_list_empty_repo_prints_no_branches() {
     let out = mnem(dir.path(), &["branch", "list"]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(
-        stdout.contains("<no branches>"),
-        "expected no-branches marker, got: {stdout}"
+        stdout.contains("main"),
+        "expected main branch after init, got: {stdout}"
     );
 }
 
 #[test]
-fn branch_create_without_commits_fails() {
-    // A fresh repo has no heads; `branch create` without --from has
-    // nothing to point at, so it must error (and NOT pick a ghost
-    // CID).
+fn branch_create_after_init_succeeds() {
+    // `mnem init` seeds an anchor commit, so `branch create` has a head
+    // to point at immediately — no extra commits are needed.
     let dir = TempDir::new().unwrap();
     mnem(dir.path(), &["init", dir.path().to_str().unwrap()])
         .assert()
         .success();
     let out = mnem(dir.path(), &["branch", "create", "feature"])
         .assert()
-        .failure();
-    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+        .success();
+    let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(
-        stderr.contains("no commits yet"),
-        "expected actionable no-commits message, got: {stderr}"
+        stdout.starts_with("created branch feature ->"),
+        "expected branch create to succeed, got: {stdout}"
     );
 }
 

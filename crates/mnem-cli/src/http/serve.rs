@@ -68,7 +68,7 @@ pub(crate) fn run(args: ServeArgs) -> Result<()> {
 
 fn init_tracing() {
     #[allow(unused_imports)]
-	use tracing_subscriber::{fmt, EnvFilter};
+	use tracing_subscriber::{EnvFilter, fmt};
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "mnem_http=info,tower_http=warn".into());
     let fmt = std::env::var("MNEM_LOG_FORMAT")
