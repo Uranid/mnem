@@ -51,7 +51,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/work/target \
     set -eux; \
     if [ -n "${FEATURES}" ]; then \
-        cargo build --release --locked -p mnem-cli --features "${FEATURES}"; \
+        cargo build --release --locked -p mnem-cli --no-default-features --features "${FEATURES}"; \
     else \
         cargo build --release --locked -p mnem-cli; \
     fi; \

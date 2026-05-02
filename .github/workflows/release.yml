@@ -225,7 +225,7 @@ jobs:
         run: >
           cross build --release --locked
           --target ${{ matrix.triple }}
-          -p mnem-cli --features onnx
+          -p mnem-cli --no-default-features --features onnx
 
       # Download platform-specific onnxruntime and stage the dynamic
       # library under `lib/` in the archive so users can run
