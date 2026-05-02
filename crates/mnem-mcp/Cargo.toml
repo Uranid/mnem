@@ -42,6 +42,7 @@ workspace = true
 [features]
 default = ["summarize", "bundled-embedder"]
 summarize = ["dep:mnem-embed-providers", "dep:mnem-graphrag"]
+onnx = ["summarize", "mnem-embed-providers/onnx"]
 bundled-embedder = ["summarize", "mnem-embed-providers/onnx-bundled"]
 bundled-embedder-cuda = ["bundled-embedder", "mnem-embed-providers/onnx-bundled-cuda"]
 bundled-embedder-directml = ["bundled-embedder", "mnem-embed-providers/onnx-bundled-directml"]

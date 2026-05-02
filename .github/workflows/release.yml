@@ -225,7 +225,7 @@ jobs:
         run: >
           cross build --release --locked
           --target ${{ matrix.triple }}
-          -p mnem-cli --features bundled-embedder
+          -p mnem-cli --features onnx
 
       # Download platform-specific onnxruntime and stage the dynamic
       # library under `lib/` in the archive so users can run
@@ -504,7 +504,7 @@ jobs:
           # Leaves (no internal deps) first; then libs that depend on them.
           # Topo-ordered: deps before dependents. cargo publish requires
           # each crate's deps to already be on crates.io.
-          # After v0.2.0: the publish list still includes mnem-mcp and
+          # mnem-mcp and
           # mnem-http as library crates (they remain workspace members and
           # are required by other crates), but the GitHub release archives
           # ship only the unified `mnem` binary (which contains both as
@@ -518,6 +518,7 @@ jobs:
             mnem-sparse-providers
             mnem-rerank-providers
             mnem-llm-providers
+            mnem-ner-providers
             mnem-transport
             mnem-graphrag
             mnem-extract

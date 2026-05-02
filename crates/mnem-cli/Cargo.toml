@@ -46,6 +46,7 @@ workspace = true
 # (user-global). Either overrides the bundled fallback.
 [features]
 default = ["bundled-embedder"]
+onnx = ["mnem-embed-providers/onnx", "mnem-mcp/onnx"]
 bundled-embedder = ["mnem-embed-providers/onnx-bundled", "mnem-mcp/bundled-embedder"]
 # GPU execution-provider variants. Forward to the matching feature on
 # `mnem-embed-providers` so the CLI ships a self-contained binary that
