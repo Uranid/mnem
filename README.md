@@ -114,12 +114,16 @@ mnem --version
 npx mnem-cli --version
 ```
 
-Downloads the prebuilt native binary for your platform at install time. Node 18+ required. Bundled embedder included — no Ollama or API key needed.
+Downloads the prebuilt native binary for your platform at install time. Node 18+ required. Bundled embedder included - no Ollama or API key needed.
 
 </details>
 
 <details>
 <summary><b>Python (PyPI)</b></summary>
+
+| ⚠️ **Temporarily unavailable** |
+|:---|
+| `mnem-cli` is not yet available on PyPI due to a package lock-out period and will be available by **2026-05-05**. Use `cargo install --locked mnem-cli --features bundled-embedder` or download the [prebuilt binary](https://github.com/Uranid/mnem/releases) in the meantime. |
 
 ```bash
 pip install mnem-cli
