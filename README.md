@@ -17,7 +17,7 @@
 
 ---
 
-**[What it is](#what-it-is)** · **[Install](#install)** · **[Quickstart](#quickstart)** · **[Python API](#python-api-mnem-py)** · **[Integrate](#mnem-integrate---wire-into-any-agent-host)** · **[Commands](#commands)** · **[GraphRAG](#graphrag)** · **[Benchmarks](#benchmarks)** · **[vs others](#compared-to-others)** · **[Docs](#documentation)** · **[Contributing](#contributing)**
+**[What it is](#what-it-is)** · **[Install](#install)** · **[Quickstart](#quickstart)** · **[Integrate](#mnem-integrate---wire-into-any-agent-host)** · **[Commands](#commands)** · **[Python API](#python-api-mnem-py)** · **[GraphRAG](#graphrag)** · **[Benchmarks](#benchmarks)** · **[vs others](#compared-to-others)** · **[Docs](#documentation)** · **[Contributing](#contributing)**
 
 ---
 
@@ -190,44 +190,6 @@ Five minutes from zero. See [`docs/src/quickstart.md`](docs/src/quickstart.md) f
 
 ---
 
-## Python API (mnem-py)
-
-Use `mnem-py` when you want to read and write a mnem graph directly from Python - without the CLI binary. Same retrieval engine, PyO3 bindings.
-
-```bash
-pip install mnem-py
-pip install sentence-transformers   # brings ~200 MB of deps (torch, transformers)
-```
-
-`mnem-py` stores and retrieves by **dense vector**: you compute embeddings in Python and hand them to mnem. `SentenceTransformer("all-MiniLM-L6-v2")` downloads a ~23 MB model from HuggingFace Hub on first use and caches it in `~/.cache/huggingface/` - all subsequent calls are fully local with no network required.
-
-```python
-import pymnem
-from sentence_transformers import SentenceTransformer
-
-model = SentenceTransformer("all-MiniLM-L6-v2")   # downloaded once, ~23 MB
-MODEL_NAME = "all-MiniLM-L6-v2"                    # key mnem uses to match stored vectors
-
-repo = pymnem.Repo.init_memory()                    # in-memory; open_or_init() for disk
-
-# Write: compute an embedding for each node and attach it
-with repo.transaction(author="agent", message="seed") as tx:
-    for text in ["Alice lives in Berlin", "Bob moved to Paris"]:
-        tx.add_node(ntype="Memory", summary=text)
-        tx.add_embedding_f32(MODEL_NAME, model.encode(text).tolist())
-
-# Retrieve: compute a query vector with the same model, mnem ranks under token budget
-query_vec = model.encode("Alice Berlin").tolist()
-result = repo.retrieve(vector=query_vec, model=MODEL_NAME, token_budget=500, limit=5)
-for item in result:
-    print(f"{item.score:.3f}  {item.summary}")
-# result.tokens_used / result.tokens_budget  - no silent truncation
-```
-
-Full API surface - `query`, `update_node`, `delete_node`, on-disk persistence, label filtering: [`crates/mnem-py/README.md`](crates/mnem-py/README.md).
-
----
-
 ## `mnem integrate` - wire into any agent host
 
 One command wires the **MCP server entry**, the **UserPromptSubmit hook** (for hosts that support it), and the **mnem system prompt** into the host's project-rules file. Restart the host and the agent starts using mnem automatically.
@@ -378,6 +340,44 @@ mnem completions fish   # fish
 ```
 
 Full CLI reference: [`docs/src/cli.md`](docs/src/cli.md).
+
+---
+
+## Python API (mnem-py)
+
+Use `mnem-py` when you want to read and write a mnem graph directly from Python - without the CLI binary. Same retrieval engine, PyO3 bindings.
+
+```bash
+pip install mnem-py
+pip install sentence-transformers   # brings ~200 MB of deps (torch, transformers)
+```
+
+`mnem-py` stores and retrieves by **dense vector**: you compute embeddings in Python and hand them to mnem. `SentenceTransformer("all-MiniLM-L6-v2")` downloads a ~23 MB model from HuggingFace Hub on first use and caches it in `~/.cache/huggingface/` - all subsequent calls are fully local with no network required.
+
+```python
+import pymnem
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("all-MiniLM-L6-v2")   # downloaded once, ~23 MB
+MODEL_NAME = "all-MiniLM-L6-v2"                    # key mnem uses to match stored vectors
+
+repo = pymnem.Repo.init_memory()                    # in-memory; open_or_init() for disk
+
+# Write: compute an embedding for each node and attach it
+with repo.transaction(author="agent", message="seed") as tx:
+    for text in ["Alice lives in Berlin", "Bob moved to Paris"]:
+        tx.add_node(ntype="Memory", summary=text)
+        tx.add_embedding_f32(MODEL_NAME, model.encode(text).tolist())
+
+# Retrieve: compute a query vector with the same model, mnem ranks under token budget
+query_vec = model.encode("Alice Berlin").tolist()
+result = repo.retrieve(vector=query_vec, model=MODEL_NAME, token_budget=500, limit=5)
+for item in result:
+    print(f"{item.score:.3f}  {item.summary}")
+# result.tokens_used / result.tokens_budget  - no silent truncation
+```
+
+Full API surface - `query`, `update_node`, `delete_node`, on-disk persistence, label filtering: [`crates/mnem-py/README.md`](crates/mnem-py/README.md).
 
 ---
 
