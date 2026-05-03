@@ -102,6 +102,10 @@ cargo install --locked mnem-cli --features bundled-embedder-directml
 <details>
 <summary><b>npm / Node.js</b></summary>
 
+| ⚠️ **Temporarily unavailable** |
+|:---|
+| `mnem-cli` is not yet available on npm due to a package lock-out period and will be available by **2026-05-05**. Use `cargo install --locked mnem-cli --features bundled-embedder` or download the [prebuilt binary](https://github.com/Uranid/mnem/releases) in the meantime. |
+
 ```bash
 npm install -g mnem-cli
 mnem --version
