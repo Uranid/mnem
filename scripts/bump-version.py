@@ -1,27 +1,27 @@
 """
 bump-version.py <new_version>
 ------------------------------
-Single entry point for version bumps.  Updates every place that records
-the package version, then exits 0 so callers (CI, humans) get a clean
-signal.
+Updates every file that records the package version.
 
 Files touched:
-  1. Cargo.toml                             [workspace.package] version
-                                            + all internal mnem-* entries
-                                            in [workspace.dependencies]
-  2. crates/mnem-py/pyproject.toml          version = "..."
-  3. py-packages/mnem-cli/pyproject.toml    version = "..."
-  4. py-packages/mnem-cli/mnem_cli/__init__.py  _VERSION = "..."
-  5. npm-packages/mnem-cli/package.json     "version": "..."
+  1. Cargo.toml                              [workspace.package] version
+  2. Cargo.lock                              workspace member versions
+  3. crates/mnem-py/pyproject.toml           version = "..."
+  4. py-packages/mnem-cli/pyproject.toml     version = "..."
+  5. py-packages/mnem-cli/mnem_cli/__init__.py  _VERSION = "..."
+  6. npm-packages/mnem-cli/package.json      "version": "..."
 
-Usage (human):
+Usage (human, before committing):
     python scripts/bump-version.py 0.2.0
 
-Usage (CI, release.yml):
-    python scripts/bump-version.py "${TAG_VERSION}"
-    # TAG_VERSION should NOT have a leading 'v'; strip it if needed.
+Usage (CI release.yml - derives version from the pushed tag):
+    python scripts/bump-version.py "${{ needs.release.outputs.tag }}"
+    # Leading 'v' is stripped automatically (v0.2.0 -> 0.2.0)
 
-After running, commit all changed files and tag the release.
+The tag is the single source of truth.  CI calls this script in every
+job that needs an accurate version before building or publishing.
+Cargo.lock is patched alongside Cargo.toml so --locked builds remain
+valid without a separate cargo update step.
 """
 
 import re
@@ -44,20 +44,34 @@ def validate_version(v: str) -> None:
 def bump_cargo_toml(new: str) -> None:
     path = REPO / 'Cargo.toml'
     text = path.read_text(encoding='utf-8')
-
-    # [workspace.package] version = "..." - the single Cargo source of truth
-    text, n1 = re.subn(
+    text, n = re.subn(
         r'(^\[workspace\.package\][^\[]*?version\s*=\s*")[^"]+(")',
         lambda m: m.group(1) + new + m.group(2),
         text,
         flags=re.MULTILINE | re.DOTALL,
         count=1,
     )
-    if n1 == 0:
+    if n == 0:
         die('Could not find [workspace.package] version in Cargo.toml')
-
     print(f"  Cargo.toml: workspace.package version -> {new}")
     path.write_text(text, encoding='utf-8')
+
+
+def bump_cargo_lock(new: str) -> None:
+    path = REPO / 'Cargo.lock'
+    if not path.exists():
+        return
+    text = path.read_text(encoding='utf-8')
+    # Cargo.lock structure: each [[package]] block has name then version on
+    # consecutive lines.  Match only mnem-* workspace members.
+    new_text, n = re.subn(
+        r'(name = "mnem-[^"]+"\r?\nversion = ")[^"]+(")',
+        lambda m: m.group(1) + new + m.group(2),
+        text,
+    )
+    if n:
+        print(f"  Cargo.lock: {n} workspace member version(s) -> {new}")
+        path.write_text(new_text, encoding='utf-8')
 
 
 def bump_pyproject(rel_path: str, new: str) -> None:
@@ -116,11 +130,12 @@ def main() -> None:
 
     print(f"Bumping all version references to {new} ...")
     bump_cargo_toml(new)
+    bump_cargo_lock(new)
     bump_pyproject('crates/mnem-py/pyproject.toml', new)
     bump_pyproject('py-packages/mnem-cli/pyproject.toml', new)
     bump_init_py(new)
     bump_package_json(new)
-    print("Done.  Review the diff, commit, and tag.")
+    print("Done.")
 
 
 if __name__ == '__main__':
