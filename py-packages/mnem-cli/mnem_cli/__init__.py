@@ -17,7 +17,7 @@ try:
     from importlib.metadata import version as _pkg_version
     _VERSION = _pkg_version("mnem-cli")
 except Exception:
-    _VERSION = "0.1.3"
+    _VERSION = "0.1.4"
 
 # Maps (system, machine) to (triple, archive-ext, exe-name).
 # darwin/x86_64 falls back to the aarch64 binary which runs via Rosetta 2.

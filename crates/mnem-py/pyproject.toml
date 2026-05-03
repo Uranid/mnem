@@ -13,7 +13,7 @@ build-backend = "maturin"
 name = "mnem-py"
 # Kept in sync with [workspace.package].version in ../../Cargo.toml.
 # Bump both together; the release workflow asserts they match.
-version = "0.1.3"
+version = "0.1.4"
 description = "Python bindings for mnem: git for knowledge graphs, agent memory under a token budget."
 readme = "README.md"
 requires-python = ">=3.9"

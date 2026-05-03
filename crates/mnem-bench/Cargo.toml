@@ -33,9 +33,9 @@ default     = ["onnx-minilm"]
 onnx-minilm = ["mnem-embed-providers/onnx-bundled"]
 
 [dependencies]
-mnem-core           = { path = "../mnem-core", version = "=0.1.3" }
-mnem-embed-providers = { path = "../mnem-embed-providers", version = "=0.1.3", features = ["mock"] }
-mnem-backend-redb   = { path = "../mnem-backend-redb", version = "=0.1.3" }
+mnem-core           = { path = "../mnem-core", version = "=0.1.4" }
+mnem-embed-providers = { path = "../mnem-embed-providers", version = "=0.1.4", features = ["mock"] }
+mnem-backend-redb   = { path = "../mnem-backend-redb", version = "=0.1.4" }
 
 # CLI deps
 anyhow              = "1"

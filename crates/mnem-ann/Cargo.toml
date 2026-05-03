@@ -33,7 +33,7 @@ default = ["hnsw"]
 hnsw    = ["dep:instant-distance"]
 
 [dependencies]
-mnem-core  = { path = "../mnem-core", version = "=0.1.3" }
+mnem-core  = { path = "../mnem-core", version = "=0.1.4" }
 serde      = { workspace = true }
 # instant-distance is a pure-Rust HNSW implementation (MIT licensed,
 # maintained by Dirkjan Ochtman). Chosen over hnsw_rs for active
