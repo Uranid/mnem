@@ -17,8 +17,8 @@ readme = "README.md"
 workspace = true
 
 [dependencies]
-mnem-core = { path = "../mnem-core", version = "=0.1.4" }
-mnem-embed-providers = { path = "../mnem-embed-providers", version = "=0.1.4" }
+mnem-core = { workspace = true }
+mnem-embed-providers = { workspace = true }
 # Leiden implementation is self-contained adjacency-list math; petgraph
 # was evaluated as an internal rep but the two-layer BTreeMap form
 # below keeps the crate dependency-free beyond mnem-core + blake3.
@@ -26,5 +26,5 @@ serde     = { workspace = true, features = ["derive", "std"] }
 blake3    = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
-mnem-embed-providers = { path = "../mnem-embed-providers", features = ["mock"] }
+mnem-embed-providers = { workspace = true, features = ["mock"] }
 proptest  = { workspace = true }

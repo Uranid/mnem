@@ -13,7 +13,7 @@ name = "xtask"
 path = "src/main.rs"
 
 [dependencies]
-mnem-core = { path = "../mnem-core" }
+mnem-core = { workspace = true }
 
 [lints]
 workspace = true

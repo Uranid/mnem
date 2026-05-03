@@ -36,8 +36,8 @@ name = "_mnem"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-mnem-core         = { path = "../mnem-core", version = "=0.1.4" }
-mnem-backend-redb = { path = "../mnem-backend-redb", version = "=0.1.4" }
+mnem-core         = { workspace = true }
+mnem-backend-redb = { workspace = true }
 bytes             = { workspace = true }
 ipld-core         = { workspace = true }
 pyo3              = { version = "0.28", features = ["extension-module", "abi3-py39"] }

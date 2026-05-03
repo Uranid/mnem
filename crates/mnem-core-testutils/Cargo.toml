@@ -13,4 +13,4 @@ publish = false
 workspace = true
 
 [dependencies]
-mnem-core = { path = "../mnem-core", version = "=0.1.4" }
+mnem-core = { workspace = true }

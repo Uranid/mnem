@@ -21,13 +21,13 @@ rustdoc-args = ["--cfg", "docsrs"]
 workspace = true
 
 [dependencies]
-mnem-core = { path = "../mnem-core", version = "=0.1.4" }
-mnem-ann  = { path = "../mnem-ann",  version = "=0.1.4", default-features = false }
+mnem-core = { workspace = true }
+mnem-ann  = { workspace = true, default-features = false }
 bytes     = { workspace = true }
 redb      = { workspace = true }
 
 [dev-dependencies]
-mnem-core-testutils = { path = "../mnem-core-testutils" }
+mnem-core-testutils = { workspace = true }
 ipld-core           = { workspace = true }
 serde               = { workspace = true, features = ["derive"] }
 # Phase-B1b (PHASE-A-2 bench plan): criterion-driven backend-comparison

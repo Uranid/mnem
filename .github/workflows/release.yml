@@ -1,21 +1,28 @@
 name: release
 
-# Push to the `release` branch (or dispatch manually) to cut a new release.
+# Push an annotated tag (e.g. v0.1.5) to cut a new release.
+# The tag is the single source of truth for the version number.
 # The workflow:
 #   1. runs the full test matrix on Linux + macOS + Windows,
-#   2. extracts the version from [workspace.package] in Cargo.toml,
-#   3. fails if that tag already exists (bump the version before pushing),
-#   4. creates an annotated tag on the current commit,
-#   5. publishes a GitHub release with auto-generated notes.
+#   2. derives the version directly from the pushed tag,
+#   3. runs scripts/bump-version.py in each build/publish job so
+#      Cargo.toml, Cargo.lock, and all non-Rust package manifests
+#      reflect the tag version before building or publishing,
+#   4. publishes a GitHub release with auto-generated notes.
 #
 # Pre-releases (any version containing a hyphen, e.g. 0.1.0-alpha.1) are
 # marked as GitHub "pre-release" automatically.
+#
+# To release: git tag -a v0.1.5 -m "mnem v0.1.5" && git push origin v0.1.5
 
 on:
   push:
-    branches: [release]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to release (e.g. v0.1.5)'
+        required: true
 
 permissions:
   contents: write
@@ -54,61 +61,35 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
   release:
-    name: tag + publish release
+    name: create GitHub release
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract workspace version
+      - name: Extract version from tag
         id: version
         run: |
           set -euo pipefail
-          VERSION=$(awk '/^\[workspace\.package\]/{flag=1;next} /^\[/{flag=0} flag && /^version[[:space:]]*=/' Cargo.toml | head -n1 | cut -d'"' -f2)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG#v}"
           if [ -z "$VERSION" ]; then
-            echo "::error::Failed to parse [workspace.package].version from Cargo.toml"
+            echo "::error::Could not determine release version from tag"
             exit 1
           fi
-          TAG="v$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
           if [[ "$VERSION" == *-* ]]; then
             echo "prerelease=true"  >> "$GITHUB_OUTPUT"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "Release target: $TAG (prerelease: $([[ "$VERSION" == *-* ]] && echo true || echo false))"
-
-      - name: Ensure tag is new (release-branch path only)
-        if: github.ref_type != 'tag'
-        run: |
-          if git rev-parse "refs/tags/${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            echo "::error::Tag ${{ steps.version.outputs.tag }} already exists. Bump [workspace.package].version in Cargo.toml before pushing to the release branch."
-            exit 1
-          fi
-
-      - name: Create and push annotated tag (release-branch path only)
-        if: github.ref_type != 'tag'
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "${{ steps.version.outputs.tag }}" -m "mnem ${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}"
-
-      - name: Verify tag matches Cargo.toml version (tag-push path only)
-        if: github.ref_type == 'tag'
-        run: |
-          REF_TAG="${GITHUB_REF#refs/tags/}"
-          EXPECTED="${{ steps.version.outputs.tag }}"
-          if [ "$REF_TAG" != "$EXPECTED" ]; then
-            echo "::error::Pushed tag '$REF_TAG' does not match [workspace.package].version-derived tag '$EXPECTED'. Bump Cargo.toml or push the matching tag."
-            exit 1
-          fi
-          echo "Tag $REF_TAG matches Cargo.toml version."
+          echo "Release: $TAG (prerelease: $([[ "$VERSION" == *-* ]] && echo true || echo false))"
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v3
@@ -178,6 +159,12 @@ jobs:
           targets: ${{ matrix.triple }}
 
       - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Sync versions from tag
+        run: python scripts/bump-version.py "${{ needs.release.outputs.tag }}"
 
       - name: Install cross (aarch64-linux only)
         if: matrix.use_cross
@@ -493,6 +480,11 @@ jobs:
         with:
           toolchain: "1.95"
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Sync versions from tag
+        run: python scripts/bump-version.py "${{ needs.release.outputs.tag }}"
       - name: Publish crates in dependency order
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -588,17 +580,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Sync mnem-py version from Cargo.toml
-        shell: python
-        run: |
-          import re
-          tag = "${{ needs.release.outputs.tag }}"
-          version = tag.lstrip("v")
-          path = "crates/mnem-py/pyproject.toml"
-          text = open(path).read()
-          text = re.sub(r'^version = ".*"$', f'version = "{version}"', text, flags=re.MULTILINE)
-          open(path, "w").write(text)
-          print(f"mnem-py version set to {version}")
+      - name: Sync versions from Cargo.toml
+        run: python scripts/bump-version.py "${{ needs.release.outputs.tag }}"
       - name: Build wheel (maturin)
         uses: PyO3/maturin-action@v1
         with:
@@ -671,6 +654,11 @@ jobs:
       id-token: write   # mint OIDC token for cosign keyless signing via Fulcio
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Sync versions from tag
+        run: python scripts/bump-version.py "${{ needs.release.outputs.tag }}"
       - name: Set up QEMU (multi-arch emulation)
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
@@ -838,12 +826,8 @@ jobs:
         with:
           node-version: '22'   # OIDC publishing requires Node 22+ / npm 11.5.1+
           registry-url: 'https://registry.npmjs.org'
-      - name: Sync version from Cargo.toml
-        run: |
-          set -euo pipefail
-          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
-          cd npm-packages/mnem-cli
-          npm version "$VERSION" --no-git-tag-version --allow-same-version
+      - name: Sync versions from Cargo.toml
+        run: python scripts/bump-version.py "${{ needs.release.outputs.tag }}"
       - name: Publish
         run: npm publish --provenance
         working-directory: npm-packages/mnem-cli
@@ -873,17 +857,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Sync mnem-cli version from Cargo.toml
-        shell: python
-        run: |
-          import re
-          tag = "${{ needs.release.outputs.tag }}"
-          version = tag.lstrip("v")
-          path = "py-packages/mnem-cli/pyproject.toml"
-          text = open(path).read()
-          text = re.sub(r'^version = ".*"$', f'version = "{version}"', text, flags=re.MULTILINE)
-          open(path, "w").write(text)
-          print(f"mnem-cli pip version set to {version}")
+      - name: Sync versions from Cargo.toml
+        run: python scripts/bump-version.py "${{ needs.release.outputs.tag }}"
       - name: Build wheel + sdist
         run: |
           pip install build
