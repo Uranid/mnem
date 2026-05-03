@@ -10,7 +10,7 @@ pip install mnem-py
 import pymnem
 
 # In-memory (tests, notebooks, agent sessions without persistence)
-repo = pymnem.Repo.init_memory
+repo = pymnem.Repo.init_memory()
 
 # Or on-disk via the embedded redb backend
 # repo = pymnem.Repo.open_or_init("/path/to/repo.redb")
