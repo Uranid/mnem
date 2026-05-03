@@ -588,17 +588,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Sync mnem-py version from Cargo.toml
-        shell: python
-        run: |
-          import re
-          tag = "${{ needs.release.outputs.tag }}"
-          version = tag.lstrip("v")
-          path = "crates/mnem-py/pyproject.toml"
-          text = open(path).read()
-          text = re.sub(r'^version = ".*"$', f'version = "{version}"', text, flags=re.MULTILINE)
-          open(path, "w").write(text)
-          print(f"mnem-py version set to {version}")
+      - name: Sync versions from Cargo.toml
+        run: python scripts/bump-version.py "${{ needs.release.outputs.tag }}"
       - name: Build wheel (maturin)
         uses: PyO3/maturin-action@v1
         with:
@@ -838,12 +829,8 @@ jobs:
         with:
           node-version: '22'   # OIDC publishing requires Node 22+ / npm 11.5.1+
           registry-url: 'https://registry.npmjs.org'
-      - name: Sync version from Cargo.toml
-        run: |
-          set -euo pipefail
-          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
-          cd npm-packages/mnem-cli
-          npm version "$VERSION" --no-git-tag-version --allow-same-version
+      - name: Sync versions from Cargo.toml
+        run: python scripts/bump-version.py "${{ needs.release.outputs.tag }}"
       - name: Publish
         run: npm publish --provenance
         working-directory: npm-packages/mnem-cli
@@ -873,17 +860,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Sync mnem-cli version from Cargo.toml
-        shell: python
-        run: |
-          import re
-          tag = "${{ needs.release.outputs.tag }}"
-          version = tag.lstrip("v")
-          path = "py-packages/mnem-cli/pyproject.toml"
-          text = open(path).read()
-          text = re.sub(r'^version = ".*"$', f'version = "{version}"', text, flags=re.MULTILINE)
-          open(path, "w").write(text)
-          print(f"mnem-cli pip version set to {version}")
+      - name: Sync versions from Cargo.toml
+        run: python scripts/bump-version.py "${{ needs.release.outputs.tag }}"
       - name: Build wheel + sdist
         run: |
           pip install build

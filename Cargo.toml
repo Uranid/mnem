@@ -243,3 +243,24 @@ redb                 = "4.1"
 proptest             = "1.11"
 criterion            = { version = "0.8", default-features = false, features = ["html_reports"] }
 
+# --- internal workspace crates ---
+# No version field: within-workspace path deps inherit their version from
+# [workspace.package].version above, which is the single source of truth.
+# bump-version.py updates only that one line for all Cargo versions.
+mnem-ann              = { path = "crates/mnem-ann",              default-features = false }
+mnem-backend-redb     = { path = "crates/mnem-backend-redb" }
+mnem-bench            = { path = "crates/mnem-bench",            default-features = false }
+mnem-core             = { path = "crates/mnem-core" }
+mnem-core-testutils   = { path = "crates/mnem-core-testutils" }
+mnem-embed-providers  = { path = "crates/mnem-embed-providers" }
+mnem-extract          = { path = "crates/mnem-extract" }
+mnem-graphrag         = { path = "crates/mnem-graphrag" }
+mnem-http             = { path = "crates/mnem-http" }
+mnem-ingest           = { path = "crates/mnem-ingest" }
+mnem-llm-providers    = { path = "crates/mnem-llm-providers" }
+mnem-mcp              = { path = "crates/mnem-mcp",              default-features = false }
+mnem-ner-providers    = { path = "crates/mnem-ner-providers" }
+mnem-rerank-providers = { path = "crates/mnem-rerank-providers" }
+mnem-sparse-providers = { path = "crates/mnem-sparse-providers" }
+mnem-transport        = { path = "crates/mnem-transport" }
+
