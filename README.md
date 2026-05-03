@@ -78,6 +78,8 @@ Every node carries a cryptographic identity derived from DAG-CBOR + BLAKE3: the 
 <details>
 <summary><b>macOS / Linux</b></summary>
 
+No Cargo? [Install via rustup](https://rustup.rs/) (also installs `rustc`).
+
 ```bash
 cargo install --locked mnem-cli --features bundled-embedder
 
@@ -90,6 +92,8 @@ cargo install --locked mnem-cli --features bundled-embedder-cuda
 <details>
 <summary><b>Windows</b></summary>
 
+No Cargo? [Install via rustup](https://rustup.rs/) (also installs `rustc`).
+
 ```powershell
 cargo install --locked mnem-cli --features bundled-embedder
 
@@ -101,6 +105,8 @@ cargo install --locked mnem-cli --features bundled-embedder-directml
 
 <details>
 <summary><b>npm / Node.js</b></summary>
+
+No npm? [Install Node.js](https://nodejs.org/en/download) (npm is bundled, Node 18+ required).
 
 | ⚠️ **Temporarily unavailable** |
 |:---|
@@ -121,6 +127,8 @@ Downloads the prebuilt native binary for your platform at install time. Node 18+
 <details>
 <summary><b>Python (PyPI)</b></summary>
 
+No pip? [Install Python](https://www.python.org/downloads/) (pip is bundled with Python 3.4+).
+
 | ⚠️ **Temporarily unavailable** |
 |:---|
 | `mnem-cli` is not yet available on PyPI due to a package lock-out period and will be available by **2026-05-05**. Use `cargo install --locked mnem-cli --features bundled-embedder` or download the [prebuilt binary](https://github.com/Uranid/mnem/releases) in the meantime. |
@@ -136,6 +144,8 @@ Ships the `mnem` binary as a manylinux / macOS / Windows wheel with the bundled 
 
 <details>
 <summary><b>Docker</b></summary>
+
+No Docker? [Install Docker Desktop](https://docs.docker.com/get-started/get-docker/).
 
 ```bash
 docker run --rm -p 9876:9876 ghcr.io/uranid/mnem:latest http serve
