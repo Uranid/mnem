@@ -146,10 +146,7 @@ fn try_stamp_global(
     value: &ipld_core::ipld::Ipld,
     agent_id: &str,
 ) -> Option<String> {
-    let global_data_dir = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".mnemglobal")
-        .join(".mnem");
+    let global_data_dir = super::global_dir().join(".mnem");
 
     if !global_data_dir.is_dir() {
         eprintln!(

@@ -2,11 +2,14 @@
 //!
 //! Extracted from `tools.rs` in R3; body unchanged.
 
+use std::path::Path;
+
 use super::super::{MAX_RERANK_TOP_K, MAX_RETRIEVE_LIMIT, MAX_VECTOR_CAP};
 use crate::server::Server;
 use anyhow::{Result, anyhow, bail};
 use mnem_core::codec::json_to_ipld;
 use mnem_core::index::PropPredicate;
+use mnem_core::repo::ReadonlyRepo;
 use serde_json::Value;
 
 // ============================================================
@@ -14,11 +17,24 @@ use serde_json::Value;
 // ============================================================
 
 pub(in crate::tools) fn retrieve(server: &mut Server, args: Value) -> Result<String> {
+    let repo_path = server.repo_path().to_path_buf();
+    let allow_labels = server.allow_labels;
+    let repo = server.load_repo()?;
+    retrieve_impl(repo, &repo_path, allow_labels, args)
+}
+
+pub(super) fn retrieve_impl(
+    repo: ReadonlyRepo,
+    repo_path: &Path,
+    allow_labels: bool,
+    args: Value,
+) -> Result<String> {
+    #[cfg(not(feature = "summarize"))]
+    let _ = repo_path;
+
     // `label` gated behind `MNEM_BENCH`. Off by default: the filter is
     // silently ignored so retrieve runs unscoped (parity with
     // GET/POST /v1/retrieve in mnem http).
-    let allow_labels = server.allow_labels;
-    let repo = server.load_repo()?;
     let mut r = repo.retrieve();
 
     if allow_labels && let Some(label) = args.get("label").and_then(Value::as_str) {
@@ -72,7 +88,7 @@ pub(in crate::tools) fn retrieve(server: &mut Server, args: Value) -> Result<Str
         // the no-config-empty-repo case.
         #[cfg(feature = "summarize")]
         {
-            if let Some(emb_cfg) = crate::tools::embed::resolve_embed_cfg(server.repo_path())
+            if let Some(emb_cfg) = crate::tools::embed::resolve_embed_cfg(repo_path)
                 && let Ok(embedder) = mnem_embed_providers::open(&emb_cfg)
                 && let Ok(vec) = embedder.embed(text)
             {

@@ -461,17 +461,19 @@ pub fn all_tools(allow_labels: bool) -> Vec<ToolDef> {
                         "items": {
                             "type": "object",
                             "properties": {
-                                "src":       { "type": "string", "description": "Source node UUID." },
-                                "predicate": { "type": "string", "description": "Edge label (e.g. 'works_at')." },
-                                "dst":       { "type": "string", "description": "Destination node UUID." }
+                                "etype": { "type": "string", "description": "Edge label (e.g. 'works_at')." },
+                                "src":   { "type": "string", "description": "Source node UUID." },
+                                "dst":   { "type": "string", "description": "Destination node UUID." },
+                                "props": { "type": "object" }
                             },
-                            "required": ["src", "predicate", "dst"],
+                            "required": ["etype", "src", "dst"],
                             "additionalProperties": false
                         }
                     },
-                    "agent_id": { "type": "string", "description": "Commit author. Defaults to 'mnem mcp' when absent." },
+                    "agent_id": { "type": "string", "description": "Required. Stored as the Commit author." },
                     "message":  { "type": "string", "default": "mnem_mcp global_add" }
                 },
+                "required": ["agent_id"],
                 "additionalProperties": false
             }),
         },

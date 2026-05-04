@@ -13,10 +13,11 @@
 //! parse-free shape is a feature for the telemetry path described in
 //! `tools.rs`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use mnem_ingest::{ChunkerAuto, ChunkerKind, IngestConfig, Ingester, SourceKind, auto_chunker};
+use mnem_core::repo::ReadonlyRepo;
 use serde_json::Value;
 
 use crate::server::Server;
@@ -59,6 +60,20 @@ const MAX_FILE_BYTES: u64 = 32 * 1024 * 1024;
 /// fails to commit. Errors bubble back to the caller as tool-level
 /// errors (not JSON-RPC protocol errors).
 pub(in crate::tools) fn ingest(server: &mut Server, args: Value) -> Result<String> {
+    let repo_path = server.repo_path().to_path_buf();
+    let allow_labels = server.allow_labels;
+    let repo = server.load_repo()?;
+    ingest_impl(repo, &repo_path, allow_labels, args)
+}
+
+pub(super) fn ingest_impl(
+    repo: ReadonlyRepo,
+    repo_path: &Path,
+    allow_labels: bool,
+    args: Value,
+) -> Result<String> {
+    let _ = allow_labels; // ingest does not gate on ntype currently
+
     let ntype = args
         .get("ntype")
         .and_then(Value::as_str)
@@ -146,7 +161,7 @@ pub(in crate::tools) fn ingest(server: &mut Server, args: Value) -> Result<Strin
         }
     };
 
-    let ner = crate::tools::ner::resolve_ner_cfg(server.repo_path());
+    let ner = crate::tools::ner::resolve_ner_cfg(repo_path);
     let chunker = resolve_chunker(&chunker_str, kind, max_tokens, overlap)?;
     let config = IngestConfig {
         chunker,
@@ -157,7 +172,6 @@ pub(in crate::tools) fn ingest(server: &mut Server, args: Value) -> Result<Strin
     };
     let ing = Ingester::new(config);
 
-    let repo = server.load_repo()?;
     let mut tx = repo.start_transaction();
     let result = ing.ingest(&mut tx, &bytes, kind)?;
     let new_repo = tx.commit(&agent_id, &message)?;
@@ -171,7 +185,7 @@ pub(in crate::tools) fn ingest(server: &mut Server, args: Value) -> Result<Strin
     // post-ingest reindex step. Non-fatal: embedding failures are silent
     // and the commit is already durable.
     #[cfg(feature = "summarize")]
-    let embed_count = embed_ingest_nodes(server.repo_path(), &new_repo, &agent_id);
+    let embed_count = embed_ingest_nodes(repo_path, &new_repo, &agent_id);
 
     let mut out = String::new();
     out.push_str("mnem_ingest: ok\n");

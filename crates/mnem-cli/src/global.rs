@@ -36,8 +36,17 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) const DIR_NAME: &str = ".mnemglobal";
 
-/// Returns `~/.mnemglobal` (or `./.mnemglobal` if the home dir is unknown).
+/// Returns the global graph parent directory.
+///
+/// Precedence:
+/// 1. `MNEM_GLOBAL_DIR` env var (absolute path) — useful on WSL where the
+///    Windows home (`/mnt/c/Users/<user>/.mnemglobal`) differs from the
+///    Linux home (`~/.mnemglobal`).
+/// 2. `~/.mnemglobal` (OS home dir fallback, or `./.mnemglobal` if unknown).
 pub(crate) fn default_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("MNEM_GLOBAL_DIR") {
+        return PathBuf::from(dir);
+    }
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(DIR_NAME)

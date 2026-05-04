@@ -77,9 +77,7 @@ impl IntegrationRegistry {
 }
 
 fn global_dir() -> std::path::PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".mnemglobal")
+    crate::global::default_dir()
 }
 
 /// Record a successful integration into `~/.mnemglobal/integrations.toml`.

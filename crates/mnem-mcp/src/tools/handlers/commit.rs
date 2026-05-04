@@ -2,11 +2,14 @@
 //!
 //! Extracted from `tools.rs` in R3; body unchanged.
 
+use std::path::Path;
+
 use crate::server::Server;
 use anyhow::{Context, Result, anyhow};
 use mnem_core::codec::json_to_ipld;
 use mnem_core::id::{EdgeId, NodeId};
 use mnem_core::objects::{Edge, Node};
+use mnem_core::repo::ReadonlyRepo;
 use serde_json::Value;
 
 // ============================================================
@@ -14,7 +17,21 @@ use serde_json::Value;
 // ============================================================
 
 pub(in crate::tools) fn commit(server: &mut Server, args: Value) -> Result<String> {
+    let repo_path = server.repo_path().to_path_buf();
     let allow_labels = server.allow_labels;
+    let repo = server.load_repo()?;
+    commit_impl(repo, &repo_path, allow_labels, args)
+}
+
+pub(super) fn commit_impl(
+    repo: ReadonlyRepo,
+    repo_path: &Path,
+    allow_labels: bool,
+    args: Value,
+) -> Result<String> {
+    #[cfg(not(feature = "summarize"))]
+    let _ = repo_path;
+
     let agent_id = args
         .get("agent_id")
         .and_then(Value::as_str)
@@ -30,14 +47,13 @@ pub(in crate::tools) fn commit(server: &mut Server, args: Value) -> Result<Strin
         .unwrap_or("mnem_mcp commit")
         .to_string();
 
-    let repo = server.load_repo()?;
     let mut tx = repo.start_transaction();
 
     // Open embedder once for the whole commit (provider failures are
     // non-fatal: nodes are committed without a vector and can be
     // backfilled with `mnem reindex`).
     #[cfg(feature = "summarize")]
-    let opt_embedder = crate::tools::embed::resolve_embed_cfg(server.repo_path())
+    let opt_embedder = crate::tools::embed::resolve_embed_cfg(repo_path)
         .and_then(|pc| mnem_embed_providers::open(&pc).ok());
 
     let mut created_nodes: Vec<(String, NodeId)> = Vec::new();
