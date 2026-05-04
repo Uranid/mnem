@@ -97,7 +97,11 @@ cargo install --locked mnem-cli --features bundled-embedder-cuda
 If `mnem` is not found after install, `~/.cargo/bin` is not on `$PATH`. Fix:
 
 ```bash
-source ~/.cargo/env   # or open a new terminal
+# rustup install: sourcing env is enough for the current session
+source ~/.cargo/env
+
+# apt/dnf/system cargo install: add to PATH permanently
+echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 ```
 
 </details>
