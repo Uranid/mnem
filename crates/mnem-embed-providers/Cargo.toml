@@ -123,7 +123,7 @@ blake3 = { workspace = true }
 #   Debian/Ubuntu/WSL: sudo apt-get install g++
 #   Fedora/RHEL:       sudo dnf install gcc-c++
 # macOS uses libc++ (always present); no extra step needed there.
-ort = { version = "=2.0.0-rc.11", default-features = false, features = ["ndarray"], optional = true }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["ndarray"], optional = true }
 tokenizers = { version = "0.22", default-features = false, features = ["onig"], optional = true }
 ndarray = { version = "0.17", optional = true }
 # Model + tokenizer download uses the in-tree `ureq` (non-optional,
