@@ -18,7 +18,17 @@
 
 ---
 
-**[What it is](#what-it-is)** · **[Install](#install)** · **[Quickstart](#quickstart)** · **[Integrate](#mnem-integrate---wire-into-any-agent-host)** · **[Commands](#commands)** · **[Python API](#python-api-mnem-py)** · **[GraphRAG](#graphrag)** · **[Benchmarks](#benchmarks)** · **[vs others](#compared-to-others)** · **[Docs](#documentation)** · **[Contributing](#contributing)**
+1. [What it is](#what-it-is)
+2. [Install](#install)
+3. [Quickstart](#quickstart)
+4. [Integrate](#mnem-integrate---wire-into-any-agent-host)
+5. [Benchmarks](#benchmarks)
+6. [Commands](#commands)
+7. [Python API](#python-api-mnem-py)
+8. [GraphRAG](#graphrag)
+9. [vs others](#compared-to-others)
+10. [Docs](#documentation)
+11. [Contributing](#contributing)
 
 ---
 
@@ -243,6 +253,81 @@ Auto-detects and configures:
 Any other MCP-aware host works via a hand-edited `mcpServers` entry pointing at `mnem mcp --repo <path>` - see [`docs/src/mcp.md`](docs/src/mcp.md).
 
 The agent gets the full mnem toolset as native tools: retrieve, commit, ingest, tombstone, traverse, global graph access, and more. No extra daemon, no port to manage. Full tool reference: [`docs/src/mcp.md`](docs/src/mcp.md).
+
+---
+
+## Benchmarks
+
+ONNX MiniLM-L6-v2 embedder, same bytes on every system. No LLM rerank.
+Dense retrieval (vector + top-k); the LongMemEval Hybrid v4 row mirrors
+MemPalace's harness helper. Reproduce: `bash benchmarks/harness/run_bench.sh`.
+
+### vs MemPalace
+
+> MemPalace's column carries their public headline numbers, **cross-verified**
+> by running their adapter end-to-end under our harness. mnem's column comes
+> from the same harness, same embedder bytes (ONNX MiniLM-L6-v2), same
+> dataset hashes. Both columns are reproducible; raw artefacts in
+> [`benchmarks/proofs/v0.1.0/`](benchmarks/proofs/v0.1.0/).
+
+| Benchmark | Split | Metric | MP | mnem | Delta |
+|-----------|-------|--------|----|-----------|-------|
+| LongMemEval | 500 Q | R@5 session | 0.966 | **0.966** | 0 |
+| LongMemEval | 500 Q | R@10 session | 0.982 | **0.982** | 0 |
+| LoCoMo | 1986 Q | R@5 session | 0.508 | $\color{green}{\textbf{0.726}}$ | **+0.218** |
+| LoCoMo | 1986 Q | R@10 session | 0.603 | $\color{green}{\textbf{0.855}}$ | **+0.252** |
+| ConvoMem | 250 (5x50) | avg recall | 0.929 | $\color{green}{\textbf{0.976}}$ | **+0.047** |
+| MemBench | simple/roles 100 | R@5 | 0.840 | $\color{green}{\textbf{0.960}}$ | **+0.120** |
+| MemBench | highlevel/movie 100 | R@5 | 0.950 | $\color{green}{\textbf{1.000}}$ | **+0.050** |
+| LongMemEval | 500 Q hybrid-v4 | R@5 session | 0.982 | $\color{red}{\textbf{0.976}}$ | **-0.006** |
+
+### vs mem0
+
+> mem0 doesn't publish recall@K headlines on these datasets, so both
+> columns are our reproductions: we ran mem0's adapter end-to-end under
+> the same harness, same embedder bytes (ONNX MiniLM-L6-v2), and the
+> same per-item scoping (`infer=False` + `user_id`-per-item) documented
+> in [`benchmarks/results/methodology.md`](benchmarks/results/methodology.md).
+> Both columns reproducible; raw artefacts in
+> [`benchmarks/proofs/v0.1.0/`](benchmarks/proofs/v0.1.0/).
+
+| Benchmark | Split | Metric | mem0 | mnem | Delta |
+|-----------|-------|--------|------|-----------|-------|
+| LongMemEval | 500 Q | R@5 session | 0.946 | $\color{green}{\textbf{0.966}}$ | **+0.020** |
+| LongMemEval | 500 Q | R@10 session | 0.962 | $\color{green}{\textbf{0.982}}$ | **+0.020** |
+| LoCoMo | 1986 Q | R@5 session | 0.466 | $\color{green}{\textbf{0.726}}$ | **+0.260** |
+| LoCoMo | 1986 Q | R@10 session | 0.676 | $\color{green}{\textbf{0.855}}$ | **+0.179** |
+| ConvoMem | 250 (5x50) | avg recall | 0.558 | $\color{green}{\textbf{0.976}}$ | **+0.418** |
+| MemBench | simple/roles 100 | R@5 | 0.410 | $\color{green}{\textbf{0.960}}$ | **+0.550** |
+| MemBench | highlevel/movie 100 | R@5 | 0.970 | $\color{green}{\textbf{1.000}}$ | **+0.030** |
+| LongMemEval | 500 Q hybrid-v4 | R@5 session | 0.930 | $\color{green}{\textbf{0.976}}$ | **+0.046** |
+
+### Latency
+
+| Benchmark | mean retrieve | total wall (n questions) |
+|-----------|--------------:|-------------------------:|
+| LongMemEval 500 Q | 711 ms | 1127 s (~19 min) |
+| LongMemEval 500 Q hybrid-v4 | 729 ms | 1133 s (~19 min) |
+| LoCoMo 1986 Q | 333 ms | 720 s (~12 min) |
+| ConvoMem 250 (5x50) | 398 ms | 218 s (~4 min) |
+| MemBench simple/roles 100 | 1874 ms (e2e) | 187 s (~3 min) |
+| MemBench highlevel/movie 100 | 491 ms (e2e) | 49 s (~1 min) |
+
+`(e2e)` = end-to-end mean when the adapter doesn't expose phase timing.
+
+### Reproduce
+
+```bash
+mnem bench fetch longmemeval     # download datasets (one-time, 264 MB)
+mnem bench                       # TUI; select benchmarks interactively
+mnem bench run --benches longmemeval --limit 50 --non-interactive
+mnem bench results ./bench-out   # re-render results from a prior run
+
+# Legacy bash harness (canonical path for headline numbers)
+bash benchmarks/harness/run_bench.sh
+```
+
+Methodology, raw artifacts, per-bench breakdowns: [`benchmarks/`](benchmarks/) and [`docs/src/benchmarks/`](docs/src/benchmarks/).
 
 ---
 
@@ -573,81 +658,6 @@ mnem ingest --extractor keybert notes.md
 - **Keyphrase-enriched ingest**: `mnem ingest --extractor keybert` at ingest time
 
 Full retrieval architecture: [`docs/src/cli.md`](docs/src/cli.md) (retrieve flags)
-
----
-
-## Benchmarks
-
-ONNX MiniLM-L6-v2 embedder, same bytes on every system. No LLM rerank.
-Dense retrieval (vector + top-k); the LongMemEval Hybrid v4 row mirrors
-MemPalace's harness helper. Reproduce: `bash benchmarks/harness/run_bench.sh`.
-
-### vs MemPalace
-
-> MemPalace's column carries their public headline numbers, **cross-verified**
-> by running their adapter end-to-end under our harness. mnem's column comes
-> from the same harness, same embedder bytes (ONNX MiniLM-L6-v2), same
-> dataset hashes. Both columns are reproducible; raw artefacts in
-> [`benchmarks/proofs/v0.1.0/`](benchmarks/proofs/v0.1.0/).
-
-| Benchmark | Split | Metric | MP | mnem | Delta |
-|-----------|-------|--------|----|-----------|-------|
-| LongMemEval | 500 Q | R@5 session | 0.966 | **0.966** | 0 |
-| LongMemEval | 500 Q | R@10 session | 0.982 | **0.982** | 0 |
-| LoCoMo | 1986 Q | R@5 session | 0.508 | $\color{green}{\textbf{0.726}}$ | **+0.218** |
-| LoCoMo | 1986 Q | R@10 session | 0.603 | $\color{green}{\textbf{0.855}}$ | **+0.252** |
-| ConvoMem | 250 (5x50) | avg recall | 0.929 | $\color{green}{\textbf{0.976}}$ | **+0.047** |
-| MemBench | simple/roles 100 | R@5 | 0.840 | $\color{green}{\textbf{0.960}}$ | **+0.120** |
-| MemBench | highlevel/movie 100 | R@5 | 0.950 | $\color{green}{\textbf{1.000}}$ | **+0.050** |
-| LongMemEval | 500 Q hybrid-v4 | R@5 session | 0.982 | $\color{red}{\textbf{0.976}}$ | **-0.006** |
-
-### vs mem0
-
-> mem0 doesn't publish recall@K headlines on these datasets, so both
-> columns are our reproductions: we ran mem0's adapter end-to-end under
-> the same harness, same embedder bytes (ONNX MiniLM-L6-v2), and the
-> same per-item scoping (`infer=False` + `user_id`-per-item) documented
-> in [`benchmarks/results/methodology.md`](benchmarks/results/methodology.md).
-> Both columns reproducible; raw artefacts in
-> [`benchmarks/proofs/v0.1.0/`](benchmarks/proofs/v0.1.0/).
-
-| Benchmark | Split | Metric | mem0 | mnem | Delta |
-|-----------|-------|--------|------|-----------|-------|
-| LongMemEval | 500 Q | R@5 session | 0.946 | $\color{green}{\textbf{0.966}}$ | **+0.020** |
-| LongMemEval | 500 Q | R@10 session | 0.962 | $\color{green}{\textbf{0.982}}$ | **+0.020** |
-| LoCoMo | 1986 Q | R@5 session | 0.466 | $\color{green}{\textbf{0.726}}$ | **+0.260** |
-| LoCoMo | 1986 Q | R@10 session | 0.676 | $\color{green}{\textbf{0.855}}$ | **+0.179** |
-| ConvoMem | 250 (5x50) | avg recall | 0.558 | $\color{green}{\textbf{0.976}}$ | **+0.418** |
-| MemBench | simple/roles 100 | R@5 | 0.410 | $\color{green}{\textbf{0.960}}$ | **+0.550** |
-| MemBench | highlevel/movie 100 | R@5 | 0.970 | $\color{green}{\textbf{1.000}}$ | **+0.030** |
-| LongMemEval | 500 Q hybrid-v4 | R@5 session | 0.930 | $\color{green}{\textbf{0.976}}$ | **+0.046** |
-
-### Latency
-
-| Benchmark | mean retrieve | total wall (n questions) |
-|-----------|--------------:|-------------------------:|
-| LongMemEval 500 Q | 711 ms | 1127 s (~19 min) |
-| LongMemEval 500 Q hybrid-v4 | 729 ms | 1133 s (~19 min) |
-| LoCoMo 1986 Q | 333 ms | 720 s (~12 min) |
-| ConvoMem 250 (5x50) | 398 ms | 218 s (~4 min) |
-| MemBench simple/roles 100 | 1874 ms (e2e) | 187 s (~3 min) |
-| MemBench highlevel/movie 100 | 491 ms (e2e) | 49 s (~1 min) |
-
-`(e2e)` = end-to-end mean when the adapter doesn't expose phase timing.
-
-### Reproduce
-
-```bash
-mnem bench fetch longmemeval     # download datasets (one-time, 264 MB)
-mnem bench                       # TUI; select benchmarks interactively
-mnem bench run --benches longmemeval --limit 50 --non-interactive
-mnem bench results ./bench-out   # re-render results from a prior run
-
-# Legacy bash harness (canonical path for headline numbers)
-bash benchmarks/harness/run_bench.sh
-```
-
-Methodology, raw artifacts, per-bench breakdowns: [`benchmarks/`](benchmarks/) and [`docs/src/benchmarks/`](docs/src/benchmarks/).
 
 ---
 
