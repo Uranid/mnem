@@ -94,13 +94,15 @@ cargo install --locked mnem-cli --features bundled-embedder
 cargo install --locked mnem-cli --features bundled-embedder-cuda
 ```
 
-If `mnem` is not found after install, `~/.cargo/bin` is not on `$PATH`. Fix:
+If `mnem` is not found after install, `~/.cargo/bin` is not on `$PATH`.
 
+**rustup install** — source the env (or open a new terminal):
 ```bash
-# rustup install: sourcing env is enough for the current session
 source ~/.cargo/env
+```
 
-# apt/dnf/system cargo install: add to PATH permanently
+**System Rust (apt/dnf)** — add to PATH permanently:
+```bash
 echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 ```
 
