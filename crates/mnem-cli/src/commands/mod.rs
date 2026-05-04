@@ -19,6 +19,7 @@ pub(crate) mod diff;
 pub(crate) mod embed_cmd;
 pub(crate) mod export;
 pub(crate) mod fetch;
+pub(crate) mod get_node;
 pub(crate) mod global_cmd;
 pub(crate) mod import;
 pub(crate) mod ingest;

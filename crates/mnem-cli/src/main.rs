@@ -173,6 +173,15 @@ Examples:
   mnem blame <node-uuid> --etype authored
 ")]
     Blame(commands::blame::Args),
+    /// Fetch a single node by UUID and print its ntype, summary, and props.
+    /// Use `mnem cat-file --json <cid>` when you have a block CID instead.
+    #[command(after_long_help = "\
+Examples:
+  mnem get <uuid>
+  mnem get <uuid> --content                 # also print the content body
+  mnem global get <uuid>
+")]
+    Get(commands::get_node::Args),
     /// Soft-delete a node: records a tombstone with an optional reason.
     /// Tombstoned nodes are excluded from `mnem retrieve` and `mnem query`
     /// but remain in the blockstore and op-log for auditing.
@@ -380,6 +389,7 @@ fn main() {
         Some(Cmd::Ingest(args)) => commands::ingest::run(cli.repo.as_deref(), args),
         Some(Cmd::Branch(sub)) => commands::branch::run(cli.repo.as_deref(), sub),
         Some(Cmd::Blame(args)) => commands::blame::run(cli.repo.as_deref(), args),
+        Some(Cmd::Get(args)) => commands::get_node::run(cli.repo.as_deref(), args),
         Some(Cmd::Tombstone(args)) => commands::tombstone::run(cli.repo.as_deref(), args),
         Some(Cmd::Delete(args)) => commands::delete_node::run(cli.repo.as_deref(), args),
         Some(Cmd::CatFile(args)) => commands::cat_file::run(cli.repo.as_deref(), args),

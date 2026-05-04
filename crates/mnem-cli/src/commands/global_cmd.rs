@@ -55,6 +55,9 @@ Examples:
     /// Walk the incoming-edge index for a node in the global graph.
     Blame(super::blame::Args),
 
+    /// Fetch a single node by UUID from the global graph.
+    Get(super::get_node::Args),
+
     /// Soft-delete a node in the global graph (tombstone with audit trail).
     Tombstone(super::tombstone::Args),
 
@@ -142,6 +145,10 @@ pub(crate) fn run(_override: Option<&Path>, cmd: GlobalCmd) -> Result<()> {
         GlobalCmd::Blame(args) => {
             require_global_init(&global_dir)?;
             super::blame::run(Some(&global_dir), args)
+        }
+        GlobalCmd::Get(args) => {
+            require_global_init(&global_dir)?;
+            super::get_node::run(Some(&global_dir), args)
         }
         GlobalCmd::Tombstone(args) => {
             require_global_init(&global_dir)?;

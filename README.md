@@ -358,9 +358,12 @@ mnem add edge --from <uuid> --to <uuid> --label works_at            # connect tw
 ```
 
 ```bash
+mnem get <uuid>                                                     # fetch a node by UUID: ntype, summary, props
+mnem get <uuid> --content                                           # also print the full content body
 mnem tombstone <uuid>                                               # soft-delete: excluded from retrieval, kept in audit log
 mnem tombstone <uuid> --reason "superseded by newer decision"       # with reason recorded in op-log
 mnem delete <uuid>                                                  # hard-delete: no audit trail
+mnem global get <uuid>                                              # look up a node in the global graph
 mnem global tombstone <uuid>                                        # tombstone a node in the global graph
 ```
 
