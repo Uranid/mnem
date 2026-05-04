@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 // ---------- handler ----------
 
-pub(in crate::tools) fn global_retrieve(_server: &mut Server, args: Value) -> Result<String> {
+pub(in crate::tools) fn global_retrieve(server: &mut Server, args: Value) -> Result<String> {
     let global_dir = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".mnemglobal");
@@ -80,14 +80,29 @@ pub(in crate::tools) fn global_retrieve(_server: &mut Server, args: Value) -> Re
         None
     };
 
-    // Open the global graph and retrieve.
-    let repo = match Server::open_repo_at(&global_data) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("(mnem_global_retrieve: cannot open global graph: {e})");
-            return Ok(format!(
-                "mnem_global_retrieve: error opening global graph: {e}\n"
-            ));
+    // Open the global graph and retrieve. If the server is already
+    // pointing at the global path (the default `mnem integrate` config),
+    // reuse the cached connection — opening the same redb file twice from
+    // the same process causes "Database already open" lock failures.
+    let repo = if server.repo_path() == global_data {
+        match server.load_repo() {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("(mnem_global_retrieve: cannot load global graph: {e})");
+                return Ok(format!(
+                    "mnem_global_retrieve: error opening global graph: {e}\n"
+                ));
+            }
+        }
+    } else {
+        match Server::open_repo_at(&global_data) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("(mnem_global_retrieve: cannot open global graph: {e})");
+                return Ok(format!(
+                    "mnem_global_retrieve: error opening global graph: {e}\n"
+                ));
+            }
         }
     };
 

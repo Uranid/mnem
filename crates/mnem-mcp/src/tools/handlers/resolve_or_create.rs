@@ -87,7 +87,7 @@ pub(in crate::tools) fn resolve_or_create(server: &mut Server, args: Value) -> R
     let want_global = args.get("global").and_then(Value::as_bool).unwrap_or(false);
 
     let global_anchor_uuid: Option<String> = if want_global {
-        try_stamp_global(&label, &prop_name, &value, &agent_id)
+        try_stamp_global(server, &label, &prop_name, &value, &agent_id)
     } else {
         None
     };
@@ -140,6 +140,7 @@ pub(in crate::tools) fn resolve_or_create(server: &mut Server, args: Value) -> R
 /// `~/.mnemglobal/.mnem/`. Returns the resulting node UUID as a string,
 /// or `None` with a stderr note if the global graph is absent or errors.
 fn try_stamp_global(
+    server: &mut Server,
     label: &str,
     prop_name: &str,
     value: &ipld_core::ipld::Ipld,
@@ -159,11 +160,21 @@ fn try_stamp_global(
         return None;
     }
 
-    let global_repo = match Server::open_repo_at(&global_data_dir) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("note: could not open global graph: {e}; skipping _global_anchor");
-            return None;
+    let global_repo = if server.repo_path() == global_data_dir {
+        match server.load_repo() {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("note: could not open global graph: {e}; skipping _global_anchor");
+                return None;
+            }
+        }
+    } else {
+        match Server::open_repo_at(&global_data_dir) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("note: could not open global graph: {e}; skipping _global_anchor");
+                return None;
+            }
         }
     };
 

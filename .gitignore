@@ -53,6 +53,7 @@ yarn-error.log*
 *~
 .fleet/
 .zed/
+.claude/
 
 # OS
 .DS_Store

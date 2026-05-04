@@ -13,7 +13,7 @@ use mnem_core::objects::{Edge, Node};
 use serde_json::Value;
 use std::path::PathBuf;
 
-pub(in crate::tools) fn global_add(server: &Server, args: Value) -> Result<String> {
+pub(in crate::tools) fn global_add(server: &mut Server, args: Value) -> Result<String> {
     let global_data = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".mnemglobal")
@@ -39,7 +39,13 @@ pub(in crate::tools) fn global_add(server: &Server, args: Value) -> Result<Strin
         .unwrap_or("mnem_mcp global_add")
         .to_string();
 
-    let repo = Server::open_repo_at(&global_data)?;
+    // Reuse the server's cached connection when it's already pointing at the
+    // global path, to avoid the "Database already open" lock conflict.
+    let repo = if server.repo_path() == global_data {
+        server.load_repo()?
+    } else {
+        Server::open_repo_at(&global_data)?
+    };
     let mut tx = repo.start_transaction();
     let mut created_nodes: Vec<(String, NodeId)> = Vec::new();
 

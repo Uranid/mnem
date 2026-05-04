@@ -144,9 +144,10 @@ treats them as the default reading and writing channel for facts the
 user shares.
 
 The pre-prompt hook (`mnem integrate --with-hooks claude-code`) gives
-a stronger guarantee: it forces a `mnem_retrieve` call before the LLM
-ever sees the user's message. Pair the two for the strongest "automatic
-memory" experience.
+a stronger guarantee: it runs BOTH `mnem retrieve` (local) AND
+`mnem global retrieve` (global) before the LLM ever sees the user's
+message, so facts from any graph are always surfaced. Pair the two
+for the strongest "automatic memory" experience.
 
 ## See also
 

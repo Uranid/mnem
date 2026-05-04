@@ -121,7 +121,13 @@ pub(in crate::tools) fn global_ingest(_server: &mut Server, args: Value) -> Resu
     };
     let ing = Ingester::new(config);
 
-    let repo = Server::open_repo_at(&global_data)?;
+    // Reuse the server's cached connection when it's already pointing at the
+    // global path, to avoid the "Database already open" lock conflict.
+    let repo = if _server.repo_path() == global_data {
+        _server.load_repo()?
+    } else {
+        Server::open_repo_at(&global_data)?
+    };
     let mut tx = repo.start_transaction();
     let result = ing.ingest(&mut tx, &bytes, kind)?;
     let new_repo = tx.commit(&agent_id, &message)?;
