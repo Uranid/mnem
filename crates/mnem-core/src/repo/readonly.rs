@@ -547,6 +547,39 @@ impl ReadonlyRepo {
         Self::load_at(bs, ohs, op_cid)
     }
 
+    /// Move the working position (`view.heads`) to `new_head` without
+    /// touching any named ref. This is how a detached-HEAD fast-forward
+    /// works: the merge target becomes the new commit base for the next
+    /// `Transaction::commit`, and any branches that existed before are
+    /// left exactly where they were.
+    ///
+    /// Mirrors the `update_ref` pattern exactly (same Op-wrapping,
+    /// same `load_at` reload) but writes `heads` instead of `refs`.
+    pub fn update_heads(&self, new_head: Cid, author: &str) -> Result<Self, Error> {
+        let bs = self.blockstore.clone();
+        let ohs = self.op_heads.clone();
+
+        let mut new_view: View = (*self.view).clone();
+        new_view.heads = vec![new_head.clone()];
+
+        let (view_bytes, view_cid) = hash_to_cid(&new_view)?;
+        bs.put(view_cid.clone(), view_bytes)?;
+
+        let op = Operation::new(
+            view_cid,
+            author,
+            now_micros(),
+            format!("update_heads: {new_head}"),
+        )
+        .with_parent(self.op_id.clone());
+        let (op_bytes, op_cid) = hash_to_cid(&op)?;
+        bs.put(op_cid.clone(), op_bytes)?;
+
+        ohs.update(op_cid.clone(), std::slice::from_ref(&self.op_id))?;
+
+        Self::load_at(bs, ohs, op_cid)
+    }
+
     // Remote-v0 insertion point: `update_remote_ref(remote_name,
     // ref_name, target) -> Result<Self, Error>` will mutate
     // `View.remote_refs[remote][ref]` atomically (same

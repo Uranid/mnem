@@ -317,33 +317,152 @@ mnem global add node --label Entity:Person \
 
 The `mnem integrate` command sets up the agent to read local first and fall back to global automatically - no manual switching required during normal use.
 
-### History and branching
+### Status and inspection
 
 ```bash
-mnem log              # commit history
-mnem diff             # what changed between commits
-mnem branch           # list branches
-mnem branch create feature-x    # create a new branch
-mnem merge <branch>   # three-way merge (graph + embedding merge, not last-write-wins)
+mnem status           # op-head CID, head commit, all named refs, label counts, MERGING marker
+mnem stats            # one-line: op, commit, content CID, ref count, label names
 ```
 
-### Inspect and explore
+### History
 
 ```bash
-mnem query --where name=Alice                  # exact property match
-mnem query --where kind=Person --with-outgoing knows  # match + follow edges
+mnem log              # walk op-log backwards from HEAD, default last 20 entries
+mnem log -n 50        # show last 50 entries
+mnem log --oneline    # compact one-line-per-op format
+mnem log --format json # machine-readable JSON stream
 
-mnem ref              # list refs
-mnem cat-file <cid>   # show a raw object
-mnem blame <node-id>  # which commit introduced a node
+mnem show             # decode and pretty-print the current op-head block
+mnem show <cid>       # decode any block by CID (Node, Edge, Commit, Operation, View, ...)
+
+mnem diff <op-a-cid> <op-b-cid>   # ref deltas + node/edge structural diff between two ops
+mnem diff HEAD <cid>               # diff current op against a specific op CID
 ```
 
-### Export, import, and servers
+### Branching and merging
 
 ```bash
-mnem export > graph.car        # dump the graph as a CAR archive
-mnem import graph.car          # load a CAR archive into the current graph
+mnem branch list                        # list all refs/heads/* branches; * marks current
+mnem branch create <name>               # create branch at current HEAD
+mnem branch create <name> <start>       # branch from a ref name, branch name, or CID
+mnem branch create <name> --from HEAD   # explicit --from form; same resolution as above
+mnem branch delete <name>               # delete a local branch pointer
 
+mnem merge <branch>                     # 3-way merge <branch> into current HEAD
+mnem merge <branch> --strategy=ours     # auto-resolve conflicts: keep current side
+mnem merge <branch> --strategy=theirs   # auto-resolve conflicts: take incoming side
+mnem merge <branch> --dry-run           # preview outcome without persisting anything
+mnem merge --continue                   # finish after editing .mnem/MERGE_CONFLICTS.json
+mnem merge --abort                      # cancel, restore HEAD from .mnem/ORIG_HEAD
+
+mnem pull                               # fast-forward origin/main into HEAD (default)
+mnem pull <remote> <branch>             # fast-forward <remote>/<branch> into HEAD
+```
+
+### Remote operations
+
+```bash
+mnem remote add <name> <url>            # register a remote (stores in .mnem/config.toml)
+mnem remote add <name> <url> \
+  --token-env MNEM_REMOTE_ORIGIN_TOKEN  # name the env var that holds the bearer token
+mnem remote list                        # list all configured remotes with their URLs
+mnem remote show <name>                 # show URL + capabilities for one remote
+mnem remote remove <name>               # remove a remote entry
+
+mnem fetch                              # fetch from origin (default)
+mnem fetch <remote>                     # fetch from a named remote; token via env var
+
+mnem push                               # push HEAD to origin/main (default)
+mnem push <remote> <branch>             # push a specific branch to a named remote
+
+mnem clone <url> [<dir>]                # clone a CAR archive into <dir>; file:// and bare .car paths supported
+mnem clone file:///tmp/repo.car ./copy  # clone from a local file URL
+mnem clone ./repo.car ./copy            # bare path shorthand (must end in .car)
+```
+
+### Query and graph traversal
+
+```bash
+mnem query --where name=Alice                    # exact property match, default 10 results
+mnem query --where kind=Person -n 25             # increase result limit
+mnem query --where kind=Person \
+  --with-outgoing knows                          # match nodes + follow outgoing "knows" edges
+mnem query --where status=active \
+  --with-outgoing depends_on \
+  --with-outgoing depends_on                     # repeat --with-outgoing to chain hops
+
+mnem blame <node-uuid>                           # list all incoming edges to a node
+mnem blame <node-uuid> --etype authored          # filter to one edge type
+```
+
+### Named refs
+
+```bash
+mnem ref list                         # list all refs (refs/heads/*, refs/remotes/*, ...)
+mnem ref set <name> <target-cid>      # point a ref at a specific commit CID
+mnem ref delete <name>                # delete a named ref
+```
+
+### Embeddings
+
+```bash
+mnem embed                            # backfill embeddings for every node missing a vector
+mnem embed --force                    # re-embed even nodes that already have a vector
+mnem embed --label Person             # restrict to nodes of one label
+mnem embed --dry-run                  # count what would be embedded without calling the provider
+
+mnem reindex                          # alias for embed; preferred name after C7 rename
+mnem reindex --label Doc              # restrict to one label
+mnem reindex --since <commit>         # only nodes added/changed after <commit>
+mnem reindex --force                  # re-embed already-indexed nodes
+mnem reindex --dry-run                # count without calling the provider
+```
+
+### Low-level block access
+
+```bash
+mnem cat-file <cid>          # emit raw DAG-CBOR bytes for a block to stdout
+mnem cat-file <cid> --json   # decode to DAG-JSON and pretty-print (pipe into jq)
+```
+
+### Export and import
+
+```bash
+mnem export <path>                        # export HEAD as a CAR v1 archive
+mnem export -                             # write CAR to stdout (pipe over SSH etc.)
+mnem export --from refs/heads/main out.car  # export from a specific ref
+mnem export --from <cid> backup.car       # export from a specific commit CID
+
+mnem import <path>                        # import a CAR archive into the current repo
+mnem import -                             # read CAR from stdin
+```
+
+### Configuration
+
+```bash
+mnem config set user.name Alice           # set author name
+mnem config set user.email alice@example.com
+mnem config set embed.provider ollama     # embedder: openai | ollama
+mnem config set embed.model nomic-embed-text
+mnem config set embed.base_url http://localhost:11434  # override provider endpoint
+mnem config get embed.provider            # print the current value of a key
+mnem config unset embed.provider          # remove a key
+mnem config list                          # print all set keys and their values
+```
+
+Known keys: `user.name`, `user.email`, `user.key`, `user.agent_id`, `embed.provider`, `embed.model`, `embed.api_key_env`, `embed.base_url`. API keys live in environment variables, never in config.
+
+### Repository registry
+
+```bash
+mnem repos list              # list all repos registered with mnem integrate
+mnem repos set-default <path>  # mark a repo as the default for mnem without -R
+mnem repos prune             # remove registry entries for paths that no longer exist
+```
+
+### Servers
+
+```bash
 mnem mcp                       # start the MCP JSON-RPC server over stdio
 mnem mcp --repo ~/notes        # point the MCP server at a specific graph
 mnem http serve                # start the HTTP JSON API (loopback by default)
@@ -353,15 +472,24 @@ mnem http serve                # start the HTTP JSON API (loopback by default)
 
 ```bash
 mnem bench                                       # interactive TUI; select benchmarks to run
-mnem bench run --benches longmemeval --limit 50  # run a specific benchmark
+mnem bench run --benches longmemeval --limit 50  # run a specific benchmark suite
 mnem bench fetch longmemeval                     # download benchmark datasets
 mnem bench results ./bench-out                   # re-render results from a prior run
 ```
 
+### Shell completions
+
 ```bash
-mnem completions bash   # emit bash completion script (pipe into your shell rc)
-mnem completions zsh    # zsh
-mnem completions fish   # fish
+mnem completions bash        # emit bash completion script
+mnem completions zsh         # zsh
+mnem completions fish        # fish
+mnem completions powershell  # PowerShell
+mnem completions elvish      # Elvish
+
+# Install (bash):
+mnem completions bash > ~/.local/share/bash-completion/completions/mnem
+# Install (zsh):
+mnem completions zsh > ~/.zsh/completions/_mnem
 ```
 
 Full CLI reference: [`docs/src/cli.md`](docs/src/cli.md).

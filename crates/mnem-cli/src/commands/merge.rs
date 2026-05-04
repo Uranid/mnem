@@ -160,28 +160,33 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
 
     match outcome {
         MergeOutcome::FastForward(target) => {
-            let name = current_branch_name(&r).ok_or_else(|| {
-                anyhow!(
-                    "cannot fast-forward: no `refs/heads/*` ref matches the \
-                     current head. Set one with `mnem branch create <name>`."
-                )
-            })?;
-            advance_ref(&r, &cfg, &name, target.clone())?;
-            println!("fast-forward: advanced {name} -> {target}");
+            let author = config::author_string(&cfg);
+            match current_branch_name(&r) {
+                Some(name) => {
+                    advance_ref(&r, &cfg, &name, target.clone())?;
+                    println!("fast-forward: advanced {name} -> {target}");
+                }
+                None => {
+                    r.update_heads(target.clone(), &author)
+                        .context("advancing detached HEAD")?;
+                    println!("fast-forward: HEAD -> {target}");
+                }
+            }
         }
         MergeOutcome::Clean(merge_cid) => {
-            let name = current_branch_name(&r).ok_or_else(|| {
-                anyhow!(
-                    "cannot record merge commit: no `refs/heads/*` ref matches \
-                     the current head. Set one with `mnem branch create <name>`."
-                )
-            })?;
-            advance_ref(&r, &cfg, &name, merge_cid.clone())?;
-            println!("merge: advanced {name} -> {merge_cid}");
-            // Clean state: no MERGE_HEAD / conflicts file to write,
-            // and no ORIG_HEAD either (git writes ORIG_HEAD even on
-            // clean; we only write it when there is actual
-            // recoverable state to preserve -- i.e. on conflicts).
+            let author = config::author_string(&cfg);
+            match current_branch_name(&r) {
+                Some(name) => {
+                    advance_ref(&r, &cfg, &name, merge_cid.clone())?;
+                    println!("merge: advanced {name} -> {merge_cid}");
+                }
+                None => {
+                    r.update_heads(merge_cid.clone(), &author)
+                        .context("advancing detached HEAD")?;
+                    println!("merge: HEAD -> {merge_cid}");
+                }
+            }
+            // Clean state: no MERGE_HEAD / conflicts file to write.
         }
         MergeOutcome::Conflicts(mc) => {
             // Persist the in-progress-merge marker set.
@@ -320,17 +325,21 @@ fn run_continue(data_dir: &Path, override_path: Option<&Path>) -> Result<()> {
 
     match outcome {
         MergeOutcome::Clean(cid) | MergeOutcome::FastForward(cid) => {
-            let name = current_branch_name(&r).ok_or_else(|| {
-                anyhow!(
-                    "cannot advance ref after --continue: no `refs/heads/*` \
-                     matches HEAD. Set one with `mnem branch create <name>`."
-                )
-            })?;
-            advance_ref(&r, &cfg, &name, cid.clone())?;
+            let author = config::author_string(&cfg);
+            match current_branch_name(&r) {
+                Some(name) => {
+                    advance_ref(&r, &cfg, &name, cid.clone())?;
+                    println!("merge continued: advanced {name} -> {cid}");
+                }
+                None => {
+                    r.update_heads(cid.clone(), &author)
+                        .context("advancing detached HEAD on --continue")?;
+                    println!("merge continued: HEAD -> {cid}");
+                }
+            }
             let _ = fs::remove_file(&mh);
             let _ = fs::remove_file(&oh);
             let _ = fs::remove_file(&mc_path);
-            println!("merge continued: advanced {name} -> {cid}");
         }
         MergeOutcome::Conflicts(mc) => {
             let (n_node, n_edge, n_tvm) = conflict_category_counts(&mc);
