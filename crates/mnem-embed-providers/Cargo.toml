@@ -119,7 +119,7 @@ blake3 = { workspace = true }
 #
 # Linux and macOS ship with C++ runtimes that already satisfy the
 # `download-binaries` symbol set; `onnx-bundled` builds clean there.
-ort = { version = "=2.0.0-rc.11", default-features = false, features = ["ndarray"], optional = true }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["ndarray"], optional = true }
 tokenizers = { version = "0.22", default-features = false, features = ["onig"], optional = true }
 ndarray = { version = "0.17", optional = true }
 # Model + tokenizer download uses the in-tree `ureq` (non-optional,
