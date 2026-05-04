@@ -173,6 +173,26 @@ Examples:
   mnem blame <node-uuid> --etype authored
 ")]
     Blame(commands::blame::Args),
+    /// Soft-delete a node: records a tombstone with an optional reason.
+    /// Tombstoned nodes are excluded from `mnem retrieve` and `mnem query`
+    /// but remain in the blockstore and op-log for auditing.
+    /// Prefer this over `mnem delete` when an audit trail matters.
+    #[command(after_long_help = "\
+Examples:
+  mnem tombstone <uuid>
+  mnem tombstone <uuid> --reason \"superseded by newer decision\"
+  mnem global tombstone <uuid>
+")]
+    Tombstone(commands::tombstone::Args),
+    /// Hard-delete a node from the current view. No audit trail.
+    /// The block remains in the blockstore until `mnem gc` runs.
+    /// Use `mnem tombstone` when an audit trail matters.
+    #[command(after_long_help = "\
+Examples:
+  mnem delete <uuid>
+  mnem global delete <uuid>
+")]
+    Delete(commands::delete_node::Args),
     /// Emit the raw bytes of a CID (binary-safe) or a decoded JSON
     /// preview (`--json`). Git analog: `git cat-file`.
     #[command(
@@ -360,6 +380,8 @@ fn main() {
         Some(Cmd::Ingest(args)) => commands::ingest::run(cli.repo.as_deref(), args),
         Some(Cmd::Branch(sub)) => commands::branch::run(cli.repo.as_deref(), sub),
         Some(Cmd::Blame(args)) => commands::blame::run(cli.repo.as_deref(), args),
+        Some(Cmd::Tombstone(args)) => commands::tombstone::run(cli.repo.as_deref(), args),
+        Some(Cmd::Delete(args)) => commands::delete_node::run(cli.repo.as_deref(), args),
         Some(Cmd::CatFile(args)) => commands::cat_file::run(cli.repo.as_deref(), args),
         Some(Cmd::Repos(sub)) => commands::repos::run(cli.repo.as_deref(), sub),
         Some(Cmd::Global(sub)) => commands::global_cmd::run(cli.repo.as_deref(), sub),

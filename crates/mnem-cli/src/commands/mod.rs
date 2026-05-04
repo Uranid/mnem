@@ -8,6 +8,7 @@
 pub(crate) mod add;
 pub(crate) mod bench;
 pub(crate) mod blame;
+pub(crate) mod delete_node;
 pub(crate) mod branch;
 pub(crate) mod cat_file;
 pub(crate) mod cfg_cmd;
@@ -35,6 +36,7 @@ pub(crate) mod retrieve;
 pub(crate) mod show;
 pub(crate) mod stats;
 pub(crate) mod status;
+pub(crate) mod tombstone;
 
 use std::path::Path;
 

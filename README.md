@@ -357,6 +357,13 @@ mnem add node --label Fact -s "Alice leads the infra team"          # add a sing
 mnem add edge --from <uuid> --to <uuid> --label works_at            # connect two nodes
 ```
 
+```bash
+mnem tombstone <uuid>                                               # soft-delete: excluded from retrieval, kept in audit log
+mnem tombstone <uuid> --reason "superseded by newer decision"       # with reason recorded in op-log
+mnem delete <uuid>                                                  # hard-delete: no audit trail
+mnem global tombstone <uuid>                                        # tombstone a node in the global graph
+```
+
 > The ingest pipeline is deterministic: no LLM at ingest time, same bytes in always produce the same CIDs out. Audit-friendly and fuzz-tested.
 
 ### Retrieving knowledge
