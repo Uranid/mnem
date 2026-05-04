@@ -145,7 +145,7 @@ const ANCHOR_NODE_ID: &str = "00000000-0000-7000-8000-6d6e656d0001";
 /// embedder a warm-up write and makes the graph non-empty from the
 /// first second, so `mnem global retrieve` has something to return
 /// without a manual `mnem reindex` run.
-fn seed_anchor_node(repo: &ReadonlyRepo, data_dir: &std::path::Path) {
+fn seed_anchor_node(repo: &ReadonlyRepo, _data_dir: &std::path::Path) {
     let anchor_id = NodeId::parse_uuid(ANCHOR_NODE_ID)
         .expect("ANCHOR_NODE_ID is a valid UUID; this is a compile-time constant");
     let node = Node::new(anchor_id, "Meta");
