@@ -117,8 +117,12 @@ blake3 = { workspace = true }
 # The `onnx` feature has no MSVC version requirement; the cost is
 # the separate runtime install.
 #
-# Linux and macOS ship with C++ runtimes that already satisfy the
-# `download-binaries` symbol set; `onnx-bundled` builds clean there.
+# Linux: the prebuilt onnxruntime binary requires `libstdc++` at link
+# time. lld looks for the unversioned `libstdc++.so` symlink (dev
+# package), not just the runtime. Install before building:
+#   Debian/Ubuntu/WSL: sudo apt-get install g++
+#   Fedora/RHEL:       sudo dnf install gcc-c++
+# macOS uses libc++ (always present); no extra step needed there.
 ort = { version = "=2.0.0-rc.11", default-features = false, features = ["ndarray"], optional = true }
 tokenizers = { version = "0.22", default-features = false, features = ["onig"], optional = true }
 ndarray = { version = "0.17", optional = true }

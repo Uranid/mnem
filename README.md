@@ -82,10 +82,22 @@ Every node carries a cryptographic identity derived from DAG-CBOR + BLAKE3: the 
 No Cargo? [Install via rustup](https://rustup.rs/) (also installs `rustc`).
 
 ```bash
+# C++ stdlib required to link the bundled ONNX Runtime (Linux only)
+sudo apt-get install g++          # Debian / Ubuntu / WSL
+# sudo dnf install gcc-c++        # Fedora / RHEL
+```
+
+```bash
 cargo install --locked mnem-cli --features bundled-embedder
 
 # CUDA-accelerated embedder (Linux, NVIDIA GPU)
 cargo install --locked mnem-cli --features bundled-embedder-cuda
+```
+
+If `mnem` is not found after install, `~/.cargo/bin` is not on `$PATH`. Fix:
+
+```bash
+source ~/.cargo/env   # or open a new terminal
 ```
 
 </details>
@@ -158,6 +170,12 @@ The image includes the bundled embedder. Run `mnem mcp` inside the container for
 
 <details>
 <summary><b>From source</b></summary>
+
+```bash
+# C++ stdlib required to link the bundled ONNX Runtime (Linux only)
+sudo apt-get install g++          # Debian / Ubuntu / WSL
+# sudo dnf install gcc-c++        # Fedora / RHEL
+```
 
 ```bash
 git clone https://github.com/Uranid/mnem
