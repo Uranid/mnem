@@ -127,10 +127,6 @@ cargo install --locked mnem-cli --features bundled-embedder-directml
 
 No npm? [Install Node.js](https://nodejs.org/en/download) (npm is bundled, Node 18+ required).
 
-| ⚠️ **Temporarily unavailable** |
-|:---|
-| `mnem-cli` is not yet available on npm due to a package lock-out period and will be available by **2026-05-05**. Use `cargo install --locked mnem-cli --features bundled-embedder` or download the [prebuilt binary](https://github.com/Uranid/mnem/releases) in the meantime. |
-
 ```bash
 npm install -g mnem-cli
 mnem --version
@@ -147,10 +143,6 @@ Downloads the prebuilt native binary for your platform at install time. Node 18+
 <summary><b>Python (PyPI)</b></summary>
 
 No pip? [Install Python](https://www.python.org/downloads/) (pip is bundled with Python 3.4+).
-
-| ⚠️ **Temporarily unavailable** |
-|:---|
-| `mnem-cli` is not yet available on PyPI due to a package lock-out period and will be available by **2026-05-05**. Use `cargo install --locked mnem-cli --features bundled-embedder` or download the [prebuilt binary](https://github.com/Uranid/mnem/releases) in the meantime. |
 
 ```bash
 pip install mnem-cli
