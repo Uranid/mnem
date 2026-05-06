@@ -90,7 +90,7 @@ criterion           = { workspace = true }
 ipld-core           = { workspace = true }
 # `httpmock` for the `HttpRemoteClient` test suite. Only compiled when
 # the `client` feature is enabled and tests are run.
-httpmock            = "0.7"
+httpmock            = "0.8"
 tokio               = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
 futures-util        = { version = "0.3", default-features = false, features = ["std"] }
 

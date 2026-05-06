@@ -100,4 +100,4 @@ mnem-core-testutils  = { workspace = true }
 # HTTP mock server used by the `ollama` feature tests to simulate a local
 # Ollama endpoint without a live process. `blocking` mirrors the reqwest
 # client feature set the crate uses in production.
-httpmock             = "0.7"
+httpmock             = "0.8"
