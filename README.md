@@ -18,6 +18,12 @@
 
 ---
 
+<div align="center">
+  <video src="assets/demo/mnem-demo.mp4" controls width="720"></video>
+</div>
+
+---
+
 1. [What it is](#what-it-is)
 2. [Install](#install)
 3. [Quickstart](#quickstart)

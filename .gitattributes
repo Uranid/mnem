@@ -31,3 +31,4 @@
 *.onnx     binary
 *.parquet  binary
 *.car      binary
+*.mp4      binary
