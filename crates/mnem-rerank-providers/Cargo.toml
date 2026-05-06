@@ -54,7 +54,7 @@ ureq = { version = "2.12", default-features = false, features = ["json", "tls"] 
 # Feature-gated in-process ONNX cross-encoder stack. Same versions
 # and same rationale as mnem-sparse-providers.
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["ndarray", "std", "download-binaries", "tls-rustls"], optional = true }
-tokenizers = { version = "0.22", default-features = false, features = ["onig"], optional = true }
+tokenizers = { version = "0.23", default-features = false, features = ["onig"], optional = true }
 ndarray = { version = "0.17", optional = true }
 hf-hub = { version = "0.5", default-features = false, features = ["ureq", "rustls-tls"], optional = true }
 
