@@ -60,7 +60,7 @@ ndarray = { version = "0.17", optional = true }
 # Model weights + tokenizer + idf.json are lazy-downloaded on first
 # use from the HuggingFace Hub; hf-hub honours HF_HOME for airgapped
 # users who pre-populate the cache.
-hf-hub = { version = "0.4", default-features = false, features = ["ureq", "rustls-tls"], optional = true }
+hf-hub = { version = "0.5", default-features = false, features = ["ureq", "rustls-tls"], optional = true }
 
 [dev-dependencies]
 toml = "1"
