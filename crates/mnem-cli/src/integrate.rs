@@ -1770,11 +1770,58 @@ fn user_prompt_hook_value() -> Value {
     })
 }
 
+/// When running inside WSL, convert a native Linux path to its Windows UNC
+/// equivalent via `wslpath -w`.  Returns `None` on non-Linux platforms,
+/// non-WSL Linux kernels, or when `wslpath` is unavailable.
+fn wsl_to_windows_path(path: &Path) -> Option<String> {
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = path;
+        None
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let osrelease = std::fs::read_to_string("/proc/sys/kernel/osrelease")
+            .unwrap_or_default();
+        if !osrelease.to_ascii_lowercase().contains("microsoft") {
+            return None;
+        }
+        let out = std::process::Command::new("wslpath")
+            .arg("-w")
+            .arg(path)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        String::from_utf8(out.stdout)
+            .ok()
+            .map(|s| s.trim().to_string())
+    }
+}
+
 fn mnem_server_value(target: &Path) -> Value {
-    json!({
+    // Propagate MNEM_GLOBAL_DIR into the MCP server environment block so
+    // that the server process resolves the global graph correctly when CLI
+    // and MCP server run in different OS contexts (e.g. WSL CLI + Windows
+    // host).  On WSL we convert the Linux path to the Windows UNC form
+    // (\\wsl.localhost\<distro>\...) so the Windows host can open it.
+    // A manually-set MNEM_GLOBAL_DIR in the current environment is always
+    // preferred and propagated as-is.
+    let global_env: Option<String> = std::env::var("MNEM_GLOBAL_DIR")
+        .ok()
+        .or_else(|| wsl_to_windows_path(&crate::global::default_dir()));
+
+    let mut v = json!({
         "command": resolve_mnem_mcp_command(),
         "args": ["mcp", "--repo", target.to_string_lossy()]
-    })
+    });
+    if let Some(dir) = global_env {
+        v.as_object_mut()
+            .expect("json object")
+            .insert("env".to_string(), json!({ "MNEM_GLOBAL_DIR": dir }));
+    }
+    v
 }
 
 fn zed_server_value(target: &Path) -> Value {
