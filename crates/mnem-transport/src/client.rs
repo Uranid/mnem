@@ -475,15 +475,11 @@ mod tests {
         let server = MockServer::start_async().await;
         let mock = server
             .mock_async(|when, then| {
-                when.method(GET).path("/remote/v1/refs").matches(|req| {
-                    // Authorization MUST NOT be present on
-                    // list_refs: read-side verb, no token.
-                    let has_auth = req.headers.as_ref().is_some_and(|hs| {
-                        hs.iter()
-                            .any(|(k, _)| k.eq_ignore_ascii_case("authorization"))
-                    });
-                    !has_auth
-                });
+                // Authorization MUST NOT be present on
+                // list_refs: read-side verb, no token.
+                when.method(GET)
+                    .path("/remote/v1/refs")
+                    .header_missing("authorization");
                 then.status(200)
                     .header("content-type", "application/json")
                     .body(r#"{"refs":{},"capabilities":["have-set-bloom","atomic-push"]}"#);
