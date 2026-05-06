@@ -7,8 +7,10 @@
 //! 1. Delegate to `mnem fetch <remote>` so tracking refs land and
 //!    the CAR is in the blockstore.
 //! 2. If local HEAD is an ancestor of the fetched tip (trivially
-//!    true when local HEAD is empty), advance local HEAD via a
-//!    ref-update operation on `refs/heads/<branch>`.
+//!    true when local HEAD is empty), advance it via two chained ops:
+//!    (a) `update_ref refs/heads/<branch>` moves the named branch
+//!    pointer; (b) `update_heads` moves `view.heads` so the next
+//!    commit builds on top of the pulled state, not the stale HEAD.
 //! 3. Otherwise refuse with a message pointing at the B4 `merge`
 //!    verb.
 //!
@@ -86,17 +88,24 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
         ));
     }
 
-    // Advance the local branch ref. NOTE: op-head advancement
-    // follows the same ref-update pattern as `mnem ref set`; the
-    // commit graph is already reachable locally (fetch pulled it).
+    // Advance the local branch ref, then advance view.heads to match.
+    // Two chained ops in the op-DAG: (1) update_ref moves the named
+    // branch pointer; (2) update_heads moves the working position so
+    // the next `mnem add node` builds on top of the pulled commit
+    // rather than the stale pre-pull HEAD.
     let cfg_local = config::load(&data_dir)?;
-    repo.update_ref(
-        &local_branch_key,
-        local_branch.as_ref(),
-        Some(RefTarget::normal(remote_tip.clone())),
-        &config::author_string(&cfg_local),
-    )
-    .with_context(|| format!("update_ref {local_branch_key}"))?;
+    let author = config::author_string(&cfg_local);
+    let after_ref = repo
+        .update_ref(
+            &local_branch_key,
+            local_branch.as_ref(),
+            Some(RefTarget::normal(remote_tip.clone())),
+            &author,
+        )
+        .with_context(|| format!("update_ref {local_branch_key}"))?;
+    after_ref
+        .update_heads(remote_tip.clone(), &author)
+        .context("advancing HEAD after pull")?;
 
     println!(
         "Fast-forward {} -> {}",

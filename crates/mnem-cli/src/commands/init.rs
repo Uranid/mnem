@@ -145,30 +145,16 @@ const ANCHOR_NODE_ID: &str = "00000000-0000-7000-8000-6d6e656d0001";
 /// embedder a warm-up write and makes the graph non-empty from the
 /// first second, so `mnem global retrieve` has something to return
 /// without a manual `mnem reindex` run.
-fn seed_anchor_node(repo: &ReadonlyRepo, data_dir: &std::path::Path) {
+fn seed_anchor_node(repo: &ReadonlyRepo, _data_dir: &std::path::Path) {
     let anchor_id = NodeId::parse_uuid(ANCHOR_NODE_ID)
         .expect("ANCHOR_NODE_ID is a valid UUID; this is a compile-time constant");
-    let node = Node::new(anchor_id, "Meta")
-        .with_summary("mnem is a persistent knowledge graph.")
-        .with_prop("name".to_string(), Ipld::String("mnem".to_string()));
+    let node = Node::new(anchor_id, "Meta");
 
     let mut tx = repo.start_transaction();
-    let node_cid = match tx.add_node(&node) {
-        Ok(c) => c,
+    match tx.add_node(&node) {
+        Ok(_) => {}
         Err(_) => return,
     };
-
-    if let Ok(cfg) = config::load(data_dir) {
-        if let Some(pc) = config::resolve_embedder(&cfg) {
-            if let Ok(embedder) = mnem_embed_providers::open(&pc) {
-                if let Ok(vec) = embedder.embed("mnem is a persistent knowledge graph.") {
-                    let model = embedder.model().to_string();
-                    let emb = mnem_embed_providers::to_embedding(&model, &vec);
-                    let _ = tx.set_embedding(node_cid, model, emb);
-                }
-            }
-        }
-    }
 
     let _ = tx.commit("mnem init", "seed anchor node");
 }

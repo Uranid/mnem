@@ -55,6 +55,15 @@ Examples:
     /// Walk the incoming-edge index for a node in the global graph.
     Blame(super::blame::Args),
 
+    /// Fetch a single node by UUID from the global graph.
+    Get(super::get_node::Args),
+
+    /// Soft-delete a node in the global graph (tombstone with audit trail).
+    Tombstone(super::tombstone::Args),
+
+    /// Hard-delete a node from the global graph. No audit trail.
+    Delete(super::delete_node::Args),
+
     /// Emit the raw bytes of a CID from the global graph.
     #[command(name = "cat-file")]
     CatFile(super::cat_file::Args),
@@ -136,6 +145,18 @@ pub(crate) fn run(_override: Option<&Path>, cmd: GlobalCmd) -> Result<()> {
         GlobalCmd::Blame(args) => {
             require_global_init(&global_dir)?;
             super::blame::run(Some(&global_dir), args)
+        }
+        GlobalCmd::Get(args) => {
+            require_global_init(&global_dir)?;
+            super::get_node::run(Some(&global_dir), args)
+        }
+        GlobalCmd::Tombstone(args) => {
+            require_global_init(&global_dir)?;
+            super::tombstone::run(Some(&global_dir), args)
+        }
+        GlobalCmd::Delete(args) => {
+            require_global_init(&global_dir)?;
+            super::delete_node::run(Some(&global_dir), args)
         }
         GlobalCmd::CatFile(args) => {
             require_global_init(&global_dir)?;
