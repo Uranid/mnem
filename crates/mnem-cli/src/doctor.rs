@@ -130,8 +130,8 @@ fn check_binaries() -> Vec<Check> {
                 // After v0.2.0: `mnem mcp serve` is a subcommand inside the
                 // unified `mnem` binary. Only the `mnem` binary row matters
                 // for the check. Three mutually exclusive states:
-                // 1. Running from absolute path (Info — no PATH needed)
-                // 2. Sibling binary exists (Ok — adjacent to the running binary)
+                // 1. Running from absolute path (Info, no PATH needed)
+                // 2. Sibling binary exists (Ok, adjacent to the running binary)
                 // 3. Neither → Fail with install hint.
                 let is_running_self = running_exe
                     .as_ref()

@@ -411,7 +411,7 @@ A `UserPromptSubmit` hook has already run: it calls BOTH `mnem retrieve`
 unconditionally. Its output appears as a system-injected message immediately
 before this turn (look for text like `# N item(s)` or `0 item(s)`). Content
 from earlier human or assistant turns in this conversation is NOT hook output
-— that is conversation history. Do NOT confuse the two.
+- that is conversation history. Do NOT confuse the two.
 
 **Before applying any rule below**: confirm that what you are calling "hook
 output" is the injected pre-turn message, not something from an earlier turn.
@@ -422,12 +422,12 @@ After identifying the hook output, decide whether to call mnem tools:
 - If the hook output is **absent** (no injected message) or **empty** (message
   present but shows "0 item(s)" or zero results): always call
   `mnem_global_retrieve` (NOT `mnem_retrieve`) with a focused query for the
-  topic at hand — even if the topic appeared in an earlier turn of this
+  topic at hand, even if the topic appeared in an earlier turn of this
   conversation. Do NOT rely on conversation history as a substitute; facts may
   have been added or changed.
 - If the hook output has results but the **specific fact being asked is absent**
   (results mention a relevant entity but do not include the specific attribute
-  the user asked about — e.g. who created something, when it happened): call
+  the user asked about, e.g. who created something, when it happened): call
   `mnem_global_retrieve` (NOT `mnem_retrieve`) with a focused query before
   answering.
 - If the hook output **completely and directly answers the specific question**
@@ -437,7 +437,7 @@ After identifying the hook output, decide whether to call mnem tools:
 ## Writing memory (after you answer)
 
 mnem IS your only memory store. Do NOT write markdown memory files,
-MEMORY.md indexes, or any other file-based notes alongside it — those
+MEMORY.md indexes, or any other file-based notes alongside it, those
 are redundant and will diverge. Commit everything to mnem only.
 
 After each turn, commit any new facts, preferences, events, or entities
@@ -460,7 +460,7 @@ the user stated or confirmed. Use these rules:
   resolve-or-creates both nodes and adds the edge in one call. After
   `mnem_commit_relation`, also call `mnem_commit` with a complete standalone
   summary sentence so the relationship is
-  findable via text search — entity nodes have no summary and are invisible
+  findable via text search, entity nodes have no summary and are invisible
   to the retriever otherwise.
 - Do NOT commit model output or your own reasoning. Only commit facts the
   user stated or confirmed.
@@ -556,16 +556,16 @@ the two for the strongest "automatic memory" experience.
 
 /// Stronger, behavioral-only system prompt for hosts without a
 /// `UserPromptSubmit` hook. Uses MANDATORY language because there is
-/// no process-level enforcement — the LLM is the only retrieval trigger.
+/// no process-level enforcement, the LLM is the only retrieval trigger.
 const SYSTEM_PROMPT_NO_HOOKS: &str = r#"You have access to mnem, a persistent knowledge graph via MCP tools
-prefixed `mnem_`. Use it transparently on every turn — the user never
+prefixed `mnem_`. Use it transparently on every turn, the user never
 needs to mention mnem.
 
 ## MANDATORY: Read memory before every answer
 
 Call `mnem_retrieve` at the START of EVERY response without exception.
 - `text` = the user's message, `token_budget` = 2000
-- Never skip: short questions, greetings, code tasks — none are exempt.
+- Never skip: short questions, greetings, code tasks, none are exempt.
 - This host has no automatic pre-prompt hook. YOU are the only retrieval trigger.
 - If `mnem_retrieve` errors or the server has no local repo configured, also
   call `mnem_global_retrieve` as fallback.
@@ -576,10 +576,10 @@ Call `mnem_retrieve` at the START of EVERY response without exception.
 ## MANDATORY: Write memory after every turn with new facts
 
 mnem IS your only memory store. Do NOT write markdown memory files,
-MEMORY.md indexes, or any other file-based notes — use mnem only.
+MEMORY.md indexes, or any other file-based notes, use mnem only.
 
 After EVERY turn where the user stated, corrected, or confirmed any fact,
-preference, event, entity, or goal — commit it SILENTLY without asking first.
+preference, event, entity, or goal, commit it SILENTLY without asking first.
 
 - **Local first**: use `mnem_commit`, `mnem_resolve_or_create`, and
   `mnem_commit_relation` for all writes by default. Use `mnem_global_add` or
@@ -591,14 +591,14 @@ preference, event, entity, or goal — commit it SILENTLY without asking first.
 - Connect entities with typed edges: `works_at`, `lives_in`, `has_preference`,
   `extracted_from`, `revoked_by`, `traveling_with`, `happened_before`, `mentions`.
 - Use `mnem_commit_relation` when both endpoints are named entities. Then also call
-  `mnem_commit` with a standalone summary sentence —
+  `mnem_commit` with a standalone summary sentence,
   entity nodes have no summary and are invisible to text search otherwise.
-- Only commit facts the user stated or confirmed — never your reasoning or drafts.
+- Only commit facts the user stated or confirmed, never your reasoning or drafts.
 - Set `agent_id` to this host's slug on every write (`"cursor"`, `"gemini-cli"`, etc.).
 
 ## Node types (`ntype`)
 
-`ntype` is a free-form string — pick whatever label fits. Common examples:
+`ntype` is a free-form string, pick whatever label fits. Common examples:
 `Fact`, `Preference`, `Event`, `Goal`, `Task`, `Session`,
 `Entity:Person`, `Entity:Organization`, `Entity:Place`,
 `Decision`, `Insight`, `Project`, `Meeting`.
@@ -637,19 +637,19 @@ has not accepted, re-reads within the same turn."#;
 /// frontmatter so Cursor applies the rule globally (`alwaysApply: true`)
 /// rather than matching on file type. Written to `~/.cursor/rules/mnem.mdc`.
 const SYSTEM_PROMPT_CURSOR: &str = r#"---
-description: mnem persistent memory graph — automatic knowledge retrieval and storage
+description: mnem persistent memory graph, automatic knowledge retrieval and storage
 alwaysApply: true
 ---
 
 You have access to mnem, a persistent knowledge graph via MCP tools
-prefixed `mnem_`. Use it transparently on every turn — the user never
+prefixed `mnem_`. Use it transparently on every turn, the user never
 needs to mention mnem.
 
 ## MANDATORY: Read memory before every answer
 
 Call `mnem_retrieve` at the START of EVERY response without exception.
 - `text` = the user's message, `token_budget` = 2000
-- Never skip: short questions, greetings, code tasks — none are exempt.
+- Never skip: short questions, greetings, code tasks, none are exempt.
 - This host has no automatic pre-prompt hook. YOU are the only retrieval trigger.
 - If `mnem_retrieve` errors or the server has no local repo configured, also
   call `mnem_global_retrieve` as fallback.
@@ -660,10 +660,10 @@ Call `mnem_retrieve` at the START of EVERY response without exception.
 ## MANDATORY: Write memory after every turn with new facts
 
 mnem IS your only memory store. Do NOT write markdown memory files,
-MEMORY.md indexes, or any other file-based notes — use mnem only.
+MEMORY.md indexes, or any other file-based notes, use mnem only.
 
 After EVERY turn where the user stated, corrected, or confirmed any fact,
-preference, event, entity, or goal — commit it SILENTLY without asking first.
+preference, event, entity, or goal, commit it SILENTLY without asking first.
 
 - **Local first**: use `mnem_commit`, `mnem_resolve_or_create`, and
   `mnem_commit_relation` for all writes by default. Use `mnem_global_add` or
@@ -675,14 +675,14 @@ preference, event, entity, or goal — commit it SILENTLY without asking first.
 - Connect entities with typed edges: `works_at`, `lives_in`, `has_preference`,
   `extracted_from`, `revoked_by`, `traveling_with`, `happened_before`, `mentions`.
 - Use `mnem_commit_relation` when both endpoints are named entities. Then also call
-  `mnem_commit` with a standalone summary sentence —
+  `mnem_commit` with a standalone summary sentence,
   entity nodes have no summary and are invisible to text search otherwise.
-- Only commit facts the user stated or confirmed — never your reasoning or drafts.
+- Only commit facts the user stated or confirmed, never your reasoning or drafts.
 - Set `agent_id` to `"cursor"` on every write call.
 
 ## Node types (`ntype`)
 
-`ntype` is a free-form string — pick whatever label fits. Common examples:
+`ntype` is a free-form string, pick whatever label fits. Common examples:
 `Fact`, `Preference`, `Event`, `Goal`, `Task`, `Session`,
 `Entity:Person`, `Entity:Organization`, `Entity:Place`,
 `Decision`, `Insight`, `Project`, `Meeting`.

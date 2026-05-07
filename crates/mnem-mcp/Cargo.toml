@@ -34,7 +34,7 @@ workspace = true
 # Bundled-embedder default: `bundled-embedder` activates the
 # in-process MiniLM-L6-v2 dense embedder (forwarded to
 # mnem-embed-providers/onnx-bundled). When ON, `mnem_retrieve` with
-# `text` and no `vector` auto-embeds the text in-process — no
+# `text` and no `vector` auto-embeds the text in-process, no
 # `MNEM_EMBED_*` env vars, no `[embed]` section, no Ollama daemon.
 # When OFF, the existing behaviour is preserved (text passed to the
 # retriever only as rerank input). Implies `summarize` so the

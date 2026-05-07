@@ -1,6 +1,6 @@
 # mnem-cli
 
-**Git for knowledge graphs** — versioned, content-addressed, embeddable agent memory.
+**Git for knowledge graphs**: versioned, content-addressed, embeddable agent memory.
 
 ## Install
 

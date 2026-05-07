@@ -2,9 +2,9 @@
 //!
 //! Ships two built-in providers:
 //!
-//! - [`RuleNer`] — capitalized-phrase heuristic (Person / Organization),
+//! - [`RuleNer`], capitalized-phrase heuristic (Person / Organization),
 //!   zero dependencies, always available.
-//! - [`NullNer`] — no-op, emits nothing. Selected via
+//! - [`NullNer`], no-op, emits nothing. Selected via
 //!   `[ner]\nprovider = "none"`.
 //!
 //! The [`open`] factory constructs the right implementation from a
@@ -13,7 +13,7 @@
 //!
 //! ## Entity label strings
 //!
-//! Entity labels are free-form strings — there is no closed vocabulary.
+//! Entity labels are free-form strings, there is no closed vocabulary.
 //! Each [`NerProvider`] implementation returns whatever label strings it
 //! chooses (e.g. `"Entity:Person"`, `"Entity:Chemical"`, etc.). The
 //! mnem node graph stores the raw label string as the node's `ntype`.

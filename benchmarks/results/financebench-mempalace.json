@@ -1,0 +1,18 @@
+{
+  "harness": "mempalace-financebench",
+  "system": "MemPalace",
+  "embed_model": "FastEmbed/BAAI-bge-small-en-v1.5 (MemPalace default, 384-dim)",
+  "note": "MemPalace stores raw passage text in ChromaDB without LLM extraction. Default embedding is bge-small (384-dim) vs mnem's bge-large (1024-dim). mnem reference: hit@5=0.9733 (bge-large + hybrid-boost + doc-filter).",
+  "corpus_size": 168,
+  "n_questions": 150,
+  "runtime_seconds": 13.23,
+  "timing": {
+    "retrieve_s": 5.98
+  },
+  "overall": {
+    "hit@1": 0.2733,
+    "hit@3": 0.4933,
+    "hit@5": 0.6267,
+    "n": 150
+  }
+}

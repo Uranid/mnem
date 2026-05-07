@@ -499,6 +499,11 @@ jobs:
           # ship only the unified `mnem` binary (which contains both as
           # subcommands). Users who `cargo install mnem-mcp` or
           # `cargo install mnem-http` still work as before.
+          # Topo-ordered: deps before dependents. mnem-ingest depends on
+          # mnem-extract via its `keybert` feature (optional prod dep), so
+          # extract must publish first. mnem-extract's reverse mention of
+          # mnem-ingest is dev-only and overridden to path-only at the
+          # crate level so it gets stripped from the published manifest.
           CRATES=(
             mnem-core
             mnem-ann

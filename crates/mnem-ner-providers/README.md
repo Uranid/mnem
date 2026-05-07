@@ -6,4 +6,4 @@ Provides implementations of the `Ner` trait used by `mnem-ingest` during entity 
 `RuleNer` applies a fast regex-based rule set to tag person, organization, and location spans.
 `NullNer` is a no-op pass-through used when entity extraction is disabled.
 
-Part of the [mnem](https://github.com/Uranid/mnem) workspace — git for knowledge graphs.
+Part of the [mnem](https://github.com/Uranid/mnem) workspace: git for knowledge graphs.

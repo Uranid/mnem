@@ -41,7 +41,7 @@ fn branch_list_after_init_shows_main() {
 #[test]
 fn branch_create_after_init_succeeds() {
     // `mnem init` seeds an anchor commit, so `branch create` has a head
-    // to point at immediately — no extra commits are needed.
+    // to point at immediately, no extra commits are needed.
     let dir = TempDir::new().unwrap();
     mnem(dir.path(), &["init", dir.path().to_str().unwrap()])
         .assert()

@@ -39,7 +39,7 @@ pub(crate) const DIR_NAME: &str = ".mnemglobal";
 /// Returns the global graph parent directory.
 ///
 /// Precedence:
-/// 1. `MNEM_GLOBAL_DIR` env var (absolute path) — useful on WSL where the
+/// 1. `MNEM_GLOBAL_DIR` env var (absolute path), useful on WSL where the
 ///    Windows home (`/mnt/c/Users/<user>/.mnemglobal`) differs from the
 ///    Linux home (`~/.mnemglobal`).
 /// 2. `~/.mnemglobal` (OS home dir fallback, or `./.mnemglobal` if unknown).

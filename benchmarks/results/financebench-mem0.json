@@ -1,0 +1,19 @@
+{
+  "harness": "mem0-financebench",
+  "system": "mem0",
+  "embed_model": "ollama:bge-large",
+  "llm_model": "ollama:llama3.2:1b",
+  "note": "mem0 extracts structured memories from passages via LLM before storing. Stored content differs from original passage text. Retrieval: mem0 vector search + BM25 rerank on extracted memory text. mnem stores raw text; hit@5=0.9733 with same corpus.",
+  "corpus_size": 168,
+  "n_questions": 150,
+  "runtime_seconds": 5117.07,
+  "timing": {
+    "retrieve_s": 8.827
+  },
+  "overall": {
+    "hit@1": 0.0067,
+    "hit@3": 0.02,
+    "hit@5": 0.0333,
+    "n": 150
+  }
+}

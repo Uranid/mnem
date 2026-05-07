@@ -9,7 +9,7 @@
     </linearGradient>
   </defs>
 
-  <!-- Uniform cool-gray background — matches the existing logo-bg's neutral
+  <!-- Uniform cool-gray background, matches the existing logo-bg's neutral
        and lets the slate + rust palette read cleanly on light or dark chrome. -->
   <rect width="800" height="800" fill="#bcc1c8"/>
 

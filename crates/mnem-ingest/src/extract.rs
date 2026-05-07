@@ -4,7 +4,7 @@
 //! [`mnem_ner_providers::NerProvider`]. The default is
 //! [`mnem_ner_providers::RuleNer`] (capitalized-phrase heuristic).
 //! Swap for [`mnem_ner_providers::NullNer`] or any future provider via
-//! [`IngestConfig::ner`]. Provider labels pass through unconditionally —
+//! [`IngestConfig::ner`]. Provider labels pass through unconditionally,
 //! there is no fixed vocabulary.
 //!
 //! Relations are proximity-based: two entity spans whose start positions

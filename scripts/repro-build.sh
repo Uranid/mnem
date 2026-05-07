@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/repro-build.sh — reproducible-build verifier for mnem.
+# scripts/repro-build.sh, reproducible-build verifier for mnem.
 #
 # Builds the release binaries twice in independent target dirs with
 # identical env, then compares SHA-256 of every artifact. On Linux-musl

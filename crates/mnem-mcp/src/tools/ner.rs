@@ -26,7 +26,7 @@ struct NerOnlyConfig {
 
 /// Resolve an NER config for an MCP handler.
 ///
-/// Never returns `None` — `NerConfig::Rule` is the always-available
+/// Never returns `None`, `NerConfig::Rule` is the always-available
 /// fallback. Boxed as `NerConfig` rather than `Option<NerConfig>` so
 /// callers can assign directly to `IngestConfig::ner`.
 pub(crate) fn resolve_ner_cfg(repo_path: &std::path::Path) -> NerConfig {

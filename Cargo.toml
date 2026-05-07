@@ -24,7 +24,7 @@ rust_2018_idioms = { level = "warn", priority = -1 }
 missing_docs = "deny"
 unreachable_pub = "warn"
 # Lint allows below reference clippy lints introduced in 1.95. On stable
-# rustc (older), those names are unknown — `unknown_lints` warning fires
+# rustc (older), those names are unknown, `unknown_lints` warning fires
 # and `-D warnings` escalates to error. Allow defensively so the same
 # Cargo.toml works across the matrix (stable + beta + 1.95).
 unknown_lints = "allow"
@@ -244,23 +244,24 @@ proptest             = "1.11"
 criterion            = { version = "0.8", default-features = false, features = ["html_reports"] }
 
 # --- internal workspace crates ---
-# No version field: within-workspace path deps inherit their version from
-# [workspace.package].version above, which is the single source of truth.
-# bump-version.py updates only that one line for all Cargo versions.
-mnem-ann              = { path = "crates/mnem-ann",              default-features = false }
-mnem-backend-redb     = { path = "crates/mnem-backend-redb" }
-mnem-bench            = { path = "crates/mnem-bench",            default-features = false }
-mnem-core             = { path = "crates/mnem-core" }
-mnem-core-testutils   = { path = "crates/mnem-core-testutils" }
-mnem-embed-providers  = { path = "crates/mnem-embed-providers" }
-mnem-extract          = { path = "crates/mnem-extract" }
-mnem-graphrag         = { path = "crates/mnem-graphrag" }
-mnem-http             = { path = "crates/mnem-http" }
-mnem-ingest           = { path = "crates/mnem-ingest" }
-mnem-llm-providers    = { path = "crates/mnem-llm-providers" }
-mnem-mcp              = { path = "crates/mnem-mcp",              default-features = false }
-mnem-ner-providers    = { path = "crates/mnem-ner-providers" }
-mnem-rerank-providers = { path = "crates/mnem-rerank-providers" }
-mnem-sparse-providers = { path = "crates/mnem-sparse-providers" }
-mnem-transport        = { path = "crates/mnem-transport" }
+# Both `path` and `version` are required: `path` is used during local builds,
+# `version` is required by `cargo publish` (Cargo 1.95+ rejects path-only
+# internal deps when uploading). bump-version.py keeps these in sync with
+# [workspace.package].version above.
+mnem-ann              = { path = "crates/mnem-ann",              version = "0.1.6", default-features = false }
+mnem-backend-redb     = { path = "crates/mnem-backend-redb",     version = "0.1.6" }
+mnem-bench            = { path = "crates/mnem-bench",            version = "0.1.6", default-features = false }
+mnem-core             = { path = "crates/mnem-core",             version = "0.1.6" }
+mnem-core-testutils   = { path = "crates/mnem-core-testutils" }                       # publish=false; path only so it's stripped from published manifests
+mnem-embed-providers  = { path = "crates/mnem-embed-providers",  version = "0.1.6" }
+mnem-extract          = { path = "crates/mnem-extract",          version = "0.1.6" }
+mnem-graphrag         = { path = "crates/mnem-graphrag",         version = "0.1.6" }
+mnem-http             = { path = "crates/mnem-http",             version = "0.1.6" }
+mnem-ingest           = { path = "crates/mnem-ingest",           version = "0.1.6" }
+mnem-llm-providers    = { path = "crates/mnem-llm-providers",    version = "0.1.6" }
+mnem-mcp              = { path = "crates/mnem-mcp",              version = "0.1.6", default-features = false }
+mnem-ner-providers    = { path = "crates/mnem-ner-providers",    version = "0.1.6" }
+mnem-rerank-providers = { path = "crates/mnem-rerank-providers", version = "0.1.6" }
+mnem-sparse-providers = { path = "crates/mnem-sparse-providers", version = "0.1.6" }
+mnem-transport        = { path = "crates/mnem-transport",        version = "0.1.6" }
 

@@ -284,7 +284,7 @@ mod tests {
         let s = node_summary(&bs, &cid);
 
         assert!(s.contains("...\""), "long summaries must end with ...\"");
-        // The preview is 60 chars + "..." inside quotes — total is well under 100.
+        // The preview is 60 chars + "..." inside quotes, total is well under 100.
         assert!(s.len() < 200, "output must not reproduce the full 100-char summary verbatim");
     }
 

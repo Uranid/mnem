@@ -1,8 +1,10 @@
 //! Ollama Embeddings adapter.
 //!
-//! POST `{base_url}/api/embeddings` with body `{model, prompt}`. No
-//! auth header. Ollama's embeddings endpoint does not batch (as of the
-//! v0.3 API), so `embed_batch` falls back to the default per-text loop.
+//! POST `{base_url}/api/embed` with body `{model, input}` (Ollama ≥ 0.1.26).
+//! No auth header. Ollama's embed endpoint does not batch (one string per
+//! call), so `embed_batch` falls back to the default per-text loop.
+//! The old `/api/embeddings` endpoint with `prompt` was deprecated and
+//! returns HTTP 500 for inputs that exceed the model's context length.
 //!
 //! Ollama does not advertise the vector dim before the first call, so
 //! the adapter learns it lazily from the first response and freezes it
@@ -40,7 +42,7 @@ impl OllamaEmbedder {
     /// Returns a `Result` so the signature matches `OpenAiEmbedder::from_config`
     /// and future hardening (e.g. a `/api/version` probe) can fail.
     pub fn from_config(config: &OllamaConfig) -> Result<Self, EmbedError> {
-        let endpoint = format!("{}/api/embeddings", config.base_url.trim_end_matches('/'));
+        let endpoint = format!("{}/api/embed", config.base_url.trim_end_matches('/'));
         let agent = ureq::AgentBuilder::new()
             .timeout(Duration::from_secs(config.timeout_secs))
             .build();
@@ -67,19 +69,24 @@ impl Embedder for OllamaEmbedder {
     }
 
     fn embed(&self, text: &str) -> Result<Vec<f32>, EmbedError> {
+        // Use the /api/embed endpoint (Ollama ≥ 0.1.26) which accepts an
+        // `input` array and auto-truncates at the model's context length.
+        // The old /api/embeddings endpoint with `prompt` returns HTTP 500
+        // for inputs that exceed the context window (e.g. long financial
+        // tables with bge-large's 512-token limit).
         #[derive(Serialize)]
         struct Req<'a> {
             model: &'a str,
-            prompt: &'a str,
+            input: &'a str,
         }
         #[derive(Deserialize)]
         struct Resp {
-            embedding: Vec<f32>,
+            embeddings: Vec<Vec<f32>>,
         }
 
         let body = Req {
             model: &self.model_bare,
-            prompt: text,
+            input: text,
         };
         let resp = self
             .agent
@@ -88,8 +95,13 @@ impl Embedder for OllamaEmbedder {
             .send_json(&body)
             .map_err(classify_ureq_error)?;
         let parsed: Resp = decode_json(resp)?;
+        let embedding = parsed
+            .embeddings
+            .into_iter()
+            .next()
+            .ok_or_else(|| EmbedError::Decode("ollama /api/embed returned empty embeddings array".into()))?;
 
-        let got_dim = u32::try_from(parsed.embedding.len()).unwrap_or(u32::MAX);
+        let got_dim = u32::try_from(embedding.len()).unwrap_or(u32::MAX);
         match self.dim.get() {
             Some(&expected) => {
                 if got_dim != expected {
@@ -107,7 +119,7 @@ impl Embedder for OllamaEmbedder {
                 let _ = self.dim.set(got_dim);
             }
         }
-        Ok(parsed.embedding)
+        Ok(embedding)
     }
 
     fn manifest(&self) -> EmbedderManifest {

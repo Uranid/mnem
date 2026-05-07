@@ -38,7 +38,7 @@ sha2                 = { workspace = true, optional = true }
 # Default features (openai + ollama) are enabled so dead-code lints in
 # upstream `http.rs` (which only exercise under a real provider feature)
 # don't fire against our default-features-off build. We still don't
-# force the caller to use either adapter — the trait itself is what we
+# force the caller to use either adapter, the trait itself is what we
 # depend on, and the concrete adapters remain zero-cost-opt-in.
 mnem-embed-providers = { workspace = true }
 serde                = { workspace = true, features = ["derive"] }
@@ -60,5 +60,12 @@ serde_json           = "1"
 # network round-trip.
 mnem-embed-providers = { workspace = true, features = ["mock"] }
 # Used by the end-to-end integration test that runs KeyBERT over
-# mnem-ingest chunks. Path-only dev dep — no public API impact.
-mnem-ingest          = { workspace = true }
+# mnem-ingest chunks. Path-only dev dep, NOT inherited from workspace.
+# The workspace entry for mnem-ingest carries a `version =` so prod
+# usages (mnem-ingest's keybert feature pulls mnem-extract; mnem-cli
+# pulls mnem-ingest) publish cleanly. Here we want this dev-dep
+# stripped from the published manifest to break the apparent cycle:
+# mnem-ingest depends on mnem-extract (real, optional via `keybert`),
+# while mnem-extract only depends on mnem-ingest in tests. Publish
+# order is extract -> ingest.
+mnem-ingest          = { path = "../mnem-ingest" }

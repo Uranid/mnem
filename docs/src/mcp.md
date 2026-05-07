@@ -49,7 +49,7 @@ For manual registration in any MCP client:
 
 ## Notes
 
-- The server runs **in-process** — no separate daemon, no port to manage.
+- The server runs **in-process**: no separate daemon, no port to manage.
 - Embedder is bundled (MiniLM-L6-v2, ONNX). No network calls unless you wire one.
 - **Local vs global**: `mnem_retrieve` searches the repo the server is pointed at. `mnem_global_retrieve` always searches `~/.mnemglobal/.mnem/` regardless of `--repo`.
 - For the full field-level schema of each tool, run `mnem mcp --list-tools` or inspect [`crates/mnem-mcp/src/tools/descriptions.rs`](../../crates/mnem-mcp/src/tools/descriptions.rs).

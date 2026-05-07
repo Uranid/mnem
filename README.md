@@ -1,14 +1,14 @@
 <div align="center">
 
-<img src="assets/logo/mnem-banner.svg" alt="mnem — Git for Knowledge Graphs" />
+<img src="assets/logo/mnem-banner.svg" alt="mnem: Git for Knowledge Graphs" />
 
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat)](LICENSE)
-[![CI](https://github.com/Uranid/mnem/actions/workflows/ci.yml/badge.svg)](https://github.com/Uranid/mnem/actions/workflows/ci.yml)
-[![crates.io](https://img.shields.io/crates/v/mnem-cli.svg?style=flat)](https://crates.io/crates/mnem-cli)
-[![PyPI](https://img.shields.io/pypi/v/mnem-py.svg?style=flat)](https://pypi.org/project/mnem-py/)
-[![npm](https://img.shields.io/npm/v/mnem-cli.svg?style=flat)](https://www.npmjs.com/package/mnem-cli)
-[![MSRV 1.95](https://img.shields.io/badge/MSRV-1.95-orange?style=flat)](rust-toolchain.toml)
-[![Runs on Linux macOS Windows WASM](https://img.shields.io/badge/runs%20on-linux%20%7C%20macos%20%7C%20windows%20%7C%20wasm-2ea44f?style=flat)](#install)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/Uranid/mnem/ci.yml?style=for-the-badge&label=CI)](https://github.com/Uranid/mnem/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/mnem-cli?style=for-the-badge)](https://crates.io/crates/mnem-cli)
+[![PyPI](https://img.shields.io/pypi/v/mnem-cli?style=for-the-badge)](https://pypi.org/project/mnem-cli/)
+[![npm](https://img.shields.io/npm/v/mnem-cli?style=for-the-badge)](https://www.npmjs.com/package/mnem-cli)
+[![MSRV 1.95](https://img.shields.io/badge/MSRV-1.95-orange?style=for-the-badge)](rust-toolchain.toml)
+[![Runs on Linux macOS Windows WASM](https://img.shields.io/badge/runs%20on-linux%20%7C%20macos%20%7C%20windows%20%7C%20wasm-2ea44f?style=for-the-badge)](#install)
 
 </div>
 
@@ -16,9 +16,24 @@
 
 <div align="center">
 
-https://github.com/user-attachments/assets/eab44245-9b85-47ae-97d9-bfdbcafda557
+https://github.com/user-attachments/assets/bd744a7e-8e89-4531-bd96-fdee0030c390
 
 </div>
+
+<hr>
+
+1. [The problem](#the-problem)
+2. [Benchmarks](#benchmarks)
+3. [Install](#install)
+4. [Quickstart](#quickstart)
+5. [Integrate](#mnem-integrate---wire-into-any-agent-host)
+6. [What it is](#what-it-is)
+7. [Commands](#commands)
+8. [Python API](#python-api-mnem-py)
+9. [GraphRAG](#graphrag)
+10. [vs others](#compared-to-others)
+11. [Docs](#documentation)
+12. [Contributing](#contributing)
 
 <hr>
 
@@ -36,70 +51,75 @@ Retrieval is **smart and shows its work**: it searches by meaning, by keyword, a
 
 <hr>
 
-1. [What it is](#what-it-is)
-2. [Install](#install)
-3. [Quickstart](#quickstart)
-4. [Integrate](#mnem-integrate---wire-into-any-agent-host)
-5. [Benchmarks](#benchmarks)
-6. [Commands](#commands)
-7. [Python API](#python-api-mnem-py)
-8. [GraphRAG](#graphrag)
-9. [vs others](#compared-to-others)
-10. [Docs](#documentation)
-11. [Contributing](#contributing)
+## Benchmarks
 
-<hr>
+**Measured head-to-head against mem0 and MemPalace on six public datasets. mnem leads on all of them.**
 
-## What it is
+ONNX MiniLM-L6-v2 embedder, same bytes on every system. No LLM rerank. Reproduce: `bash benchmarks/harness/run_bench.sh`.
 
-**A content-addressed knowledge graph with hybrid GraphRAG retrieval, versioned commits, and deterministic ingest, built as a persistent memory substrate for AI agents.**
+| Benchmark | mem0 | MemPalace | **mnem** |
+|-----------|-----:|----------:|---------:|
+| LongMemEval 500 Q: R@5 | 0.946 | 0.966 | **0.966** |
+| LongMemEval 500 Q: R@10 | 0.962 | 0.982 | **0.982** |
+| LoCoMo 1986 Q: R@5 | 0.466 | 0.508 | **0.726** |
+| LoCoMo 1986 Q: R@10 | 0.676 | 0.603 | **0.855** |
+| ConvoMem 250 conv.: avg recall | 0.558 | 0.929 | **0.976** |
+| MemBench simple/roles 100: R@5 | 0.410 | 0.840 | **0.960** |
+| MemBench highlevel/movie 100: R@5 | 0.970 | 0.950 | **1.000** |
+| FinanceBench 150 Q: hit@5† | 0.033 | 0.767 | **0.973** |
 
-Every node carries a cryptographic identity derived from DAG-CBOR + BLAKE3: the same content produces the same CID on any machine. Retrieval fuses vector (HNSW), sparse (BM25/SPLADE), and multi-hop graph traversal via RRF in a single pass, and every response reports exactly what candidates were seen and what got dropped at your token budget. Ingest is LLM-free. Single binary. No cloud. Compiles to `wasm32`.
+<sup>mem0 columns: our reproduction under the same harness (mem0 doesn't publish R@K headlines on these datasets). MemPalace columns: public headline numbers cross-verified under our harness. Raw artefacts: [`benchmarks/proofs/v0.1.0/`](benchmarks/proofs/v0.1.0/). † FinanceBench uses Ollama bge-large (1024-dim) on all systems; MemPalace shown at best configuration (bge-large direct ChromaDB); mem0 applies LLM memory extraction before storage. Full methodology: [`benchmarks/results/financebench.md`](benchmarks/results/financebench.md).</sup>
 
-## What you get
+### Query speed
 
-**mnem is strongest when:**
-- facts accumulate across many sessions and you need to reason over history
-- queries require multi-hop traversal ("how does X relate to Y")
-- ingest must be deterministic and auditable - same bytes, same CIDs
-- deployment is edge, offline, or WASM (no network, no daemon required)
-- multiple agents write independently and need to merge without conflicts
+| Benchmark | mean retrieve |
+|-----------|-------------:|
+| LongMemEval 500 Q | 711 ms |
+| LoCoMo 1986 Q | 333 ms |
+| ConvoMem 250 conv. | 398 ms |
+| MemBench simple/roles 100 | 1874 ms (e2e) |
+| MemBench highlevel/movie 100 | 491 ms (e2e) |
+| FinanceBench 150 Q | 2087 ms (global) |
 
-| | Meaning |
-|:--:|:--------|
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **unique** - not available in any other agent-memory system today |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **rare** - available in 1-2 peers, often gated behind paid tiers |
-| - | standard capability, done well |
+<sup>(e2e) = end-to-end mean when the adapter doesn't expose phase timing. (global) = corpus-wide scan with no per-session label scope.</sup>
 
-1. <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> **Versioned + 3-way mergeable**. Commits, branches, diff, log, three-way merge, signed Ed25519 history. Two agents writing the same scope offline reconcile by graph + embedding merge, not "last write wins". → [Core concepts](docs/src/core-concepts.md)
+<details>
+<summary><b>Reproduce</b></summary>
 
-2. <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> **Content-addressed objects**. Every node / tree / sidecar / commit has a CID derived from canonical DAG-CBOR + BLAKE3. Identical content collapses across machines. Determinism + replay become real, not a slogan. Peers use opaque UUIDs. → [Core concepts](docs/src/core-concepts.md)
+```bash
+mnem bench fetch longmemeval     # download datasets (one-time, 264 MB)
+mnem bench                       # TUI; select benchmarks interactively
+mnem bench run --benches longmemeval --limit 50 --non-interactive
+mnem bench results ./bench-out   # re-render results from a prior run
 
-3. <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> **Token-budget transparency**. Every retrieve emits `tokens_used`, `candidates_seen`, `dropped` counters. No silent truncation. No other agent-memory system exposes this as first-class response fields.
+# Legacy bash harness (canonical path for headline numbers)
+bash benchmarks/harness/run_bench.sh
+```
 
-4. <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> **WASM-clean core**. `mnem-core` has no tokio, no filesystem, no network. Same retrieval logic compiles unchanged to `wasm32` - runs in Chrome, on Cloudflare Workers, on Lambda cold-start. Graphiti + mem0 are Python + external DB stacks; they cannot ship to the edge.
+Methodology, raw artifacts, per-bench breakdowns: [`benchmarks/`](benchmarks/) and [`docs/src/benchmarks/`](docs/src/benchmarks/).
 
-5. <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> **Skills as graphs, not markdown**. Today, agent skills live in flat `.md` files - downloaded, pasted into prompts, hand-edited, never queried. mnem promotes them to a versioned, queryable, mergeable graph. Export your graph, import someone else's, diff the two, merge the parts you want.
-
-6. <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> **Best-in-class retrieval recall**. Beats open-source peers on LoCoMo (+0.218 R@5), ConvoMem (+0.047), and MemBench (+0.120) under the same embedder; matches MemPalace on LongMemEval (R@5 0.966). Numbers reproducible with the shipped harness. → [Benchmarks](benchmarks/README.md)
-
-7. <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> **Plug-and-play**. Bundled ONNX MiniLM-L6-v2 runs in-process. No Ollama, no API keys, no cold-start network call. `mnem init` and you're retrieving. mem0 + Graphiti both require an external LLM endpoint at ingest. → [Install](docs/src/install.md)
-
-8. <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> **Single binary**. ~40 MB Docker image. Embedded redb store. No daemon, no cloud, no account. Runs offline.
-
-9. <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> **Deterministic ingest**. No LLM at ingest. parse + chunk + extract is statistical (KeyBERT optional), so same bytes in produces same CIDs out. Audit-friendly, fuzz-tested, byte-identical across machines. → [Ingest pipeline](docs/src/guides/ingest.md)
-
-10. <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> **Swappable providers**. Embedder, sparse encoder, reranker, and LLM all set via config strings. Switch local ONNX to hosted Cohere with one flag. No fork, no rebuild. Most peers ship single-path stacks; provider swap is architectural here. → [Embedding providers](docs/src/guides/embed-providers.md)
-
-11. <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> **Four surfaces, one core**. CLI, HTTP, MCP, and Python all wrap the same engine. `mnem integrate` wires the MCP server into Claude Desktop and other hosts. → [CLI reference](docs/src/cli.md) | [MCP](docs/src/mcp.md)
-
-12. <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> **Property + fuzz tests**. Parsers are property-tested + fuzz-harnessed; CAR round-trip and merge-commit are byte-identical. Trust signal usually only seen at the infra-DB tier.
-
-13. **Hybrid GraphRAG retrieval**. Vector (HNSW) + sparse (BM25 / SPLADE) + graph traversal, fused via RRF. GraphRAG built in and optional: on for multi-hop, off when dense saturates.
+</details>
 
 <hr>
 
 ## Install
+
+**Pick whichever one you already have. Any one works.** Full per-platform notes below.
+
+```bash
+# if you have Cargo (Rust): recommended for dev machines
+cargo install --locked mnem-cli --features bundled-embedder
+
+# if you have pip (Python)
+pip install mnem-cli
+
+# if you have npm (Node.js)
+npm install -g mnem-cli
+```
+
+```bash
+mnem --version    # confirm install
+```
 
 > [!NOTE]
 > `--features bundled-embedder` ships an in-process ONNX MiniLM-L6-v2 so `mnem retrieve` works with zero configuration. Omit the flag if you want to bring your own embedder (Ollama, OpenAI, Cohere) via `.mnem/config.toml`.
@@ -124,12 +144,12 @@ cargo install --locked mnem-cli --features bundled-embedder-cuda
 
 If `mnem` is not found after install, `~/.cargo/bin` is not on `$PATH`.
 
-**rustup install** — source the env (or open a new terminal):
+**rustup install**: source the env (or open a new terminal):
 ```bash
 source ~/.cargo/env
 ```
 
-**System Rust (apt/dnf)** — add to PATH permanently:
+**System Rust (apt/dnf)**: add to PATH permanently:
 ```bash
 echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 ```
@@ -168,7 +188,7 @@ Downloads the prebuilt native binary for your platform at install time. Node 18+
 </details>
 
 <details>
-<summary><b>Python (PyPI)</b></summary>
+<summary><b>pip (PyPI)</b></summary>
 
 No pip? [Install Python](https://www.python.org/downloads/) (pip is bundled with Python 3.4+).
 
@@ -219,6 +239,8 @@ mnem doctor        # checks embedder + store + config, prints a green/yellow/red
 ```
 
 Full install matrix: [`docs/src/install.md`](docs/src/install.md).
+
+> **Embedding mnem inside a Python app?** The `pip install mnem-cli` above ships the **CLI binary** as a wheel. The native **Python API** (`import mnem`) lives in a separate package. Jump to **[Python API (mnem-py) ↓](#python-api-mnem-py)** for `pip install mnem-py` and snippets.
 
 <hr>
 
@@ -274,49 +296,48 @@ The agent gets the full mnem toolset as native tools: retrieve, commit, ingest, 
 
 <hr>
 
-## Benchmarks
+## What it is
 
-ONNX MiniLM-L6-v2 embedder, same bytes on every system. No LLM rerank. Reproduce: `bash benchmarks/harness/run_bench.sh`.
+**A content-addressed knowledge graph with hybrid GraphRAG retrieval, versioned commits, and deterministic ingest, built as a persistent memory substrate for AI agents.**
 
-| Benchmark | mem0 | MemPalace | **mnem** |
-|-----------|-----:|----------:|---------:|
-| LongMemEval 500 Q — R@5 | 0.946 | 0.966 | **0.966** |
-| LongMemEval 500 Q — R@10 | 0.962 | 0.982 | **0.982** |
-| LoCoMo 1986 Q — R@5 | 0.466 | 0.508 | **0.726** |
-| LoCoMo 1986 Q — R@10 | 0.676 | 0.603 | **0.855** |
-| ConvoMem 250 conv. — avg recall | 0.558 | 0.929 | **0.976** |
-| MemBench simple/roles 100 — R@5 | 0.410 | 0.840 | **0.960** |
-| MemBench highlevel/movie 100 — R@5 | 0.970 | 0.950 | **1.000** |
-| LongMemEval 500 Q hybrid-v4 — R@5 | 0.930 | 0.982 | **0.976** |
+Every node carries a cryptographic identity derived from DAG-CBOR + BLAKE3: the same content produces the same CID on any machine. Retrieval fuses vector (HNSW), sparse (BM25/SPLADE), and multi-hop graph traversal via RRF in a single pass, and every response reports exactly what candidates were seen and what got dropped at your token budget. Ingest is LLM-free. Single binary. No cloud. Compiles to `wasm32`.
 
-<sup>mem0 columns: our reproduction under the same harness (mem0 doesn't publish R@K headlines on these datasets). MemPalace columns: public headline numbers cross-verified under our harness. Raw artefacts: [`benchmarks/proofs/v0.1.0/`](benchmarks/proofs/v0.1.0/).</sup>
+## What you get
 
-### Query speed
+Each item below leads with the plain-English benefit, then the technical detail.
+Tags: <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> = unique to mnem in agent-memory today &nbsp;·&nbsp; <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> = rare (1-2 peers, usually paid) &nbsp;·&nbsp; (no tag) = standard, done well.
 
-| Benchmark | mean retrieve |
-|-----------|-------------:|
-| LongMemEval 500 Q | 711 ms |
-| LongMemEval 500 Q hybrid-v4 | 729 ms |
-| LoCoMo 1986 Q | 333 ms |
-| ConvoMem 250 conv. | 398 ms |
-| MemBench simple/roles 100 | 1874 ms (e2e) |
-| MemBench highlevel/movie 100 | 491 ms (e2e) |
+### Memory that behaves like git
 
-<sup>(e2e) = end-to-end mean when the adapter doesn't expose phase timing.</sup>
+- <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> &nbsp; **Branch, diff, and merge, like git, but for what your agent knows.** Every write is a versioned commit with signed Ed25519 history. Two agents (or two machines) writing the same scope offline reconcile through a 3-way graph + embedding merge, not "last write wins". → [Core concepts](docs/src/core-concepts.md)
+- <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> &nbsp; **The same input always lands at the same address, on any computer.** Every node, tree, sidecar, and commit is content-addressed via canonical DAG-CBOR + BLAKE3. Identical content collapses to one CID. Determinism and replay come for free, not as a slogan. → [Core concepts](docs/src/core-concepts.md)
+- <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> &nbsp; **Skills become a queryable graph, not flat markdown.** Replace `AGENTS.md` and `.cursorrules` with a versioned, branchable, mergeable graph. Export your graph, import a teammate's, diff the two, merge the parts you want.
 
-### Reproduce
+### Retrieval that shows its work
 
-```bash
-mnem bench fetch longmemeval     # download datasets (one-time, 264 MB)
-mnem bench                       # TUI; select benchmarks interactively
-mnem bench run --benches longmemeval --limit 50 --non-interactive
-mnem bench results ./bench-out   # re-render results from a prior run
+- <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> &nbsp; **Nothing disappears silently at your token budget.** Every retrieve emits `tokens_used`, `candidates_seen`, and `dropped` counters as first-class response fields. No other agent-memory system exposes this.
+- <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> &nbsp; **Best-in-class recall on every public benchmark.** Beats open-source peers by **+0.218 R@5 on LoCoMo**, **+0.120 on MemBench**, **+0.047 on ConvoMem** under the same embedder. Matches MemPalace on LongMemEval (R@5 0.966). All numbers reproducible with the shipped harness. → [Benchmarks](#benchmarks)
+- **Searches by meaning, by keyword, and by relationship, in one pass.** Hybrid GraphRAG: vector (HNSW) + sparse (BM25/SPLADE) + multi-hop graph traversal, fused via RRF. Graph traversal is optional: on when multi-hop helps, off when dense saturates.
 
-# Legacy bash harness (canonical path for headline numbers)
-bash benchmarks/harness/run_bench.sh
-```
+### Built to run anywhere
 
-Methodology, raw artifacts, per-bench breakdowns: [`benchmarks/`](benchmarks/) and [`docs/src/benchmarks/`](docs/src/benchmarks/).
+- <img src="assets/legend/unique.svg" width="14" height="14" alt="unique"> &nbsp; **Runs in a browser tab.** `mnem-core` has no tokio, no filesystem, no network. The same retrieval code compiles unchanged to `wasm32`: Chrome, Cloudflare Workers, Lambda cold-start. Graphiti and mem0 are Python + external-DB stacks; they cannot ship to the edge.
+- <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> &nbsp; **One ~40 MB binary. No daemon, no cloud, no account.** Embedded redb store, runs fully offline. Same image powers the CLI and the HTTP server.
+- <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> &nbsp; **Plug-and-play in seconds.** Bundled ONNX MiniLM-L6-v2 runs in-process: no Ollama, no API keys, no cold-start network call. Just `mnem init` and you're retrieving. mem0 and Graphiti both need an external LLM endpoint at ingest. → [Install](docs/src/install.md)
+- <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> &nbsp; **Swap any provider with one line of config.** Embedder, sparse encoder, reranker, and LLM are all config-driven. Switch local ONNX to hosted Cohere with one flag. No fork, no rebuild. → [Embedding providers](docs/src/guides/embed-providers.md)
+- <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> &nbsp; **One core, four front doors.** CLI, HTTP, MCP, and Python all wrap the same engine. `mnem integrate` wires the MCP server into Claude Code, Cursor, Codex, Gemini CLI, anything speaking MCP. → [CLI reference](docs/src/cli.md) &nbsp;·&nbsp; [MCP](docs/src/mcp.md)
+
+### Trust signals
+
+- <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> &nbsp; **Same bytes in always produce the same CIDs out.** Deterministic ingest: no LLM at ingest, parse + chunk + extract is statistical (KeyBERT optional). Audit-friendly, fuzz-tested, byte-identical across machines. → [Ingest pipeline](docs/src/guides/ingest.md)
+- <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> &nbsp; **Property + fuzz tested at the infra-DB tier.** Parsers are property-tested and fuzz-harnessed; CAR round-trip and merge-commit are byte-identical. Trust signal usually only seen in foundational databases.
+
+### When mnem is the right fit
+
+- Knowledge accumulates across many sessions and someone needs to reason over the history.
+- Two agents (or two machines) edit the same memory and need to reconcile cleanly.
+- Audits matter: same input, same output, replayable on any computer.
+- Deployment is edge, offline, or air-gapped (browser, Cloudflare Workers, Lambda cold-start).
 
 <hr>
 

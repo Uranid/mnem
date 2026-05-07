@@ -42,11 +42,11 @@ mock = []
 # preserve wasm32 compatibility of the default build.
 #
 # Two flavours, mutually exclusive (compile_error if both):
-# - `onnx` — `ort/load-dynamic` mode. User installs
+# - `onnx`, `ort/load-dynamic` mode. User installs
 # onnxruntime separately (~100MB, distro pkg
 # or HF release). No bundled C++ runtime,
 # smallest mnem binary. Legacy default.
-# - `onnx-bundled` — `ort/download-binaries` mode. Onnxruntime is
+# - `onnx-bundled`, `ort/download-binaries` mode. Onnxruntime is
 # fetched at *build time* and statically linked.
 # Single-binary install, ~30-50MB heavier than
 # `onnx`. Bundled-embedder: the variant
@@ -62,10 +62,10 @@ onnx-bundled = ["dep:ort", "ort/download-binaries", "ort/tls-rustls", "ort/std",
 # stay CPU-clean by default; opt-in costs an extra ~50-200MB depending
 # on EP and 5-15× wall-time speedup on a supported GPU.
 #
-# - `onnx-bundled-cuda` — NVIDIA CUDA (cross-platform; Linux + Win
+# - `onnx-bundled-cuda`, NVIDIA CUDA (cross-platform; Linux + Win
 # + WSL with a CUDA toolkit + driver
 # installed). Largest binary delta.
-# - `onnx-bundled-directml` — Windows DX12 (any vendor: NVIDIA / AMD /
+# - `onnx-bundled-directml`, Windows DX12 (any vendor: NVIDIA / AMD /
 # Intel iGPU). No CUDA toolkit needed.
 # Recommended default for Windows operators
 # without an NVIDIA-only stack.

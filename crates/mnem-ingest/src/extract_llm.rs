@@ -34,7 +34,7 @@
 //! # Label pass-through
 //!
 //! The `kind` field from the LLM response is used verbatim (after trimming
-//! and empty-string rejection). There is no normalization or remapping — the
+//! and empty-string rejection). There is no normalization or remapping, the
 //! LLM's own label string goes straight to the graph as the entity ntype.
 //!
 //! # Failure policy

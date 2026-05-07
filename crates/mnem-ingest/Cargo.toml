@@ -24,7 +24,7 @@ workspace = true
 [features]
 default = []
 # Opt-in advanced PDF backend via pdfium; default path uses pure-Rust
-# `pdf-extract`. Enabling this feature does NOT disable pdf-extract — it
+# `pdf-extract`. Enabling this feature does NOT disable pdf-extract, it
 # layers pdfium on top as a fallback, wired in Phase-B5d.
 pdfium = ["dep:pdfium-render"]
 # Optional KeyBERT-style statistical extractor adapter (E3 exp track).
@@ -54,7 +54,7 @@ mnem-ner-providers   = { workspace = true }
 # Optional KeyBERT extractor adapter dep (E3). Off by default so the
 # default binary footprint is unchanged from Phase-B5c.
 mnem-extract         = { workspace = true, optional = true }
-# Optional embedder trait dep — only brought in by the `keybert`
+# Optional embedder trait dep, only brought in by the `keybert`
 # feature so the non-keybert build stays provider-free. Default
 # features (openai + ollama) are enabled so upstream dead-code lints
 # don't fire when downstream binaries pick `keybert` without another
@@ -78,7 +78,7 @@ pdfium-render        = { version = "0.9", optional = true }
 # Verb-window regex for proximity-relation promotion (acts_on detection).
 regex                = "1.10"
 # Optional HTTP client for the Ollama extractor (Phase-B5e, feature `ollama`).
-# `blocking` keeps the ingest pipeline sync (— mnem-core and every
+# `blocking` keeps the ingest pipeline sync (mnem-core and every
 # downstream crate is tokio-free); `rustls-tls` avoids the native OpenSSL
 # dep on Windows / musl / docs.rs builders.
 reqwest              = { version = "0.12", optional = true, default-features = false, features = ["blocking", "json", "rustls-tls"] }
@@ -88,7 +88,7 @@ reqwest              = { version = "0.12", optional = true, default-features = f
 which                = { version = "6", optional = true }
 # Optional tempfile dep used to hand PDF bytes to the sidecar CLI via a
 # filesystem path (both docling and unstructured-ingest accept only
-# paths, not stdin). Also a dev-dep below — the Cargo resolver unifies
+# paths, not stdin). Also a dev-dep below, the Cargo resolver unifies
 # the two feature sets to a single crate graph entry.
 tempfile             = { version = "3", optional = true }
 

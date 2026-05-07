@@ -834,7 +834,7 @@ pub(crate) fn resolve_reranker(cfg: &Config) -> Option<RerankProviderConfig> {
 ///   3. The `[ner]` section in the user-global `~/.mnem/config.toml`.
 ///   4. [`NerConfig::Rule`] (the always-available zero-dep default).
 ///
-/// Returns a [`NerConfig`] — never `None`, because a sane default
+/// Returns a [`NerConfig`], never `None`, because a sane default
 /// (`Rule`) is always available without any config.
 pub(crate) fn resolve_ner(cfg: &Config) -> NerConfig {
     if let Ok(p) = std::env::var("MNEM_NER_PROVIDER") {

@@ -1,7 +1,7 @@
 # cargo-audit configuration. Read by `cargo audit` from the project root.
 #
 # We deny *vulnerabilities* (default), but tolerate the three transitive
-# `unmaintained` advisories below. None is a CVE — each is a notice that
+# `unmaintained` advisories below. None is a CVE, each is a notice that
 # the upstream crate is no longer actively maintained. Replacing them
 # requires upstream-dep churn (indicatif, console, dioxus deps) that we
 # defer to a post-launch sweep.

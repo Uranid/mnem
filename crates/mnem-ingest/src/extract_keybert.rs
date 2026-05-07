@@ -59,7 +59,7 @@ pub struct KeyBertAdapter {
     pmi_threshold: f32,
     /// ntype label stamped on every entity this adapter emits.
     /// Callers set this via [`KeyBertAdapter::with_label`]; there is no
-    /// built-in default — the label vocabulary is entirely up to the caller.
+    /// built-in default, the label vocabulary is entirely up to the caller.
     label: String,
     /// Section-text → embedding cache. Populated by [`Extractor::prepare`]
     /// in one batched `Embedder::embed_batch` call per file; queried
@@ -94,7 +94,7 @@ impl KeyBertAdapter {
     /// `pmi_threshold = 1.0`).
     ///
     /// `label` is the ntype string stamped on every entity this adapter emits.
-    /// The caller owns the vocabulary — pass whatever label fits your graph
+    /// The caller owns the vocabulary, pass whatever label fits your graph
     /// (e.g. `"Keyword"`, `"Tag"`, `"Concept"`, or any domain-specific type).
     #[must_use]
     pub fn new(embedder: Arc<dyn Embedder>, label: impl Into<String>) -> Self {

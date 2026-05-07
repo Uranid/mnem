@@ -126,7 +126,7 @@ impl Ingester {
     ///
     /// # Panics
     ///
-    /// Never panics — both `NerConfig::Rule` and `NerConfig::None` are
+    /// Never panics, both `NerConfig::Rule` and `NerConfig::None` are
     /// infallible. A future ONNX provider would return an error here;
     /// callers that need error propagation should call
     /// `mnem_ner_providers::open` themselves and use

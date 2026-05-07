@@ -1,8 +1,8 @@
 name: reproducibility
 
 # Two lanes:
-#   1. Same-runner dual-build on linux-gnu — HARD FAIL on diff.
-#   2. Cross-runner triple-build (linux-gnu / macOS / Windows) — warn-only.
+#   1. Same-runner dual-build on linux-gnu, HARD FAIL on diff.
+#   2. Cross-runner triple-build (linux-gnu / macOS / Windows), warn-only.
 
 on:
   push:

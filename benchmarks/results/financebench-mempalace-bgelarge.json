@@ -1,0 +1,18 @@
+{
+  "harness": "mempalace-bgelarge-financebench",
+  "system": "MemPalace-bge-large",
+  "embed_model": "Ollama/bge-large (1024-dim)",
+  "note": "ChromaDB store with Ollama bge-large (1024-dim), bypassing MemPalace's default ONNX MiniLM embedding. Raw passage text stored verbatim. Pure vector cosine-similarity retrieval (no BM25 rerank). mnem reference: hit@5=0.9733 (bge-large + hybrid-boost + doc-filter). MemPalace bge-small default: hit@5=0.6267.",
+  "corpus_size": 168,
+  "n_questions": 150,
+  "runtime_seconds": 146.88,
+  "timing": {
+    "retrieve_s": 10.616
+  },
+  "overall": {
+    "hit@1": 0.4933,
+    "hit@3": 0.6733,
+    "hit@5": 0.7667,
+    "n": 150
+  }
+}

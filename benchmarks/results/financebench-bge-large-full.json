@@ -1,0 +1,38 @@
+{
+  "harness": "mnem-financebench",
+  "mnem_http": "http://127.0.0.1:9876",
+  "dataset": "datasets\\financebench\\financebench_open_source.jsonl",
+  "corpus_size": 168,
+  "n_questions": 150,
+  "runtime_seconds": 315.7,
+  "timing": {
+    "ingest_s": 10.446,
+    "retrieve_s": 313.086,
+    "score_s": 2.596
+  },
+  "overall": {
+    "hit@1": 0.6733,
+    "hit@3": 0.8867,
+    "hit@5": 0.9733
+  },
+  "by_type": {
+    "domain-relevant": {
+      "n": 50,
+      "hit@1": 0.52,
+      "hit@3": 0.78,
+      "hit@5": 0.96
+    },
+    "metrics-generated": {
+      "n": 50,
+      "hit@1": 0.92,
+      "hit@3": 1.0,
+      "hit@5": 1.0
+    },
+    "novel-generated": {
+      "n": 50,
+      "hit@1": 0.58,
+      "hit@3": 0.88,
+      "hit@5": 0.96
+    }
+  }
+}

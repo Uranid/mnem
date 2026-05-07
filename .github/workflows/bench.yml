@@ -6,7 +6,7 @@
 # publisher.
 #
 # Current mode: BASELINE COLLECTION (v0.1.0).
-#   `fail-on-alert: false` — alerts are surfaced as PR comments only.
+#   `fail-on-alert: false`, alerts are surfaced as PR comments only.
 #   This is a 1-week bake window while we accumulate a drift signature
 #   on the GitHub-hosted runner. See `docs/RELEASE.md` for the flip
 #   checklist that hard-enables the gate once the baseline has settled.
@@ -14,7 +14,7 @@
 # Future mode (post-flip):
 #   `fail-on-alert: true` blocks merges on >10% regressions.
 #   Consider moving to a self-hosted Linux runner (CPU-pinned,
-#   governor=performance, SMT off) per PHASE-A-2 §5 — GitHub-hosted
+#   governor=performance, SMT off) per PHASE-A-2 §5, GitHub-hosted
 #   runners exhibit 15-40% noise on the shared hypervisor and will
 #   false-positive a 10% gate until that happens.
 name: bench
@@ -34,7 +34,7 @@ permissions:
 
 jobs:
   bench:
-    # On PRs, only run when the `benchmark` label is present — keeps
+    # On PRs, only run when the `benchmark` label is present, keeps
     # vanilla PRs fast and avoids burning runner minutes on doc-only
     # changes. Push-to-main always runs to keep the gh-pages baseline
     # current.
