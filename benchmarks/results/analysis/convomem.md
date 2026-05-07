@@ -7,8 +7,8 @@ Substring-match recall (gold evidence text in retrieved item text).
 
 | System | avg_recall | Source |
 |--------|-----------:|--------|
-| MemPalace | 0.929 | `artefacts/convomem/convomem-mempalace-raw-250.json` |
-| **mnem** | **0.976** | `artefacts/convomem/convomem-mnem-250.jsonl` |
+| MemPalace | 0.929 | reproduced under our harness |
+| **mnem** | **0.976** | `v0.1.0/jsonl/convomem-250.jsonl` |
 
 mnem +0.047 over MemPalace.
 
@@ -42,7 +42,7 @@ docker compose -f benchmarks/harness/compose.yml up -d mnem-bench-1
 PYTHONUTF8=1 python benchmarks/harness/adapters/convomem.py \
     --mnem http http://127.0.0.1:9876 \
     --limit 50 --top-k 10 \
-    --out benchmarks/results/v0.1.0/convomem-250.json
+    --out benchmarks/results/v0.1.0/json/convomem-250.json
 
 docker compose -f benchmarks/harness/compose.yml down
 ```
@@ -53,8 +53,8 @@ Expected: `avg_recall = 0.976` (within +/- 0.005 sample variance).
 
 | File | Description |
 |------|-------------|
-| `convomem-mnem-250.jsonl` | per-item rows: gold IDs, retrieved IDs, per-item recall, category tag |
-| `convomem-mempalace-raw-250.json` | MemPalace raw-dense reproduction, per-item rows + summary |
+| `v0.1.0/json/convomem-250.json` | summary: overall + per-category avg recall |
+| `v0.1.0/jsonl/convomem-250.jsonl` | per-item rows: gold IDs, retrieved IDs, per-item recall, category tag |
 
 ## Methodology notes
 

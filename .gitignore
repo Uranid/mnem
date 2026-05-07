@@ -116,7 +116,7 @@ tmp/
 
 # --- local artifacts (build / scratch / dataset cache / benchmark scratch) ---
 # Per-developer benchmark outputs that aren't part of the reproducibility
-# fixtures in benchmarks/proofs/. Only the locked vX.Y.Z proof set ships
+# fixtures in benchmarks/results/v0.1.0/. Only the locked vX.Y.Z result set ships
 # with the repo. Competitor benchmark results are committed as reference.
 chroma_mem0_financebench/
 datasets/

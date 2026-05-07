@@ -14,7 +14,7 @@ the top-K results. Metric: hit@1, hit@3, hit@5. Three question types:
 |--------|------:|------:|------:|--------|
 | mem0 | 0.007 | 0.020 | 0.033 | reproduced under our harness |
 | MemPalace | 0.493 | 0.673 | 0.767 | reproduced under our harness |
-| **mnem** | **0.673** | **0.887** | **0.973** | `results/financebench-bge-large-full.jsonl` |
+| **mnem** | **0.673** | **0.887** | **0.973** | `v0.1.0/jsonl/financebench-bge-large-full.jsonl` |
 
 MemPalace shown at best configuration (bge-large, see below). All systems use
 Ollama bge-large (1024-dim) embeddings; this is not the MiniLM baseline used
@@ -41,7 +41,7 @@ BM25 reranking on the extracted memory text was also tested; hit@5 was unchanged
 0.033. The ceiling is set by the extraction step, not the retrieval strategy.
 
 Adapter: `benchmarks/harness/adapters/financebench_mem0.py`
-Result: `results/financebench-mem0.json`
+Result: `v0.1.0/json/financebench-mem0.json`
 
 ### MemPalace
 
@@ -61,7 +61,7 @@ between query and passage is low. Pure vector wins here; best result is 0.767.
 
 Adapter: `benchmarks/harness/adapters/financebench_mempalace_bgelarge.py` (bge-large)
          `benchmarks/harness/adapters/financebench_mempalace.py` (default bge-small)
-Results: `results/financebench-mempalace-bgelarge.json`, `results/financebench-mempalace.json`
+Results: `v0.1.0/json/financebench-mempalace-bgelarge.json`, `v0.1.0/json/financebench-mempalace.json`
 
 ## Configuration (mnem)
 
@@ -81,18 +81,18 @@ python benchmarks/harness/adapters/financebench.py \
     --dataset datasets/financebench/financebench_open_source.jsonl \
     --mnem-http http://127.0.0.1:9876 \
     --hybrid-boost --query-expand \
-    --out benchmarks/results/financebench-bge-large-full.json
+    --out benchmarks/results/v0.1.0/json/financebench-bge-large-full.json
 
 # MemPalace bge-large
 python benchmarks/harness/adapters/financebench_mempalace_bgelarge.py \
     --dataset datasets/financebench/financebench_open_source.jsonl \
-    --out benchmarks/results/financebench-mempalace-bgelarge.json
+    --out benchmarks/results/v0.1.0/json/financebench-mempalace-bgelarge.json
 
 # mem0 (also needs Ollama LLM; ingest takes ~90 min)
 python benchmarks/harness/adapters/financebench_mem0.py \
     --dataset datasets/financebench/financebench_open_source.jsonl \
     --llm-model llama3.2:3b \
-    --out benchmarks/results/financebench-mem0.json
+    --out benchmarks/results/v0.1.0/json/financebench-mem0.json
 ```
 
 Expected: mnem `hit@5 = 0.9733` (within +/-0.005 sample variance).
@@ -113,11 +113,11 @@ searches all 168 passages rather than a scoped subset.
 
 | File | Description |
 |------|-------------|
-| `financebench-bge-large-full.json` | mnem summary: overall + per-question-type hit@1/3/5 |
-| `financebench-bge-large-full.jsonl` | per-question rows: qid, hit@1/3/5, target, top5_retrieved |
-| `financebench-mempalace-bgelarge.json` | MemPalace bge-large (best) summary |
-| `financebench-mempalace-bgelarge.jsonl` | per-question rows |
-| `financebench-mempalace.json` | MemPalace default bge-small summary |
-| `financebench-mempalace.jsonl` | per-question rows |
-| `financebench-mem0.json` | mem0 + BM25 rerank summary |
-| `financebench-mem0.jsonl` | per-question rows |
+| `v0.1.0/json/financebench-bge-large-full.json` | mnem summary: overall + per-question-type hit@1/3/5 |
+| `v0.1.0/jsonl/financebench-bge-large-full.jsonl` | per-question rows: qid, hit@1/3/5, target, top5_retrieved |
+| `v0.1.0/json/financebench-mempalace-bgelarge.json` | MemPalace bge-large (best) summary |
+| `v0.1.0/jsonl/financebench-mempalace-bgelarge.jsonl` | per-question rows |
+| `v0.1.0/json/financebench-mempalace.json` | MemPalace default bge-small summary |
+| `v0.1.0/jsonl/financebench-mempalace.jsonl` | per-question rows |
+| `v0.1.0/json/financebench-mem0.json` | mem0 + BM25 rerank summary |
+| `v0.1.0/jsonl/financebench-mem0.jsonl` | per-question rows |

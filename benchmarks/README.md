@@ -4,9 +4,10 @@ Reproducible head-to-head numbers for mnem. Every number ships with the
 harness, the dataset, and the raw artifacts. If you can't reproduce a
 number, that's a bug.
 
-## Scoreboard (mnem vs MemPalace published numbers)
+## Scoreboard
 
-Dense retrieval (vector + top-k). No LLM rerank. ONNX MiniLM-L6-v2 in-process.
+Dense retrieval (vector + top-k). No LLM rerank. ONNX MiniLM-L6-v2 in-process
+(MiniLM rows). FinanceBench uses Ollama bge-large on all systems.
 
 | Benchmark | Split | Metric | MP | mnem | Δ vs MP | Latency (ms) |
 |-----------|-------|--------|----|-----------|---------|--------------|
@@ -17,8 +18,11 @@ Dense retrieval (vector + top-k). No LLM rerank. ONNX MiniLM-L6-v2 in-process.
 | ConvoMem | 250 (5x50) | avg recall | 0.929 | $\color{green}{\textbf{0.976}}$ | **+0.047** | 398 (retr) |
 | MemBench | simple/roles 100 | R@5 | 0.840 | $\color{green}{\textbf{0.960}}$ | **+0.120** | 1874 (e2e) |
 | MemBench | highlevel/movie 100 | R@5 | 0.950 | $\color{green}{\textbf{1.000}}$ | **+0.050** | 491 (e2e) |
+| FinanceBench | 150 Q (bge-large) | hit@5 | 0.767 | $\color{green}{\textbf{0.973}}$ | **+0.206** | 2087 (retr) |
+
 `(retr)` = retrieve-only mean from summary timing.
 `(e2e)` = end-to-end mean (runtime / n) when the adapter doesn't expose phase timing.
+MP column = MemPalace (headline / best-reproduced). FinanceBench: mem0 scores 0.033 (LLM extraction degrades recall).
 
 ## Reproduce in one command
 
@@ -43,26 +47,44 @@ benchmarks/
     run_bench.sh                # one-command driver
     adapters/                   # python adapters per benchmark
     comparison_table.py         # renders results table
-  results/                      # narrative analysis (one per bench)
-    longmemeval.md
-    locomo.md
-    convomem.md
-    membench.md
-  proofs/                       # raw JSON / JSONL outputs
-    v0.1.0/                     # version-tagged
-      longmemeval-500q.json + .jsonl
-      locomo-session-1986q.json + .jsonl
-      convomem-250.json + .jsonl
-      membench-simple-roles-100.json + .jsonl
-      membench-highlevel-movie-100.json + .jsonl
+  results/
+    analysis/                   # narrative analysis per benchmark
+      longmemeval.md
+      locomo.md
+      convomem.md
+      membench.md
+      financebench.md
+      methodology.md
+    v0.1.0/                     # version-tagged artifacts
+      json/                     # summary JSON (one per bench run)
+        longmemeval-500q.json
+        locomo-session.json
+        convomem-250.json
+        membench-simple-roles.json
+        membench-highlevel-movie.json
+        financebench-bge-large-full.json
+        financebench-mem0.json
+        financebench-mempalace-bgelarge.json
+        financebench-mempalace.json
+      jsonl/                    # per-question rows (gold, retrieved top-K, recall)
+        longmemeval-500q.jsonl
+        locomo-session.jsonl
+        convomem-250.jsonl
+        membench-simple-roles.jsonl
+        membench-highlevel-movie.jsonl
+        financebench-bge-large-full.jsonl
+        financebench-mem0.jsonl
+        financebench-mempalace-bgelarge.jsonl
+        financebench-mempalace.jsonl
 ```
 
 ## Per-bench detail
 
-- [LongMemEval](./results/longmemeval.md)
-- [LoCoMo](./results/locomo.md)
-- [ConvoMem](./results/convomem.md)
-- [MemBench](./results/membench.md)
+- [LongMemEval](./results/analysis/longmemeval.md)
+- [LoCoMo](./results/analysis/locomo.md)
+- [ConvoMem](./results/analysis/convomem.md)
+- [MemBench](./results/analysis/membench.md)
+- [FinanceBench](./results/analysis/financebench.md)
 
 ## Methodology
 

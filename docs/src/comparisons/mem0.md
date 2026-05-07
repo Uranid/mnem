@@ -147,5 +147,5 @@ offline.
 - mem0 README ("New Memory Algorithm (April 2026)", "Basic Usage", "CLI"): <https://github.com/mem0ai/mem0/blob/main/README.md>
 - mem0 docs: <https://docs.mem0.ai>
 - mem0 evaluation framework: <https://github.com/mem0ai/memory-benchmark>
-- mnem benchmarks: [`/benchmarks/proofs/v0.1.0/`](../../../benchmarks/proofs/v0.1.0/)
+- mnem benchmarks: [`/benchmarks/results/v0.1.0/`](../../../benchmarks/results/v0.1.0/)
 - mnem README: [`/README.md`](../../../README.md)

@@ -11,7 +11,7 @@ top-K retrieved turns).
 | System | R@5 | Source |
 |--------|----:|--------|
 | MemPalace | 0.840 | published |
-| **mnem** | **0.960** | `proofs/v0.1.0/membench-simple-roles.jsonl` |
+| **mnem** | **0.960** | `v0.1.0/jsonl/membench-simple-roles.jsonl` |
 
 mnem **+0.120** over MemPalace.
 
@@ -20,7 +20,7 @@ mnem **+0.120** over MemPalace.
 | System | R@5 | Source |
 |--------|----:|--------|
 | MemPalace | 0.950 | published |
-| **mnem** | **1.000** | `proofs/v0.1.0/membench-highlevel-movie.jsonl` |
+| **mnem** | **1.000** | `v0.1.0/jsonl/membench-highlevel-movie.jsonl` |
 
 mnem **+0.050** over MemPalace.
 
@@ -43,7 +43,7 @@ PYTHONUTF8=1 python benchmarks/harness/adapters/membench.py \
     --mnem http http://127.0.0.1:9876 \
     --category simple --topic roles \
     --limit 100 --top-k 5 \
-    --out benchmarks/results/v0.1.0/membench-simple-roles.json
+    --out benchmarks/results/v0.1.0/json/membench-simple-roles.json
 
 # highlevel / movie
 PYTHONUTF8=1 python benchmarks/harness/adapters/membench.py \
@@ -51,7 +51,7 @@ PYTHONUTF8=1 python benchmarks/harness/adapters/membench.py \
     --mnem http http://127.0.0.1:9876 \
     --category highlevel --topic movie \
     --limit 100 --top-k 5 \
-    --out benchmarks/results/v0.1.0/membench-highlevel-movie.json
+    --out benchmarks/results/v0.1.0/json/membench-highlevel-movie.json
 
 docker compose -f benchmarks/harness/compose.yml down
 ```
@@ -76,7 +76,7 @@ higher.
 
 | File | Description |
 |------|-------------|
-| `membench-simple-roles.json` | summary: overall + per-category R@5 |
-| `membench-simple-roles.jsonl` | per-item rows: tid, target sids, top-5 retrieved, hit@5 |
-| `membench-highlevel-movie.json` | summary for highlevel/movie |
-| `membench-highlevel-movie.jsonl` | per-item rows for highlevel/movie |
+| `v0.1.0/json/membench-simple-roles.json` | summary: overall + per-category R@5 |
+| `v0.1.0/jsonl/membench-simple-roles.jsonl` | per-item rows: tid, target sids, top-5 retrieved, hit@5 |
+| `v0.1.0/json/membench-highlevel-movie.json` | summary for highlevel/movie |
+| `v0.1.0/jsonl/membench-highlevel-movie.jsonl` | per-item rows for highlevel/movie |

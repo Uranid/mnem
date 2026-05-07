@@ -8,7 +8,7 @@ Session-level retrieval: aggregate turn hits to session via MAX score.
 | System | R@5 | R@10 | Source |
 |--------|----:|-----:|--------|
 | MemPalace | 0.966 | 0.982 | published |
-| **mnem** | **0.966** | **0.982** | `proofs/v0.1.0/longmemeval-500q.jsonl` |
+| **mnem** | **0.966** | **0.982** | `v0.1.0/jsonl/longmemeval-500q.jsonl` |
 
 Matches MemPalace exactly. No daylight either way.
 
@@ -29,7 +29,7 @@ PYTHONUTF8=1 python benchmarks/harness/adapters/longmemeval_session.py \
     --dataset benchmarks/datasets/longmemeval/longmemeval_s_cleaned.json \
     --mnem http http://127.0.0.1:9876 \
     --limit 500 --top-k 10 \
-    --out benchmarks/results/v0.1.0/longmemeval-500q.json
+    --out benchmarks/results/v0.1.0/json/longmemeval-500q.json
 
 docker compose -f benchmarks/harness/compose.yml down
 ```
@@ -44,11 +44,11 @@ variance).
 | Dense | 711 ms | 1127 s (~19 min) |
 
 Per-question retrieve dominated by HNSW lookup over the per-question
-label scope; hybrid-v4 boost is a near-free post-filter pass.
+label scope.
 
 ## Artifacts
 
 | File | Description |
 |------|-------------|
-| `longmemeval-500q.json` | summary: overall + per-question-type recall |
-| `longmemeval-500q.jsonl` | per-question rows: qid, qtype, top-5 sessions, hit@5/hit@10 |
+| `v0.1.0/json/longmemeval-500q.json` | summary: overall + per-question-type recall |
+| `v0.1.0/jsonl/longmemeval-500q.jsonl` | per-question rows: qid, qtype, top-5 sessions, hit@5/hit@10 |

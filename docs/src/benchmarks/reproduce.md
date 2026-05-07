@@ -25,7 +25,7 @@ Wall ETA: 30-50 min on a 16-core box. Output: `benchmarks/results/<UTC-stamp>/`.
 
 1. Build Docker image (release, FEATURES=onnx-bundled):
 2. Bring up 4 lanes with cpuset pinning + thread caps.
-3. Run 6 benches (LongMemEval, LoCoMo, ConvoMem, MemBench × 2, Hybrid v4)
+3. Run benches (LongMemEval, LoCoMo, ConvoMem, MemBench × 2, FinanceBench)
    sequentially across the lanes via a token-bucket dispatcher.
 4. Render `RESULTS.md` from per-bench JSONs.
 
@@ -38,7 +38,7 @@ python benchmarks/harness/adapters/longmemeval_session.py \
     --dataset benchmarks/datasets/longmemeval/longmemeval_s_cleaned.json \
     mnem http serve --bind 127.0.0.1:9876 \
     --limit 500 --top-k 10 \
-    --out benchmarks/results/longmemeval-500q.json
+    --out benchmarks/results/v0.1.0/json/longmemeval-500q.json
 
 docker compose -f benchmarks/harness/compose.yml down
 ```

@@ -136,5 +136,5 @@ WASM / edge targets.
 - Cognee README ("About Cognee", Quickstart Steps 1-3, "Use with AI Agents", "Deploy Cognee"): <https://github.com/topoteretes/cognee/blob/main/README.md>
 - Cognee docs: <https://docs.cognee.ai>
 - Cognee Cloud: <https://www.cognee.ai>
-- mnem benchmarks: [`/benchmarks/proofs/v0.1.0/`](../../../benchmarks/proofs/v0.1.0/)
+- mnem benchmarks: [`/benchmarks/results/v0.1.0/`](../../../benchmarks/results/v0.1.0/)
 - mnem README: [`/README.md`](../../../README.md)

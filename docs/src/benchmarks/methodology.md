@@ -12,12 +12,16 @@ artifacts. If you cannot reproduce a number, that is a bug.
 | ConvoMem | 5 cat × 50 items (250) | 250 | Salesforce/ConvoMem |
 | MemBench simple/roles | 100 items | 100 | import-myself/Membench |
 | MemBench highlevel/movie | 100 items | 100 | import-myself/Membench |
+| FinanceBench | `financebench_open_source.jsonl` | 150 | Patronus AI 2024 open-source split |
 
 ## Embedder
 
 ONNX MiniLM-L6-v2 (`sentence-transformers/all-MiniLM-L6-v2` via
 `Xenova/all-MiniLM-L6-v2`), bundled in-process via the `onnx-bundled`
 feature. No network calls, no API keys, no per-call model load.
+
+**FinanceBench exception**: all three systems (mnem, MemPalace, mem0) use
+Ollama bge-large (1024-dim) for that benchmark. MiniLM numbers do not apply.
 
 ## Hardware
 
@@ -31,7 +35,7 @@ documented per run in `benchmarks/results/`.
 |--------|------------|
 | R@K | hit if any gold item is in top-K retrieved |
 | avg recall | mean per-item recall (ConvoMem) |
-| Hybrid v4 | dense + sparse score boost (mirrors MP harness helper) |
+| hit@K | (FinanceBench) gold passage in top-K across corpus-wide scan |
 
 ## Apple-to-apple pledge
 

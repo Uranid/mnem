@@ -1,7 +1,7 @@
 # Methodology
 
 Every number in this folder ships with the harness, the dataset hash, and
-the raw artifacts in [`../proofs/v0.1.0/`](../proofs/v0.1.0/). If you
+the raw artifacts in [`../v0.1.0/`](../v0.1.0/). If you
 cannot reproduce a number, that's a bug.
 
 ## Scoring unit
@@ -12,6 +12,7 @@ cannot reproduce a number, that's a bug.
 | LoCoMo       | per-session       | speaker-prefixed turn text, aggregated per session | R@5 / R@10  |
 | ConvoMem     | per-message/turn  | raw message text, no speaker prefix    | avg recall  |
 | MemBench     | per-message/turn  | user turns only, matched 100-item subsets | R@5      |
+| FinanceBench | per-passage       | 168 passages from SEC 10-K/10-Q filings | hit@1/3/5  |
 
 A question counts as a hit under R@K if the gold unit (session for
 LongMemEval/LoCoMo; message for ConvoMem/MemBench) is in the top-K
@@ -35,6 +36,10 @@ All systems load the same weight file:
 
 mnem loads it via `mnem-embed-providers` with `--features onnx-bundled`
 (`ort/download-binaries`).
+
+**FinanceBench exception**: the FinanceBench run uses Ollama bge-large
+(1024-dim) for all three systems (mnem, MemPalace, mem0). MiniLM numbers
+do not apply to that benchmark.
 
 ## Hardware pin
 
@@ -61,11 +66,11 @@ than +/-0.01, open an issue with the host spec and bench logs.
 
 For every published number:
 
-- Summary JSON at `proofs/v0.1.0/<bench>.json`
-- Per-question JSONL at `proofs/v0.1.0/<bench>.jsonl` carrying gold,
+- Summary JSON at `v0.1.0/json/<bench>.json`
+- Per-question JSONL at `v0.1.0/jsonl/<bench>.jsonl` carrying gold,
   retrieved top-K, and per-question recall
 - The exact reproduce command in the per-bench narrative md
-- Harness source at [`benchmarks/harness/`](../harness/)
+- Harness source at [`benchmarks/harness/`](../../harness/)
 
 ## Reproduce in one command
 

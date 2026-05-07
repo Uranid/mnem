@@ -140,5 +140,5 @@ a first-class response field.
 - MemPalace repo, sha `6890948e092b` on `develop`, 2026-04-26: <https://github.com/MemPalace/mempalace>
 - MemPalace README (license MIT, "What it is", Benchmarks table): <https://github.com/MemPalace/mempalace/blob/develop/README.md>
 - MemPalace `benchmarks/BENCHMARKS.md` for benchmark provenance
-- mnem benchmark artefacts: [`/benchmarks/proofs/v0.1.0/`](../../../benchmarks/proofs/v0.1.0/)
+- mnem benchmark artefacts: [`/benchmarks/results/v0.1.0/`](../../../benchmarks/results/v0.1.0/)
 - mnem README + benchmark methodology: [`/README.md`](../../../README.md), [`benchmarks/methodology.md`](../benchmarks/methodology.md)

@@ -9,7 +9,7 @@ session_id.
 | System | R@5 | R@10 | Source |
 |--------|----:|-----:|--------|
 | MemPalace | 0.508 | 0.603 | published |
-| **mnem** | **0.726** | **0.855** | `proofs/v0.1.0/locomo-session.jsonl` |
+| **mnem** | **0.726** | **0.855** | `v0.1.0/jsonl/locomo-session.jsonl` |
 
 mnem **+0.218 R@5** and **+0.252 R@10** over MemPalace.
 
@@ -37,7 +37,7 @@ PYTHONUTF8=1 python benchmarks/harness/adapters/locomo.py \
     --dataset benchmarks/datasets/locomo/locomo10.json \
     --mnem http http://127.0.0.1:9876 \
     --granularity session --top-k 10 \
-    --out benchmarks/results/v0.1.0/locomo-session.json
+    --out benchmarks/results/v0.1.0/json/locomo-session.json
 
 docker compose -f benchmarks/harness/compose.yml down
 ```
@@ -60,5 +60,5 @@ cheaper.
 
 | File | Description |
 |------|-------------|
-| `locomo-session.json` | summary: overall + per-category recall |
-| `locomo-session.jsonl` | per-question rows: sample_id, category, evidence dia_ids, top-5 sessions, hit@5/hit@10 |
+| `v0.1.0/json/locomo-session.json` | summary: overall + per-category recall |
+| `v0.1.0/jsonl/locomo-session.jsonl` | per-question rows: sample_id, category, evidence dia_ids, top-5 sessions, hit@5/hit@10 |

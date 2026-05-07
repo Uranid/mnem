@@ -148,5 +148,5 @@ rather than consuming one.
 - Supermemory repo, sha `a41bbeecb395` on `main`, 2026-04-26: <https://github.com/supermemoryai/supermemory>
 - Supermemory README, MCP details: `mcp.supermemory.ai/mcp`
 - Supermemory cloud and pricing: <https://supermemory.ai>
-- mnem benchmark artefacts: [`/benchmarks/proofs/v0.1.0/`](../../../benchmarks/proofs/v0.1.0/)
+- mnem benchmark artefacts: [`/benchmarks/results/v0.1.0/`](../../../benchmarks/results/v0.1.0/)
 - mnem README + architecture: [`/README.md`](../../../README.md)
