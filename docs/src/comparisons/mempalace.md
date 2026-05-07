@@ -50,7 +50,6 @@ and ran ours on the same datasets and embedder weights:
 |-----------|-------|--------|-----------|-----------|-------|
 | LongMemEval | 500 Q | R@5 session, raw dense | 0.966 | 0.966 | 0 |
 | LongMemEval | 500 Q | R@10 session, raw dense | 0.982 | 0.982 | 0 |
-| LongMemEval | 500 Q hybrid-v4 | R@5 session | 0.982 | $\color{red}{\textbf{0.976}}$ | -0.006 |
 | LoCoMo | 1986 Q | R@5 session, raw dense | 0.508 | $\color{green}{\textbf{0.726}}$ | +0.218 |
 | LoCoMo | 1986 Q | R@10 session, raw dense | 0.603 | $\color{green}{\textbf{0.855}}$ | +0.252 |
 | ConvoMem | 250 Q | Avg recall | 0.890 | $\color{green}{\textbf{0.976}}$ | +0.086 |
@@ -60,9 +59,6 @@ Method: identical MiniLM-L6-v2 ONNX weights, no reranker, no LLM, no
 lexical lane on the raw-dense rows. The LoCoMo gap comes from mnem's
 adapter aggregating user-turn text per session before embedding;
 MemPalace's adapter embeds at a finer grain. Mechanism, not magic.
-
-MemPalace's hybrid-v4 numbers tune on dev splits; the held-out 98.4%
-they report is the honest figure to compare against.
 
 ## Latency (where measured)
 

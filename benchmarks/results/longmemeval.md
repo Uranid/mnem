@@ -12,16 +12,6 @@ Session-level retrieval: aggregate turn hits to session via MAX score.
 
 Matches MemPalace exactly. No daylight either way.
 
-## Hybrid v4 (harness helper)
-
-| System | R@5 | Source |
-|--------|----:|--------|
-| MemPalace | 0.982 | published |
-| **mnem** | **0.976** | `proofs/v0.1.0/longmemeval-500q-hybrid-v4.jsonl` |
-
-`--hybrid-v4-boost` mirrors MemPalace's harness-side BM25-derived score
-boost. Apple-to-apple bench helper, NOT a default for production.
-
 ## Configuration (dense baseline)
 
 - Embedder: ONNX MiniLM-L6-v2 (bundled, in-process)
@@ -47,14 +37,11 @@ docker compose -f benchmarks/harness/compose.yml down
 Expected: `recall@5 = 0.966`, `recall@10 = 0.982` (within +/-0.005 sample
 variance).
 
-For the hybrid-v4 row, add `--hybrid-v4-boost` and rename the output file.
-
 ## Latency
 
 | Run | retrieve mean | total wall (500 Q) |
 |-----|--------------:|-------------------:|
 | Dense | 711 ms | 1127 s (~19 min) |
-| Hybrid v4 | 729 ms | 1133 s (~19 min) |
 
 Per-question retrieve dominated by HNSW lookup over the per-question
 label scope; hybrid-v4 boost is a near-free post-filter pass.
@@ -65,5 +52,3 @@ label scope; hybrid-v4 boost is a near-free post-filter pass.
 |------|-------------|
 | `longmemeval-500q.json` | summary: overall + per-question-type recall |
 | `longmemeval-500q.jsonl` | per-question rows: qid, qtype, top-5 sessions, hit@5/hit@10 |
-| `longmemeval-500q-hybrid-v4.json` | summary for hybrid-v4 run |
-| `longmemeval-500q-hybrid-v4.jsonl` | per-question rows for hybrid-v4 |

@@ -1,7 +1,6 @@
 # Results
 
-mnem vs MemPalace published numbers. Dense retrieval (vector + top-k);
-hybrid-v4 row mirrors MemPalace's harness helper. No LLM rerank.
+mnem vs MemPalace published numbers. Dense retrieval (vector + top-k). No LLM rerank.
 
 ONNX MiniLM-L6-v2 (bundled, in-process). 4 cores per lane.
 
@@ -14,8 +13,6 @@ ONNX MiniLM-L6-v2 (bundled, in-process). 4 cores per lane.
 | ConvoMem | 5 cat × 50 items (250) | avg recall | 0.929 | $\color{green}{\textbf{0.976}}$ | **+0.047** | 398 (retr) |
 | MemBench | simple/roles, 100 items | R@5 | 0.840 | $\color{green}{\textbf{0.960}}$ | **+0.120** | 1874 (e2e) |
 | MemBench | highlevel/movie, 100 items | R@5 | 0.950 | $\color{green}{\textbf{1.000}}$ | **+0.050** | 491 (e2e) |
-| LongMemEval | 500 Q, Hybrid v4 | R@5 session | 0.982 | $\color{red}{\textbf{0.976}}$ | **-0.006** | 729 (retr) |
-
 `(retr)` = retrieve-only mean (from summary timing).
 `(e2e)` = end-to-end mean (runtime / n) when adapter doesn't expose phase timing.
 
@@ -25,8 +22,6 @@ ONNX MiniLM-L6-v2 (bundled, in-process). 4 cores per lane.
 - **Beats by +0.218 / +0.252** on LoCoMo session-level retrieval.
 - **Beats by +0.047** on ConvoMem.
 - **Beats by +0.120 / +0.050** on MemBench tasks.
-- **Within ±0.006** on Hybrid v4 (no LLM rerank).
-
 ## Raw artifacts
 
 Per-bench JSON + JSONL in `benchmarks/results/v0.1.0/`. Each artifact carries

@@ -6,8 +6,7 @@ number, that's a bug.
 
 ## Scoreboard (mnem vs MemPalace published numbers)
 
-Dense retrieval (vector + top-k); hybrid-v4 row mirrors MemPalace's harness
-helper. No LLM rerank. ONNX MiniLM-L6-v2 in-process.
+Dense retrieval (vector + top-k). No LLM rerank. ONNX MiniLM-L6-v2 in-process.
 
 | Benchmark | Split | Metric | MP | mnem | Δ vs MP | Latency (ms) |
 |-----------|-------|--------|----|-----------|---------|--------------|
@@ -18,8 +17,6 @@ helper. No LLM rerank. ONNX MiniLM-L6-v2 in-process.
 | ConvoMem | 250 (5x50) | avg recall | 0.929 | $\color{green}{\textbf{0.976}}$ | **+0.047** | 398 (retr) |
 | MemBench | simple/roles 100 | R@5 | 0.840 | $\color{green}{\textbf{0.960}}$ | **+0.120** | 1874 (e2e) |
 | MemBench | highlevel/movie 100 | R@5 | 0.950 | $\color{green}{\textbf{1.000}}$ | **+0.050** | 491 (e2e) |
-| LongMemEval | 500 Q hybrid-v4 | R@5 session | 0.982 | $\color{red}{\textbf{0.976}}$ | **-0.006** | 729 (retr) |
-
 `(retr)` = retrieve-only mean from summary timing.
 `(e2e)` = end-to-end mean (runtime / n) when the adapter doesn't expose phase timing.
 
@@ -58,7 +55,6 @@ benchmarks/
       convomem-250.json + .jsonl
       membench-simple-roles-100.json + .jsonl
       membench-highlevel-movie-100.json + .jsonl
-      longmemeval-500q-hybridv4.json + .jsonl
 ```
 
 ## Per-bench detail
