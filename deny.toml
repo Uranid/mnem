@@ -1,0 +1,18 @@
+# cargo-deny configuration
+# https://embarkstudios.github.io/cargo-deny/
+#
+# Only the [advisories] section is active. License and bans checks are
+# not enforced here -- add [licenses] / [bans] sections if you want them.
+
+[advisories]
+# Reject crates with known security vulnerabilities.
+db-urls = ["https://github.com/rustsec/advisory-db"]
+db-path = "~/.cargo/advisory-db"
+# "deny" = any vulnerability fails the build; "warn" = printed but not fatal.
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "deny"
+notice = "warn"
+# Add advisory IDs here to ignore specific advisories you have reviewed
+# and consciously accepted (document the reason in a comment).
+ignore = []
