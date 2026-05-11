@@ -8,7 +8,9 @@
 //! 4. Each commit's `nodes`, `edges`, and `schema` Prolly-tree root CIDs
 //!    are fully walked: every interior and leaf block in each tree is
 //!    fetched and verified to exist in the blockstore.
-//! 5. Optional commit fields (`indexes`, `embeddings`, `delta`) are
+//! 5. Optional Prolly-tree sidecars (`embeddings` G16, `sparse` G17)
+//!    are fully walked: every interior and leaf block is verified.
+//! 6. Other optional commit fields (`indexes`, `delta`) are root-block
 //!    checked when present.
 //!
 //! This is NOT a full GC-style "iterate all store blocks" scan. It is
@@ -31,9 +33,10 @@ const DEFAULT_LIMIT: usize = 50_000;
 #[command(after_long_help = "\
 Walks all ops reachable from HEAD and verifies every referenced block is
 present and CID-correct (content hashes to its CID). For each commit,
-ALL blocks of the nodes, edges, and schema Prolly trees are fetched and
-checked - not just the root. Missing interior or leaf blocks are reported
-as errors so corruption inside a Prolly tree is always detected.
+ALL blocks of the nodes, edges, schema, embeddings (G16), and sparse (G17)
+Prolly trees are fetched and checked - not just the root. Missing interior
+or leaf blocks are reported as errors so corruption inside a Prolly tree
+is always detected.
 
 Examples:
   mnem fsck                   # check all ops from HEAD
@@ -291,10 +294,24 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
                         blocks_verified += tree_blocks;
                     }
 
-                    // Optional commit fields.
+                    // Optional Prolly-tree sidecars: embeddings (G16) and
+                    // sparse (G17) are full trees - walk every block so
+                    // corrupt or missing interior blocks are caught.
+                    for (tree_name, maybe_cid) in [
+                        ("embeddings", commit.embeddings.as_ref()),
+                        ("sparse", commit.sparse.as_ref()),
+                    ] {
+                        if let Some(cid) = maybe_cid {
+                            let tree_blocks =
+                                walk_prolly_tree(bs, cid, tree_name, &op_cid_str, &mut errors);
+                            blocks_verified += tree_blocks;
+                        }
+                    }
+
+                    // Other optional single-block commit fields (indexes,
+                    // delta) are not Prolly trees; check root presence only.
                     let optional_roots: &[(&str, Option<&mnem_core::id::Cid>)] = &[
                         ("indexes root", commit.indexes.as_ref()),
-                        ("embeddings root", commit.embeddings.as_ref()),
                         ("delta root", commit.delta.as_ref()),
                     ];
                     for (label, maybe_cid) in optional_roots {

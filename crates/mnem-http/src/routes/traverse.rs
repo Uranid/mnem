@@ -47,6 +47,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use mnem_core::guard::{CommitBudgetGuard, Decision};
 use mnem_core::id::{CODEC_RAW, Cid, Multihash, NodeId};
+use mnem_embed_providers::Embedder as _;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -316,10 +317,10 @@ pub(crate) async fn traverse_answer(
     // -------- Seed the BFS frontier ----------------------------------
     //
     // If `text` parses as a valid node UUID, use it directly as the
-    // sole seed. Otherwise, fall back to a deterministic label-free
-    // query that returns up to 10 nodes matching the text in their
-    // summary or as a label scan. An empty or absent `text` yields an
-    // empty frontier (0 hops, no expansion).
+    // sole seed. Otherwise embed the text through the configured dense
+    // provider (MockEmbedder cold-start fallback when unconfigured) and
+    // retrieve up to 10 semantically ranked seed nodes. An empty or
+    // absent `text` yields an empty frontier (0 hops, no expansion).
     let mut frontier: Vec<NodeId> = {
         let repo = state.repo.lock().unwrap_or_else(|p| p.into_inner());
         match req.text.as_deref() {
@@ -333,18 +334,41 @@ pub(crate) async fn traverse_answer(
                         Vec::new()
                     }
                 } else {
-                    // Free-text: use the deterministic query engine to
-                    // find up to 10 seed nodes. No embedding required;
-                    // the query engine falls back to a full label-scan
-                    // when no vector index is present.
-                    repo.query()
-                        .limit(10)
-                        .execute()
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|h| h.node.id)
-                        .filter(|id| !repo.is_tombstoned(id))
-                        .collect()
+                    // Free-text: embed the query through the configured
+                    // dense provider (or the deterministic MockEmbedder
+                    // cold-start fallback) and use the retrieve API so
+                    // seeds are ranked by semantic similarity to the
+                    // query text rather than arbitrary traversal order.
+                    let (model, qvec) = {
+                        if let Some(pc) = &state.embed_cfg
+                            && let Ok(embedder) = mnem_embed_providers::open(pc)
+                            && let Ok(v) = embedder.embed(t)
+                        {
+                            (embedder.model().to_string(), v)
+                        } else {
+                            let mock =
+                                mnem_embed_providers::MockEmbedder::new("mock:cold-start-384", 384);
+                            let v = mock.embed(t).unwrap_or_default();
+                            (mock.model().to_string(), v)
+                        }
+                    };
+                    let mut ret = repo.retrieve().query_text(t).vector(model.clone(), qvec).limit(10);
+                    // Attach the cached vector index so the retriever
+                    // avoids rebuilding it on every hop-0 call.
+                    if let Ok(mut cache) = state.indexes.lock() {
+                        if let Ok(idx) = cache.vector_index(&repo, &model) {
+                            ret = ret.with_vector_index(idx);
+                        }
+                    }
+                    match ret.execute() {
+                        Ok(result) => result
+                            .items
+                            .into_iter()
+                            .map(|item| item.node.id)
+                            .filter(|id| !repo.is_tombstoned(id))
+                            .collect(),
+                        Err(_) => Vec::new(),
+                    }
                 }
             }
             _ => Vec::new(),

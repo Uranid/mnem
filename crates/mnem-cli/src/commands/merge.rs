@@ -240,10 +240,24 @@ fn resolve_commitish(r: &mnem_core::repo::ReadonlyRepo, s: &str) -> Result<Cid> 
     }
 }
 
-/// Return the short branch name whose `refs/heads/<name>` points at
-/// the current head commit, if any. Used to know which ref to advance
-/// on a successful merge.
+/// Return the ref name (e.g. `refs/heads/main`) of the currently
+/// checked-out branch, or `None` in detached-HEAD mode. Used to know
+/// which ref to advance on a successful merge.
+///
+/// Primary source: `View.extra["active_branch"]` written by
+/// `switch_branch` (BUG-38). Falls back to CID-matching for Views
+/// that predate BUG-38.
 fn current_branch_name(r: &mnem_core::repo::ReadonlyRepo) -> Option<String> {
+    // Fast path: the checkout command records the active branch explicitly.
+    // This is correct even in diamond-history scenarios where multiple
+    // branch tips share the same commit CID.
+    if let Some(name) = r.view().active_branch() {
+        return Some(name.to_string());
+    }
+    // Legacy fallback for repos that predate the BUG-38 fix: scan refs
+    // for the unique branch pointing at HEAD. Ambiguous in diamond
+    // history (two branches at the same commit), but acceptable for
+    // old-format Views.
     let head = r.view().heads.first()?;
     for (name, target) in &r.view().refs {
         if let RefTarget::Normal { target: t } = target
