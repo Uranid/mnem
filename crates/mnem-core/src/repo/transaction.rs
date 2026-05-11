@@ -834,31 +834,35 @@ impl Transaction {
                     .map(|node_cid| embedding_key_for_node_cid(&node_cid))
             })
             .collect();
-        let new_embeddings_cid: Option<Cid> =
-            if pending_embeddings.is_empty() && base_embeddings_cid.is_none()
-                && sidecar_removals.is_empty()
-            {
-                None
-            } else {
-                let base_root = match &base_embeddings_cid {
-                    Some(c) => c.clone(),
-                    None => prolly::build_tree(&*bs, std::iter::empty())?,
-                };
-                let mut additions: BTreeMap<ProllyKey, Cid> = BTreeMap::new();
-                for (node_cid, bucket) in pending_embeddings {
-                    let (bucket_bytes, bucket_cid) = hash_to_cid(&bucket)?;
-                    bs.put_trusted(bucket_cid.clone(), bucket_bytes)?;
-                    let key = embedding_key_for_node_cid(&node_cid);
-                    additions.insert(key, bucket_cid);
-                }
-                Some(rebuild_tree(&*bs, &base_root, &additions, &sidecar_removals)?)
+        let new_embeddings_cid: Option<Cid> = if pending_embeddings.is_empty()
+            && base_embeddings_cid.is_none()
+            && sidecar_removals.is_empty()
+        {
+            None
+        } else {
+            let base_root = match &base_embeddings_cid {
+                Some(c) => c.clone(),
+                None => prolly::build_tree(&*bs, std::iter::empty())?,
             };
+            let mut additions: BTreeMap<ProllyKey, Cid> = BTreeMap::new();
+            for (node_cid, bucket) in pending_embeddings {
+                let (bucket_bytes, bucket_cid) = hash_to_cid(&bucket)?;
+                bs.put_trusted(bucket_cid.clone(), bucket_bytes)?;
+                let key = embedding_key_for_node_cid(&node_cid);
+                additions.insert(key, bucket_cid);
+            }
+            Some(rebuild_tree(
+                &*bs,
+                &base_root,
+                &additions,
+                &sidecar_removals,
+            )?)
+        };
 
         // Sparse sidecar (G17). Same skip logic as the embedding sidecar:
         // skip rebuild when no pending writes AND no base sidecar AND no
         // node removals that leave orphaned entries.
-        let base_sparse_cid: Option<Cid> =
-            base.commit.as_deref().and_then(|c| c.sparse.clone());
+        let base_sparse_cid: Option<Cid> = base.commit.as_deref().and_then(|c| c.sparse.clone());
         let sparse_sidecar_removals: HashSet<ProllyKey> = removed_node_ids
             .iter()
             .filter_map(|node_id| {
@@ -869,25 +873,30 @@ impl Transaction {
                     .map(|node_cid| sparse_key_for_node_cid(&node_cid))
             })
             .collect();
-        let new_sparse_cid: Option<Cid> =
-            if pending_sparse.is_empty() && base_sparse_cid.is_none()
-                && sparse_sidecar_removals.is_empty()
-            {
-                None
-            } else {
-                let base_root = match &base_sparse_cid {
-                    Some(c) => c.clone(),
-                    None => prolly::build_tree(&*bs, std::iter::empty())?,
-                };
-                let mut additions: BTreeMap<ProllyKey, Cid> = BTreeMap::new();
-                for (node_cid, bucket) in pending_sparse {
-                    let (bucket_bytes, bucket_cid) = hash_to_cid(&bucket)?;
-                    bs.put_trusted(bucket_cid.clone(), bucket_bytes)?;
-                    let key = sparse_key_for_node_cid(&node_cid);
-                    additions.insert(key, bucket_cid);
-                }
-                Some(rebuild_tree(&*bs, &base_root, &additions, &sparse_sidecar_removals)?)
+        let new_sparse_cid: Option<Cid> = if pending_sparse.is_empty()
+            && base_sparse_cid.is_none()
+            && sparse_sidecar_removals.is_empty()
+        {
+            None
+        } else {
+            let base_root = match &base_sparse_cid {
+                Some(c) => c.clone(),
+                None => prolly::build_tree(&*bs, std::iter::empty())?,
             };
+            let mut additions: BTreeMap<ProllyKey, Cid> = BTreeMap::new();
+            for (node_cid, bucket) in pending_sparse {
+                let (bucket_bytes, bucket_cid) = hash_to_cid(&bucket)?;
+                bs.put_trusted(bucket_cid.clone(), bucket_bytes)?;
+                let key = sparse_key_for_node_cid(&node_cid);
+                additions.insert(key, bucket_cid);
+            }
+            Some(rebuild_tree(
+                &*bs,
+                &base_root,
+                &additions,
+                &sparse_sidecar_removals,
+            )?)
+        };
 
         // Build the new Commit.
         //
@@ -1820,7 +1829,9 @@ mod tests {
         let emb = dummy_embedding("test-model", 4);
         tx1.set_embedding(cid_x.clone(), "test-model".into(), emb.clone())
             .unwrap();
-        let r1 = tx1.commit("alice", "commit A: add node X + embedding").unwrap();
+        let r1 = tx1
+            .commit("alice", "commit A: add node X + embedding")
+            .unwrap();
 
         // Sanity: embedding is reachable in commit A.
         assert_eq!(

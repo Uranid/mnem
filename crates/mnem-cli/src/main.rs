@@ -444,9 +444,10 @@ fn main() {
         Some(Cmd::Query(args)) => commands::query::run(cli.repo.as_deref(), args),
         Some(Cmd::Retrieve(args)) => commands::retrieve::run(cli.repo.as_deref(), args),
         Some(Cmd::Embed(args)) => commands::embed_cmd::run(cli.repo.as_deref(), args),
-        Some(Cmd::Embedding(sub)) => {
-            commands::embedding_cmd::run(cli.repo.as_deref(), commands::embedding_cmd::EmbeddingArgs { cmd: sub })
-        }
+        Some(Cmd::Embedding(sub)) => commands::embedding_cmd::run(
+            cli.repo.as_deref(),
+            commands::embedding_cmd::EmbeddingArgs { cmd: sub },
+        ),
         Some(Cmd::Reindex(args)) => commands::reindex::run(cli.repo.as_deref(), args),
         Some(Cmd::Embedder(sub)) => {
             commands::embed_cmd::run_embedder(commands::embed_cmd::EmbedderArgs { cmd: sub })

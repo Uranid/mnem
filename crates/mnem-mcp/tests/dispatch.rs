@@ -703,12 +703,7 @@ fn resolve_or_create_preserves_existing_props_on_re_resolve() {
     assert_eq!(id, id2, "both calls must resolve to the SAME node id");
 
     // Now retrieve and verify ALL props are present.
-    let resp3 = tools_call(
-        &mut s,
-        "mnem_get_node",
-        json!({ "id": id }),
-        3,
-    );
+    let resp3 = tools_call(&mut s, "mnem_get_node", json!({ "id": id }), 3);
     assert_success_response(&resp3, "mnem_get_node");
     let text = resp3["result"]["content"][0]["text"].as_str().unwrap();
     assert!(
@@ -907,9 +902,14 @@ fn lifecycle_commit_output_lists_node_ntype_and_uuid() {
         .expect("commit output must include a '- Entity:Person <uuid>' line")
         .to_string();
     // Validate the extracted token is UUID-shaped (8-4-4-4-12 hex format)
-    assert_eq!(uuid_str.len(), 36, "UUID must be 36 chars; got '{uuid_str}'");
     assert_eq!(
-        uuid_str.chars().filter(|&c| c == '-').count(), 4,
+        uuid_str.len(),
+        36,
+        "UUID must be 36 chars; got '{uuid_str}'"
+    );
+    assert_eq!(
+        uuid_str.chars().filter(|&c| c == '-').count(),
+        4,
         "UUID must have 4 hyphens; got '{uuid_str}'"
     );
     // All non-hyphen chars must be hex digits
@@ -1047,9 +1047,7 @@ fn lifecycle_tombstone_hides_node_from_retrieve() {
         2,
     );
     assert_success_response(&ret_before, "mnem_retrieve");
-    let text_before = ret_before["result"]["content"][0]["text"]
-        .as_str()
-        .unwrap();
+    let text_before = ret_before["result"]["content"][0]["text"].as_str().unwrap();
     assert!(
         text_before.contains("1 item(s)"),
         "node must appear in retrieve before tombstone; got: {text_before}"
@@ -1208,16 +1206,9 @@ fn lifecycle_delete_removes_node_from_get_node() {
         .to_string();
 
     // Verify it exists.
-    let get_before = tools_call(
-        &mut s,
-        "mnem_get_node",
-        json!({ "id": node_id }),
-        2,
-    );
+    let get_before = tools_call(&mut s, "mnem_get_node", json!({ "id": node_id }), 2);
     assert_success_response(&get_before, "mnem_get_node");
-    let get_before_text = get_before["result"]["content"][0]["text"]
-        .as_str()
-        .unwrap();
+    let get_before_text = get_before["result"]["content"][0]["text"].as_str().unwrap();
     assert!(
         get_before_text.contains("To be deleted"),
         "get_node must show summary before delete; got: {get_before_text}"
@@ -1249,16 +1240,9 @@ fn lifecycle_delete_removes_node_from_get_node() {
     );
 
     // After delete, get_node must say not found.
-    let get_after = tools_call(
-        &mut s,
-        "mnem_get_node",
-        json!({ "id": node_id }),
-        4,
-    );
+    let get_after = tools_call(&mut s, "mnem_get_node", json!({ "id": node_id }), 4);
     assert_success_response(&get_after, "mnem_get_node");
-    let get_after_text = get_after["result"]["content"][0]["text"]
-        .as_str()
-        .unwrap();
+    let get_after_text = get_after["result"]["content"][0]["text"].as_str().unwrap();
     assert!(
         get_after_text.contains("no node") || get_after_text.contains("not found"),
         "get_node must report not found after delete; got: {get_after_text}"
@@ -1765,7 +1749,9 @@ fn lifecycle_retrieve_text_param_does_not_affect_where_results() {
         2,
     );
     assert_success_response(&ret_no_text, "mnem_retrieve");
-    let text_no_text = ret_no_text["result"]["content"][0]["text"].as_str().unwrap();
+    let text_no_text = ret_no_text["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
     assert!(
         text_no_text.contains("1 item(s)"),
         "retrieve with where= only must return 1 item; got: {text_no_text}"
@@ -1800,10 +1786,7 @@ fn schema_edge_types_are_deduplicated() {
     let (mut s, _td) = fresh_server(true);
 
     // Commit two relations with the same predicate "knows".
-    for (subject, object, id) in [
-        ("Alice", "Bob", 1u64),
-        ("Bob", "Carol", 2u64),
-    ] {
+    for (subject, object, id) in [("Alice", "Bob", 1u64), ("Bob", "Carol", 2u64)] {
         let resp = tools_call(
             &mut s,
             "mnem_commit_relation",

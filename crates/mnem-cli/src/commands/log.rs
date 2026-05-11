@@ -212,50 +212,82 @@ mod tests {
     }
 
     #[test]
-    fn epoch() { check(0, 1970, 1, 1); }
+    fn epoch() {
+        check(0, 1970, 1, 1);
+    }
 
     #[test]
-    fn epoch_plus_one() { check(1, 1970, 1, 2); }
+    fn epoch_plus_one() {
+        check(1, 1970, 1, 2);
+    }
 
     #[test]
-    fn start_of_february_1970() { check(31, 1970, 2, 1); }
+    fn start_of_february_1970() {
+        check(31, 1970, 2, 1);
+    }
 
     #[test]
-    fn start_of_march_1970_non_leap() { check(59, 1970, 3, 1); }
+    fn start_of_march_1970_non_leap() {
+        check(59, 1970, 3, 1);
+    }
 
     #[test]
-    fn second_year() { check(365, 1971, 1, 1); }
+    fn second_year() {
+        check(365, 1971, 1, 1);
+    }
 
     #[test]
-    fn year_2000_leap_day() { check(11016, 2000, 2, 29); }
+    fn year_2000_leap_day() {
+        check(11016, 2000, 2, 29);
+    }
 
     #[test]
-    fn year_2000_day_before_leap() { check(11015, 2000, 2, 28); }
+    fn year_2000_day_before_leap() {
+        check(11015, 2000, 2, 28);
+    }
 
     #[test]
-    fn year_2000_day_after_leap() { check(11017, 2000, 3, 1); }
+    fn year_2000_day_after_leap() {
+        check(11017, 2000, 3, 1);
+    }
 
     #[test]
-    fn year_2024_leap_day() { check(19782, 2024, 2, 29); }
+    fn year_2024_leap_day() {
+        check(19782, 2024, 2, 29);
+    }
 
     #[test]
-    fn year_1972_leap_day() { check(789, 1972, 2, 29); }
+    fn year_1972_leap_day() {
+        check(789, 1972, 2, 29);
+    }
 
     #[test]
-    fn year_2024_day_before_leap() { check(19781, 2024, 2, 28); }
+    fn year_2024_day_before_leap() {
+        check(19781, 2024, 2, 28);
+    }
 
     #[test]
-    fn year_2024_day_after_leap() { check(19783, 2024, 3, 1); }
+    fn year_2024_day_after_leap() {
+        check(19783, 2024, 3, 1);
+    }
 
     #[test]
-    fn december_year_end_1970() { check(364, 1970, 12, 31); }
+    fn december_year_end_1970() {
+        check(364, 1970, 12, 31);
+    }
 
     #[test]
-    fn year_2100_is_not_leap_feb_28() { check(47540, 2100, 2, 28); }
+    fn year_2100_is_not_leap_feb_28() {
+        check(47540, 2100, 2, 28);
+    }
 
     #[test]
-    fn year_2100_is_not_leap_next_day_is_march() { check(47541, 2100, 3, 1); }
+    fn year_2100_is_not_leap_next_day_is_march() {
+        check(47541, 2100, 3, 1);
+    }
 
     #[test]
-    fn year_2100_start() { check(47482, 2100, 1, 1); }
+    fn year_2100_start() {
+        check(47482, 2100, 1, 1);
+    }
 }

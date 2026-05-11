@@ -1068,8 +1068,7 @@ fn make_app_with_embedding() -> (axum::Router, TempDir, String, String) {
             vector_bytes.extend_from_slice(&v.to_le_bytes());
         }
 
-        let node = Node::new(NodeId::new_v7(), "Memory")
-            .with_summary("test embedding node");
+        let node = Node::new(NodeId::new_v7(), "Memory").with_summary("test embedding node");
         node_id_str = node.id.to_uuid_string();
 
         let emb = Embedding {
@@ -1081,7 +1080,8 @@ fn make_app_with_embedding() -> (axum::Router, TempDir, String, String) {
 
         let mut tx = repo.start_transaction();
         let node_cid = tx.add_node(&node).expect("add node");
-        tx.set_embedding(node_cid, model.clone(), emb).expect("set embedding");
+        tx.set_embedding(node_cid, model.clone(), emb)
+            .expect("set embedding");
         tx.commit("tests", "seed embedding test").expect("commit");
         // `_db` (the redb Database handle) is dropped here, releasing the lock.
     }
@@ -1157,9 +1157,7 @@ async fn get_node_embedding_missing_node_is_404() {
     let resp = app
         .oneshot(
             Request::builder()
-                .uri(format!(
-                    "/v1/nodes/{fake_id}/embedding?model=some-model"
-                ))
+                .uri(format!("/v1/nodes/{fake_id}/embedding?model=some-model"))
                 .body(Body::empty())
                 .unwrap(),
         )

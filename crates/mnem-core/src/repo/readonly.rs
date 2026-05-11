@@ -16,9 +16,11 @@ use crate::codec::{from_canonical_bytes, hash_to_cid};
 use crate::error::{Error, RepoError, StoreError};
 use crate::id::{Cid, EdgeId, NodeId};
 use crate::objects::node::Embedding;
-use crate::objects::{Commit, Edge, EmbeddingBucket, Node, Operation, RefTarget, SparseBucket, View};
-use crate::sparse::SparseEmbed;
+use crate::objects::{
+    Commit, Edge, EmbeddingBucket, Node, Operation, RefTarget, SparseBucket, View,
+};
 use crate::prolly::{self, ProllyKey};
+use crate::sparse::SparseEmbed;
 use crate::store::{Blockstore, OpHeadsStore};
 
 use super::transaction::Transaction;
@@ -335,11 +337,7 @@ impl ReadonlyRepo {
     ///
     /// Store or codec errors while walking the Prolly tree or decoding
     /// the bucket. A missing key is `Ok(None)`, not an error.
-    pub fn sparse_for(
-        &self,
-        node_cid: &Cid,
-        vocab_id: &str,
-    ) -> Result<Option<SparseEmbed>, Error> {
+    pub fn sparse_for(&self, node_cid: &Cid, vocab_id: &str) -> Result<Option<SparseEmbed>, Error> {
         let Some(commit) = self.commit.as_ref() else {
             return Ok(None);
         };

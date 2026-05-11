@@ -75,9 +75,7 @@ pub(in crate::tools) fn schema(server: &mut Server) -> Result<String> {
             // Index absent (outgoing CID is None in IndexSet) or an I/O /
             // codec error occurred.  Prompt the user to build the index; never
             // hard-fail the tool call.
-            out.push_str(
-                "    (index not built — run `mnem embed --reindex` to populate)\n",
-            );
+            out.push_str("    (index not built — run `mnem embed --reindex` to populate)\n");
         }
     }
 
@@ -147,11 +145,9 @@ fn collect_edge_types_from_bs(
                 // Each leaf entry value is a CID pointing to an
                 // AdjacencyBucket. Fetch and decode each bucket.
                 for (_key, bucket_cid) in &leaf.entries {
-                    let bucket_bytes = bs
-                        .get(bucket_cid)?
-                        .ok_or_else(|| {
-                            anyhow::anyhow!("AdjacencyBucket block {bucket_cid} missing")
-                        })?;
+                    let bucket_bytes = bs.get(bucket_cid)?.ok_or_else(|| {
+                        anyhow::anyhow!("AdjacencyBucket block {bucket_cid} missing")
+                    })?;
                     let bucket: AdjacencyBucket = from_canonical_bytes(&bucket_bytes)?;
                     for entry in &bucket.edges {
                         etypes.insert(entry.label.clone());

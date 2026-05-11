@@ -336,8 +336,8 @@ impl HnswVectorIndex {
             std::fs::create_dir_all(parent)
                 .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
         }
-        let file = std::fs::File::create(path)
-            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        let file =
+            std::fs::File::create(path).map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
         let mut w = BufWriter::new(file);
 
         // magic + version
@@ -428,8 +428,8 @@ impl HnswVectorIndex {
             return Ok(None);
         }
 
-        let file = std::fs::File::open(path)
-            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        let file =
+            std::fs::File::open(path).map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
         let mut r = BufReader::new(file);
 
         // magic
@@ -447,7 +447,11 @@ impl HnswVectorIndex {
             .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
         let version = u32::from_le_bytes(ver_buf);
         if version != 1 {
-            tracing::debug!("ann cache: unsupported version {}, ignoring {:?}", version, path);
+            tracing::debug!(
+                "ann cache: unsupported version {}, ignoring {:?}",
+                version,
+                path
+            );
             return Ok(None);
         }
 
@@ -459,8 +463,7 @@ impl HnswVectorIndex {
         let mut op_id_bytes = vec![0u8; op_id_len];
         r.read_exact(&mut op_id_bytes)
             .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
-        let stored_op_id = Cid::from_bytes(&op_id_bytes)
-            .map_err(|e| Error::from(e))?;
+        let stored_op_id = Cid::from_bytes(&op_id_bytes).map_err(|e| Error::from(e))?;
         if &stored_op_id != expected_op_id {
             tracing::debug!("ann cache: stale op_id, ignoring {:?}", path);
             return Ok(None);
@@ -891,10 +894,7 @@ mod tests {
         let orig_hits = idx.search(&query, 3).unwrap();
         let load_hits = loaded.search(&query, 3).unwrap();
         assert_eq!(orig_hits.len(), load_hits.len(), "hit count matches");
-        assert_eq!(
-            orig_hits[0].node_id, ids[0],
-            "top hit is the x-axis vector"
-        );
+        assert_eq!(orig_hits[0].node_id, ids[0], "top hit is the x-axis vector");
         assert_eq!(
             load_hits[0].node_id, orig_hits[0].node_id,
             "same top hit after round-trip"
@@ -919,8 +919,7 @@ mod tests {
         idx.save_to_path(&path, &op_id_a).expect("save");
 
         // Load with a different op_id - must return None (stale cache).
-        let result = HnswVectorIndex::load_from_path(&path, &op_id_b, &cfg)
-            .expect("no I/O error");
+        let result = HnswVectorIndex::load_from_path(&path, &op_id_b, &cfg).expect("no I/O error");
         assert!(result.is_none(), "stale op_id should return None");
 
         let _ = std::fs::remove_file(&path);

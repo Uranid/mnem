@@ -352,7 +352,11 @@ pub(crate) async fn traverse_answer(
                             (mock.model().to_string(), v)
                         }
                     };
-                    let mut ret = repo.retrieve().query_text(t).vector(model.clone(), qvec).limit(10);
+                    let mut ret = repo
+                        .retrieve()
+                        .query_text(t)
+                        .vector(model.clone(), qvec)
+                        .limit(10);
                     // Attach the cached vector index so the retriever
                     // avoids rebuilding it on every hop-0 call.
                     if let Ok(mut cache) = state.indexes.lock() {

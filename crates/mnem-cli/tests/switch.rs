@@ -77,9 +77,7 @@ fn active_branch_from_list(dir: &Path) -> String {
             }
         }
     }
-    panic!(
-        "could not find starred branch in `mnem branch list` output:\n{stdout}"
-    );
+    panic!("could not find starred branch in `mnem branch list` output:\n{stdout}");
 }
 
 // ---------------------------------------------------------------------------
@@ -97,9 +95,7 @@ fn switch_to_existing_branch_moves_head() {
     let main_head = head_cid(p);
 
     // Create a feature branch at current HEAD.
-    mnem(p, &["branch", "create", "feature"])
-        .assert()
-        .success();
+    mnem(p, &["branch", "create", "feature"]).assert().success();
 
     // Add another node so main advances beyond feature.
     add_node(p, "main-only commit");
@@ -202,9 +198,7 @@ fn switch_updates_active_branch_field() {
     add_node(p, "base");
 
     // Create `other` at the current HEAD.
-    mnem(p, &["branch", "create", "other"])
-        .assert()
-        .success();
+    mnem(p, &["branch", "create", "other"]).assert().success();
 
     // Advance main one commit so that main_tip != other_tip.
     // Now switching to `other` is a real move (different commit CID).
@@ -243,9 +237,7 @@ fn switch_back_and_forth() {
     let shared_tip = head_cid(p);
 
     // Create feature branch at shared_tip.
-    mnem(p, &["branch", "create", "feature"])
-        .assert()
-        .success();
+    mnem(p, &["branch", "create", "feature"]).assert().success();
 
     // Advance main with one more commit.
     add_node(p, "main extra");
@@ -410,9 +402,7 @@ fn checkout_alias_works_like_switch() {
     // Create `side` at the current HEAD, then advance main so that `side`
     // and `main` have different tips. This forces a real switch (not the
     // "Already on" fast-path) when we `checkout side`.
-    mnem(p, &["branch", "create", "side"])
-        .assert()
-        .success();
+    mnem(p, &["branch", "create", "side"]).assert().success();
     add_node(p, "main extra commit after side creation");
 
     // Use `checkout` spelling — must do a real HEAD move.
@@ -437,9 +427,7 @@ fn switch_accepts_fully_qualified_ref() {
     add_node(p, "a commit");
     let main_head = head_cid(p);
 
-    mnem(p, &["branch", "create", "qbranch"])
-        .assert()
-        .success();
+    mnem(p, &["branch", "create", "qbranch"]).assert().success();
 
     // Add a commit to advance main past qbranch.
     add_node(p, "another commit");
@@ -495,10 +483,7 @@ fn switch_bug38_guard_same_cid_branches() {
 
     // Verify both branches exist and `main` is currently active.
     let active_before = active_branch_from_list(p);
-    assert_eq!(
-        active_before, "main",
-        "sanity: should start on main"
-    );
+    assert_eq!(active_before, "main", "sanity: should start on main");
 
     // Switch from `main` to `b`.  Both point at the same CID, so the old
     // code would have fired "Already on 'b'" and returned without updating
@@ -614,7 +599,9 @@ fn switch_empty_repo_errors_cleanly() {
 
     // `mnem switch nonexistent-branch` must fail with a clear error.
     // We use a branch name that is guaranteed not to exist in a fresh repo.
-    let out = mnem(p, &["switch", "nonexistent-branch"]).assert().failure();
+    let out = mnem(p, &["switch", "nonexistent-branch"])
+        .assert()
+        .failure();
     let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
     assert!(
         !stderr.is_empty(),

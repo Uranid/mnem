@@ -221,10 +221,7 @@ pub trait Blockstore: Send + Sync + fmt::Debug {
     /// written before the error are not rolled back in the default
     /// implementation (overrides that use a single transaction will roll
     /// back the whole batch on failure).
-    fn batch_put(
-        &self,
-        blocks: &mut dyn Iterator<Item = (Cid, Bytes)>,
-    ) -> Result<(), StoreError> {
+    fn batch_put(&self, blocks: &mut dyn Iterator<Item = (Cid, Bytes)>) -> Result<(), StoreError> {
         for (cid, data) in blocks {
             self.put(cid, data)?;
         }

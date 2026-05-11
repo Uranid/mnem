@@ -300,10 +300,7 @@ fn build_merge_commit_from_trees(
 
     // Secondary indexes.
     let mut reused_indexes: Option<Cid> = None;
-    for (parent_commit, _parent_cid) in [
-        (left_commit, &left_cid),
-        (right_commit, &right_cid),
-    ] {
+    for (parent_commit, _parent_cid) in [(left_commit, &left_cid), (right_commit, &right_cid)] {
         if parent_commit.nodes == merged_nodes
             && parent_commit.edges == merged_edges
             && let Some(idx) = &parent_commit.indexes
@@ -785,22 +782,15 @@ pub fn merge_three_way(
     // For a clean merge (no conflicts) both paths produce identical output,
     // so we always use the strategy-aware function for simplicity.
     let merge_cid = if !matches!(strategy, MergeStrategy::Manual)
-        && (!mc.conflicts.is_empty() || left_commit.nodes != right_commit.nodes
+        && (!mc.conflicts.is_empty()
+            || left_commit.nodes != right_commit.nodes
             || left_commit.edges != right_commit.edges)
     {
         // Build strategy-resolved node and edge trees.
-        let node_outcome = strategy_union_prolly_trees(
-            &**bs,
-            &left_commit.nodes,
-            &right_commit.nodes,
-            strategy,
-        )?;
-        let edge_outcome = strategy_union_prolly_trees(
-            &**bs,
-            &left_commit.edges,
-            &right_commit.edges,
-            strategy,
-        )?;
+        let node_outcome =
+            strategy_union_prolly_trees(&**bs, &left_commit.nodes, &right_commit.nodes, strategy)?;
+        let edge_outcome =
+            strategy_union_prolly_trees(&**bs, &left_commit.edges, &right_commit.edges, strategy)?;
 
         build_merge_commit_from_trees(
             &**bs,

@@ -104,9 +104,7 @@ fn human_diff_header_echoes_op_cids() {
 
     let (op_a, op_b) = two_op_cids(dir.path());
 
-    let out = mnem(dir.path(), &["diff", &op_a, &op_b])
-        .assert()
-        .success();
+    let out = mnem(dir.path(), &["diff", &op_a, &op_b]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
 
     assert!(
@@ -129,9 +127,7 @@ fn human_diff_reports_node_added_tally() {
 
     let (op_a, op_b) = two_op_cids(dir.path());
 
-    let out = mnem(dir.path(), &["diff", &op_a, &op_b])
-        .assert()
-        .success();
+    let out = mnem(dir.path(), &["diff", &op_a, &op_b]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
 
     assert!(
@@ -149,9 +145,7 @@ fn human_diff_shows_added_node_with_plus_prefix() {
 
     let (op_a, op_b) = two_op_cids(dir.path());
 
-    let out = mnem(dir.path(), &["diff", &op_a, &op_b])
-        .assert()
-        .success();
+    let out = mnem(dir.path(), &["diff", &op_a, &op_b]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
 
     // The node_summary format is: `  + <uuid> [<ntype>] "<summary>"`
@@ -174,9 +168,7 @@ fn human_diff_includes_node_uuid_in_delta() {
 
     let (op_a, op_b) = two_op_cids(dir.path());
 
-    let out = mnem(dir.path(), &["diff", &op_a, &op_b])
-        .assert()
-        .success();
+    let out = mnem(dir.path(), &["diff", &op_a, &op_b]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
 
     assert!(
@@ -196,9 +188,7 @@ fn human_diff_node_removed_tally_when_reversed() {
     let (op_a, op_b) = two_op_cids(dir.path());
 
     // Forward: op_a -> op_b => node was added (+1)
-    let fwd = mnem(dir.path(), &["diff", &op_a, &op_b])
-        .assert()
-        .success();
+    let fwd = mnem(dir.path(), &["diff", &op_a, &op_b]).assert().success();
     let fwd_stdout = String::from_utf8_lossy(&fwd.get_output().stdout).to_string();
     assert!(
         fwd_stdout.contains("node deltas: +1 -0 ~0"),
@@ -206,9 +196,7 @@ fn human_diff_node_removed_tally_when_reversed() {
     );
 
     // Reversed: op_b -> op_a => node appears removed (-1)
-    let rev = mnem(dir.path(), &["diff", &op_b, &op_a])
-        .assert()
-        .success();
+    let rev = mnem(dir.path(), &["diff", &op_b, &op_a]).assert().success();
     let rev_stdout = String::from_utf8_lossy(&rev.get_output().stdout).to_string();
     assert!(
         rev_stdout.contains("node deltas: +0 -1 ~0"),
@@ -310,9 +298,7 @@ fn human_diff_ref_delta_line_is_present() {
 
     let (op_a, op_b) = two_op_cids(dir.path());
 
-    let out = mnem(dir.path(), &["diff", &op_a, &op_b])
-        .assert()
-        .success();
+    let out = mnem(dir.path(), &["diff", &op_a, &op_b]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
 
     // Format: "ref deltas: +N -N ~N"
@@ -331,9 +317,7 @@ fn human_diff_commit_delta_line_is_present() {
 
     let (op_a, op_b) = two_op_cids(dir.path());
 
-    let out = mnem(dir.path(), &["diff", &op_a, &op_b])
-        .assert()
-        .success();
+    let out = mnem(dir.path(), &["diff", &op_a, &op_b]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
 
     assert!(
@@ -356,9 +340,7 @@ fn human_diff_same_op_both_sides_is_empty() {
 
     let op = head_op_cid(dir.path());
 
-    let out = mnem(dir.path(), &["diff", &op, &op])
-        .assert()
-        .success();
+    let out = mnem(dir.path(), &["diff", &op, &op]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
 
     assert!(
@@ -465,7 +447,15 @@ fn json_diff_has_required_top_level_keys() {
     let parsed: serde_json::Value =
         serde_json::from_str(&stdout).expect("--json output must be valid JSON");
 
-    let required_keys = ["op_a", "op_b", "commit_a", "commit_b", "ref_deltas", "node_deltas", "edge_deltas"];
+    let required_keys = [
+        "op_a",
+        "op_b",
+        "commit_a",
+        "commit_b",
+        "ref_deltas",
+        "node_deltas",
+        "edge_deltas",
+    ];
     for key in &required_keys {
         assert!(
             parsed.get(key).is_some(),
@@ -761,7 +751,9 @@ fn json_diff_ref_deltas_has_three_sub_arrays() {
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
 
-    let ref_deltas = parsed["ref_deltas"].as_object().expect("ref_deltas must be an object");
+    let ref_deltas = parsed["ref_deltas"]
+        .as_object()
+        .expect("ref_deltas must be an object");
     assert!(
         ref_deltas.contains_key("added"),
         "ref_deltas must have 'added' key"
@@ -863,9 +855,12 @@ fn json_diff_node_delta_ntype_matches_actual_ntype() {
     let out = mnem(
         dir.path(),
         &[
-            "add", "node",
-            "--summary", "typed node",
-            "--ntype", "Event",
+            "add",
+            "node",
+            "--summary",
+            "typed node",
+            "--ntype",
+            "Event",
             "--no-embed",
         ],
     )
@@ -926,9 +921,7 @@ fn diff_head_alias_is_accepted() {
     let out1 = mnem(dir.path(), &["diff", "HEAD", "HEAD"])
         .assert()
         .success();
-    let out2 = mnem(dir.path(), &["diff", &op, &op])
-        .assert()
-        .success();
+    let out2 = mnem(dir.path(), &["diff", &op, &op]).assert().success();
 
     let stdout1 = String::from_utf8_lossy(&out1.get_output().stdout).to_string();
     let stdout2 = String::from_utf8_lossy(&out2.get_output().stdout).to_string();
@@ -998,9 +991,12 @@ fn human_diff_node_changed_tally() {
     mnem(
         dir.path(),
         &[
-            "add", "node",
-            "--id", node_uuid,
-            "--summary", "version-one",
+            "add",
+            "node",
+            "--id",
+            node_uuid,
+            "--summary",
+            "version-one",
             "--no-embed",
         ],
     )
@@ -1014,9 +1010,12 @@ fn human_diff_node_changed_tally() {
     mnem(
         dir.path(),
         &[
-            "add", "node",
-            "--id", node_uuid,
-            "--summary", "version-two",
+            "add",
+            "node",
+            "--id",
+            node_uuid,
+            "--summary",
+            "version-two",
             "--no-embed",
         ],
     )
@@ -1024,9 +1023,7 @@ fn human_diff_node_changed_tally() {
     .success();
     let op_b = head_op_cid(dir.path());
 
-    let out = mnem(dir.path(), &["diff", &op_a, &op_b])
-        .assert()
-        .success();
+    let out = mnem(dir.path(), &["diff", &op_a, &op_b]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
 
     // Tally must show exactly one changed node, zero added, zero removed.
@@ -1073,10 +1070,14 @@ fn json_diff_node_changed_has_before_field() {
     mnem(
         dir.path(),
         &[
-            "add", "node",
-            "--id", node_uuid,
-            "--summary", "before-summary",
-            "--ntype", "Fact",
+            "add",
+            "node",
+            "--id",
+            node_uuid,
+            "--summary",
+            "before-summary",
+            "--ntype",
+            "Fact",
             "--no-embed",
         ],
     )
@@ -1088,10 +1089,14 @@ fn json_diff_node_changed_has_before_field() {
     mnem(
         dir.path(),
         &[
-            "add", "node",
-            "--id", node_uuid,
-            "--summary", "after-summary",
-            "--ntype", "Fact",
+            "add",
+            "node",
+            "--id",
+            node_uuid,
+            "--summary",
+            "after-summary",
+            "--ntype",
+            "Fact",
             "--no-embed",
         ],
     )
@@ -1138,7 +1143,9 @@ fn json_diff_node_changed_has_before_field() {
     );
 
     // The 'before' field must be present and carry the old (before) state.
-    let before = delta.get("before").expect("changed delta must have a 'before' field");
+    let before = delta
+        .get("before")
+        .expect("changed delta must have a 'before' field");
     assert!(
         !before.is_null(),
         "before must not be null for a changed delta, got: {delta}"
@@ -1195,7 +1202,14 @@ fn human_diff_edge_removed_tally() {
     mnem(
         dir.path(),
         &[
-            "add", "edge", "--from", &src, "--to", &dst, "--label", "depends_on",
+            "add",
+            "edge",
+            "--from",
+            &src,
+            "--to",
+            &dst,
+            "--label",
+            "depends_on",
         ],
     )
     .assert()
@@ -1255,9 +1269,12 @@ fn json_diff_edge_removed_delta() {
 
     // Reversed diff: edge present in op_a (after_edge), absent in op_b
     // (before_edge) -> Removed entry in edge_deltas.
-    let out = mnem(dir.path(), &["diff", &op_after_edge, &op_before_edge, "--json"])
-        .assert()
-        .success();
+    let out = mnem(
+        dir.path(),
+        &["diff", &op_after_edge, &op_before_edge, "--json"],
+    )
+    .assert()
+    .success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
 

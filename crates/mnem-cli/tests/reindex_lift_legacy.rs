@@ -18,8 +18,8 @@ use bytes::Bytes;
 use mnem_backend_redb::open_or_init;
 use mnem_core::codec::to_canonical_bytes;
 use mnem_core::id::{Cid, NodeId};
-use mnem_core::objects::node::{Dtype, Embedding};
 use mnem_core::objects::Node;
+use mnem_core::objects::node::{Dtype, Embedding};
 use mnem_core::repo::ReadonlyRepo;
 use mnem_core::sparse::SparseEmbed;
 use mnem_core::store::Blockstore;
@@ -104,7 +104,9 @@ fn seed_legacy_node(dir: &Path) -> (Cid, String) {
     let node_cid = tx.add_node(&node).expect("add node");
 
     // Commit WITHOUT calling set_embedding - the embedding is only in extra.
-    let r2 = tx.commit("test author", "seed legacy node").expect("commit");
+    let r2 = tx
+        .commit("test author", "seed legacy node")
+        .expect("commit");
 
     // Verify: sidecar must be empty for this node (no set_embedding was called).
     assert!(
@@ -227,12 +229,9 @@ fn lift_legacy_extra_and_force_are_mutually_exclusive() {
     let dir = TempDir::new().unwrap();
     init(dir.path());
 
-    mnem(
-        dir.path(),
-        &["reindex", "--lift-legacy-extra", "--force"],
-    )
-    .assert()
-    .failure();
+    mnem(dir.path(), &["reindex", "--lift-legacy-extra", "--force"])
+        .assert()
+        .failure();
 }
 
 // ---------------------------------------------------------------------------
@@ -241,8 +240,7 @@ fn lift_legacy_extra_and_force_are_mutually_exclusive() {
 
 /// Build a minimal `SparseEmbed` for use in tests.
 fn test_sparse_embed(vocab: &str) -> SparseEmbed {
-    SparseEmbed::new(vec![10, 42, 99], vec![0.8, 0.5, 0.2], vocab)
-        .expect("valid SparseEmbed")
+    SparseEmbed::new(vec![10, 42, 99], vec![0.8, 0.5, 0.2], vocab).expect("valid SparseEmbed")
 }
 
 /// Encode a `SparseEmbed` as an `Ipld` value via DAG-CBOR round-trip so it can
@@ -514,12 +512,9 @@ fn lift_legacy_sparse_and_force_are_mutually_exclusive() {
     let dir = TempDir::new().unwrap();
     init(dir.path());
 
-    mnem(
-        dir.path(),
-        &["reindex", "--lift-legacy-sparse", "--force"],
-    )
-    .assert()
-    .failure();
+    mnem(dir.path(), &["reindex", "--lift-legacy-sparse", "--force"])
+        .assert()
+        .failure();
 }
 
 /// Gap 2 fix: a node with malformed `extra["sparse_embed"]` (non-ascending
@@ -677,7 +672,13 @@ fn lift_legacy_sparse_respects_since_flag() {
     // Step 3: add a plain node to advance HEAD to commit B.
     mnem(
         dir.path(),
-        &["add", "node", "--summary", "commit B plain node", "--no-embed"],
+        &[
+            "add",
+            "node",
+            "--summary",
+            "commit B plain node",
+            "--no-embed",
+        ],
     )
     .assert()
     .success();
@@ -687,12 +688,7 @@ fn lift_legacy_sparse_respects_since_flag() {
     // The legacy sparse node WAS in commit A, so it must be skipped.
     let out = mnem(
         dir.path(),
-        &[
-            "reindex",
-            "--lift-legacy-sparse",
-            "--since",
-            &commit_a_cid,
-        ],
+        &["reindex", "--lift-legacy-sparse", "--since", &commit_a_cid],
     )
     .assert()
     .success();
@@ -805,12 +801,7 @@ fn lift_legacy_sparse_since_includes_nodes_added_after() {
     // Node B was added after commit A => should be lifted.
     mnem(
         dir.path(),
-        &[
-            "reindex",
-            "--lift-legacy-sparse",
-            "--since",
-            &commit_a_cid,
-        ],
+        &["reindex", "--lift-legacy-sparse", "--since", &commit_a_cid],
     )
     .assert()
     .success();

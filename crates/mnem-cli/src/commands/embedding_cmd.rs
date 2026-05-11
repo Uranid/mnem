@@ -66,8 +66,7 @@ pub(crate) fn run(override_path: Option<&Path>, args: EmbeddingArgs) -> Result<(
 // ---- `mnem embedding get` ----
 
 fn run_get(override_path: Option<&Path>, args: GetArgs) -> Result<()> {
-    let id = NodeId::parse_uuid(&args.node_id)
-        .map_err(|e| anyhow!("invalid UUID: {e}"))?;
+    let id = NodeId::parse_uuid(&args.node_id).map_err(|e| anyhow!("invalid UUID: {e}"))?;
 
     let (_dir, r, _bs, _ohs) = repo::open_all(override_path)?;
 
@@ -75,18 +74,16 @@ fn run_get(override_path: Option<&Path>, args: GetArgs) -> Result<()> {
         .lookup_node(&id)?
         .ok_or_else(|| anyhow!("no node with id={}", args.node_id))?;
 
-    let (_, node_cid) = mnem_core::codec::hash_to_cid(&node)
-        .map_err(|e| anyhow!("hash node: {e}"))?;
+    let (_, node_cid) =
+        mnem_core::codec::hash_to_cid(&node).map_err(|e| anyhow!("hash node: {e}"))?;
 
-    let emb = r
-        .embedding_for(&node_cid, &args.model)?
-        .ok_or_else(|| {
-            anyhow!(
-                "no embedding for model={} on node {}",
-                args.model,
-                args.node_id
-            )
-        })?;
+    let emb = r.embedding_for(&node_cid, &args.model)?.ok_or_else(|| {
+        anyhow!(
+            "no embedding for model={} on node {}",
+            args.model,
+            args.node_id
+        )
+    })?;
 
     // Decode f32 vector from little-endian bytes.
     let bytes = emb.vector.as_ref();
@@ -114,8 +111,7 @@ fn run_get(override_path: Option<&Path>, args: GetArgs) -> Result<()> {
 // ---- `mnem embedding ls` ----
 
 fn run_ls(override_path: Option<&Path>, args: LsArgs) -> Result<()> {
-    let id = NodeId::parse_uuid(&args.node_id)
-        .map_err(|e| anyhow!("invalid UUID: {e}"))?;
+    let id = NodeId::parse_uuid(&args.node_id).map_err(|e| anyhow!("invalid UUID: {e}"))?;
 
     let (_dir, r, _bs, _ohs) = repo::open_all(override_path)?;
 
@@ -123,8 +119,8 @@ fn run_ls(override_path: Option<&Path>, args: LsArgs) -> Result<()> {
         .lookup_node(&id)?
         .ok_or_else(|| anyhow!("no node with id={}", args.node_id))?;
 
-    let (_, node_cid) = mnem_core::codec::hash_to_cid(&node)
-        .map_err(|e| anyhow!("hash node: {e}"))?;
+    let (_, node_cid) =
+        mnem_core::codec::hash_to_cid(&node).map_err(|e| anyhow!("hash node: {e}"))?;
 
     let models = r.embedding_models_for(&node_cid)?;
 

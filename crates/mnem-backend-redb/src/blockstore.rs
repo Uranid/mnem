@@ -107,10 +107,7 @@ impl Blockstore for RedbBlockstore {
         Ok(())
     }
 
-    fn batch_put(
-        &self,
-        blocks: &mut dyn Iterator<Item = (Cid, Bytes)>,
-    ) -> Result<(), StoreError> {
+    fn batch_put(&self, blocks: &mut dyn Iterator<Item = (Cid, Bytes)>) -> Result<(), StoreError> {
         // Single write transaction for the entire batch: all blocks land in
         // one fsync instead of one per block. This is the BUG-22 fix.
         // CID integrity is verified per block before inserting, matching the
@@ -343,10 +340,13 @@ mod tests {
         let wrong_bytes = Bytes::from_static(b"definitely not sample 200");
 
         let err = bs
-            .batch_put(&mut vec![
-                (good_cid.clone(), good_bytes),
-                (bad_cid.clone(), wrong_bytes),
-            ].into_iter())
+            .batch_put(
+                &mut vec![
+                    (good_cid.clone(), good_bytes),
+                    (bad_cid.clone(), wrong_bytes),
+                ]
+                .into_iter(),
+            )
             .unwrap_err();
 
         match err {

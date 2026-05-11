@@ -670,11 +670,16 @@ mod tests {
         let delta = edge_delta_json(&bs, &entry).expect("Changed edge must produce a delta");
 
         assert_eq!(delta.delta_type, "changed", "delta_type must be 'changed'");
-        assert_eq!(delta.label, "new_label", "label must reflect the after state");
+        assert_eq!(
+            delta.label, "new_label",
+            "label must reflect the after state"
+        );
         assert_eq!(delta.src, src.to_string(), "src must match");
         assert_eq!(delta.dst, dst.to_string(), "dst must match");
 
-        let before_state = delta.before.expect("Changed delta must have a before state");
+        let before_state = delta
+            .before
+            .expect("Changed delta must have a before state");
         assert_eq!(
             before_state.label, "old_label",
             "before.label must reflect the before state"

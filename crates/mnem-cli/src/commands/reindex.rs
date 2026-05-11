@@ -463,7 +463,9 @@ fn run_lift_legacy_extra(
         new_r.op_id()
     );
     if decode_errors > 0 {
-        eprintln!("warning: {decode_errors} node(s) had undecodable extra[\"embed\"] and were skipped");
+        eprintln!(
+            "warning: {decode_errors} node(s) had undecodable extra[\"embed\"] and were skipped"
+        );
     }
     Ok(())
 }
@@ -478,7 +480,8 @@ fn decode_embedding_from_ipld(val: &Ipld) -> Result<mnem_core::objects::node::Em
         .map_err(|e| anyhow!("CBOR re-encode of extra[\"embed\"] failed: {e}"))?;
     let emb: mnem_core::objects::node::Embedding = from_canonical_bytes(&bytes)
         .map_err(|e| anyhow!("decode of extra[\"embed\"] as Embedding failed: {e}"))?;
-    emb.validate().map_err(|e| anyhow!("extra[\"embed\"] Embedding invariant violated: {e:?}"))?;
+    emb.validate()
+        .map_err(|e| anyhow!("extra[\"embed\"] Embedding invariant violated: {e:?}"))?;
     Ok(emb)
 }
 

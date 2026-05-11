@@ -227,9 +227,7 @@ impl RemoteError {
         match self {
             Self::BadRequest(m) | Self::NotFound(m) | Self::Internal(m) => m.clone(),
             Self::CasMismatch { current } => {
-                format!(
-                    "remote tip has advanced; pull first (current head is {current})"
-                )
+                format!("remote tip has advanced; pull first (current head is {current})")
             }
         }
     }

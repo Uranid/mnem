@@ -230,10 +230,7 @@ fn merge_dry_run_persists_no_state() {
 
     // HEAD CID must be unchanged.
     let head_after = head_cid(p);
-    assert_eq!(
-        head_before, head_after,
-        "--dry-run must not advance HEAD"
-    );
+    assert_eq!(head_before, head_after, "--dry-run must not advance HEAD");
 }
 
 // ---------------------------------------------------------------------------
@@ -310,7 +307,10 @@ fn merge_abort_with_in_progress_removes_sentinels() {
     )
     .expect("could not write MERGE_CONFLICTS.json");
 
-    assert!(mnem_dir.join("MERGE_HEAD").exists(), "sanity: MERGE_HEAD must exist before abort");
+    assert!(
+        mnem_dir.join("MERGE_HEAD").exists(),
+        "sanity: MERGE_HEAD must exist before abort"
+    );
 
     // --abort should succeed and clean up.
     let out = mnem(p, &["merge", "--abort"]).assert().success();
@@ -400,7 +400,9 @@ fn merge_continue_with_unresolved_conflicts_errors() {
     let out = mnem(p, &["merge", "--continue"]).assert().failure();
     let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
     assert!(
-        stderr.contains("resolution") || stderr.contains("unresolved") || stderr.contains("conflict"),
+        stderr.contains("resolution")
+            || stderr.contains("unresolved")
+            || stderr.contains("conflict"),
         "--continue with unresolved conflicts must mention resolution/conflict, got: {stderr}"
     );
 }
@@ -454,9 +456,12 @@ fn setup_conflicting_branches(dir: &Path) -> (String, String) {
     mnem(
         dir,
         &[
-            "add", "node",
-            "--id", NODE_CONFLICT_ID,
-            "--summary", "conflict-node-on-main",
+            "add",
+            "node",
+            "--id",
+            NODE_CONFLICT_ID,
+            "--summary",
+            "conflict-node-on-main",
             "--no-embed",
         ],
     )
@@ -469,9 +474,12 @@ fn setup_conflicting_branches(dir: &Path) -> (String, String) {
     mnem(
         dir,
         &[
-            "add", "node",
-            "--id", NODE_CONFLICT_ID,
-            "--summary", "conflict-node-on-feature",
+            "add",
+            "node",
+            "--id",
+            NODE_CONFLICT_ID,
+            "--summary",
+            "conflict-node-on-feature",
             "--no-embed",
         ],
     )
@@ -723,7 +731,9 @@ fn merge_continue_missing_conflicts_json_errors() {
     let out = mnem(p, &["merge", "--continue"]).assert().failure();
     let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
     assert!(
-        stderr.contains("MERGE_CONFLICTS") || stderr.contains("not found") || stderr.contains("conflict"),
+        stderr.contains("MERGE_CONFLICTS")
+            || stderr.contains("not found")
+            || stderr.contains("conflict"),
         "--continue with missing MERGE_CONFLICTS.json must complain about it, got: {stderr}"
     );
 }

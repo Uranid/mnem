@@ -145,9 +145,7 @@ fn global_dir() -> PathBuf {
         .or_else(|_| std::env::var("USERPROFILE"))
         .ok()
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-        });
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     home.join(".mnemglobal")
 }
 
@@ -611,7 +609,10 @@ impl Repo {
         };
         let (_, node_cid) = mnem_core::codec::hash_to_cid(&node)
             .map_err(|e| MnemError::new_err(format!("hash node: {e}")))?;
-        let Some(emb) = guard.embedding_for(&node_cid, model).map_err(map_core_err)? else {
+        let Some(emb) = guard
+            .embedding_for(&node_cid, model)
+            .map_err(map_core_err)?
+        else {
             return Ok(None);
         };
         let bytes = emb.vector.as_ref();
@@ -663,7 +664,10 @@ impl Repo {
         };
         let (_, node_cid) = mnem_core::codec::hash_to_cid(&node)
             .map_err(|e| MnemError::new_err(format!("hash node: {e}")))?;
-        let Some(se) = guard.sparse_for(&node_cid, vocab_id).map_err(map_core_err)? else {
+        let Some(se) = guard
+            .sparse_for(&node_cid, vocab_id)
+            .map_err(map_core_err)?
+        else {
             return Ok(None);
         };
         let d = PyDict::new(py);
@@ -1258,12 +1262,15 @@ mod global_repo_tests {
     #[test]
     fn open_global_creates_repo_in_custom_dir() {
         let _guard = global_lock();
-        let tmp = std::env::temp_dir()
-            .join(format!("mnemtest_global_{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("mnemtest_global_{}", std::process::id()));
         // SAFETY: single-threaded test, guarded by global_lock()
-        unsafe { std::env::set_var("MNEM_GLOBAL_DIR", &tmp); }
+        unsafe {
+            std::env::set_var("MNEM_GLOBAL_DIR", &tmp);
+        }
         let result = Repo::open_global();
-        unsafe { std::env::remove_var("MNEM_GLOBAL_DIR"); }
+        unsafe {
+            std::env::remove_var("MNEM_GLOBAL_DIR");
+        }
         let repo = result.expect("open_global should succeed");
         let _op_id = repo.op_id().expect("op_id() should succeed");
         // Clean up
@@ -1274,9 +1281,13 @@ mod global_repo_tests {
     fn global_dir_path_returns_env_override() {
         let _guard = global_lock();
         // SAFETY: single-threaded test, guarded by global_lock()
-        unsafe { std::env::set_var("MNEM_GLOBAL_DIR", "/tmp/custom_global"); }
+        unsafe {
+            std::env::set_var("MNEM_GLOBAL_DIR", "/tmp/custom_global");
+        }
         let path = Repo::global_dir_path();
-        unsafe { std::env::remove_var("MNEM_GLOBAL_DIR"); }
+        unsafe {
+            std::env::remove_var("MNEM_GLOBAL_DIR");
+        }
         assert_eq!(path, "/tmp/custom_global");
     }
 }

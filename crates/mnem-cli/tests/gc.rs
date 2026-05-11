@@ -351,9 +351,18 @@ fn gc_force_removes_multiple_orphaned_blocks() {
     // Scoped so the Arc drops before any CLI call (redb single-writer constraint).
     {
         let bs = open_blockstore(p);
-        assert!(bs.has(&orphan_a).expect("has(orphan_a) before gc"), "orphan_a must exist before gc");
-        assert!(bs.has(&orphan_b).expect("has(orphan_b) before gc"), "orphan_b must exist before gc");
-        assert!(bs.has(&orphan_c).expect("has(orphan_c) before gc"), "orphan_c must exist before gc");
+        assert!(
+            bs.has(&orphan_a).expect("has(orphan_a) before gc"),
+            "orphan_a must exist before gc"
+        );
+        assert!(
+            bs.has(&orphan_b).expect("has(orphan_b) before gc"),
+            "orphan_b must exist before gc"
+        );
+        assert!(
+            bs.has(&orphan_c).expect("has(orphan_c) before gc"),
+            "orphan_c must exist before gc"
+        );
         // bs drops here
     }
 
@@ -381,9 +390,18 @@ fn gc_force_removes_multiple_orphaned_blocks() {
     // Verify all three orphans are actually gone from the blockstore.
     {
         let bs = open_blockstore(p);
-        assert!(!bs.has(&orphan_a).expect("has(orphan_a) after gc"), "orphan_a must be deleted by gc --force");
-        assert!(!bs.has(&orphan_b).expect("has(orphan_b) after gc"), "orphan_b must be deleted by gc --force");
-        assert!(!bs.has(&orphan_c).expect("has(orphan_c) after gc"), "orphan_c must be deleted by gc --force");
+        assert!(
+            !bs.has(&orphan_a).expect("has(orphan_a) after gc"),
+            "orphan_a must be deleted by gc --force"
+        );
+        assert!(
+            !bs.has(&orphan_b).expect("has(orphan_b) after gc"),
+            "orphan_b must be deleted by gc --force"
+        );
+        assert!(
+            !bs.has(&orphan_c).expect("has(orphan_c) after gc"),
+            "orphan_c must be deleted by gc --force"
+        );
     }
 }
 

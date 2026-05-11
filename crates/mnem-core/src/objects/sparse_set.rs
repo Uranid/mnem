@@ -195,7 +195,10 @@ mod tests {
     fn populated_bucket_round_trips() {
         let mut bucket = SparseBucket::default();
         bucket.upsert("bge-m3".into(), sample_sparse("bge-m3"));
-        bucket.upsert("opensearch-distill".into(), sample_sparse("opensearch-distill"));
+        bucket.upsert(
+            "opensearch-distill".into(),
+            sample_sparse("opensearch-distill"),
+        );
         let bytes = to_canonical_bytes(&bucket).unwrap();
         let decoded: SparseBucket = from_canonical_bytes(&bytes).unwrap();
         assert_eq!(bucket.entries.len(), decoded.entries.len());

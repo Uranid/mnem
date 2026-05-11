@@ -148,9 +148,7 @@ fn multiple_vocabs_coexist_in_sidecar_bucket() {
     assert_eq!(got_b.indices, se_b.indices);
 
     // A third vocab that was never staged must return None.
-    let missing = new_repo
-        .sparse_for(&cid, "vocab-c")
-        .expect("lookup ok");
+    let missing = new_repo.sparse_for(&cid, "vocab-c").expect("lookup ok");
     assert!(missing.is_none(), "unstaged vocab must return None");
 }
 
@@ -232,8 +230,7 @@ fn sparse_inverted_index_build_from_repo() {
         .expect("sparse n3");
     let new_repo = tx.commit("tester", "build-from-repo").expect("commit");
 
-    let idx =
-        SparseInvertedIndex::build_from_repo(&new_repo, "splade-test").expect("build index");
+    let idx = SparseInvertedIndex::build_from_repo(&new_repo, "splade-test").expect("build index");
     assert_eq!(idx.doc_count(), 3, "index must contain all three docs");
 
     // Query on token 2 overlaps n1 and n2 but not n3.
