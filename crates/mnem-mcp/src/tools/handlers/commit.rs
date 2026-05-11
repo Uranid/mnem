@@ -133,12 +133,9 @@ pub(super) fn commit_impl(
         }
     }
 
-    let opts = mnem_core::repo::CommitOptions::new(agent_id.as_str(), message.as_str());
-    // `task_id` is currently accepted for forward-compat but not persisted
-    // onto the Operation / Commit. First-class `Commit.agent_id` /
-    // `Commit.task_id` plumbing is tracked in ; when it lands, the
-    // tool schema stays the same and the value starts surviving round-trips.
-    let _ = &task_id;
+    let mut opts = mnem_core::repo::CommitOptions::new(agent_id.as_str(), message.as_str());
+    opts.agent_id = Some(agent_id.clone());
+    opts.task_id = task_id;
 
     let new_repo = tx.commit_opts(opts)?;
 

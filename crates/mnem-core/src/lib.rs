@@ -101,3 +101,17 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// way. Pre-0.2 nodes are still decodable because new fields (e.g.
 /// `Node.summary` added in 0.2) are encoded with `skip_serializing_if`.
 pub const FORMAT_VERSION: &str = "mnem/0.2";
+
+/// Canonical prefix for branch refs (e.g. `refs/heads/main`).
+///
+/// Every branch in mnem lives under this namespace. Using this constant
+/// instead of the raw string literal ensures that a single rename is
+/// sufficient if the convention ever changes (BUG-13).
+pub const HEADS_PREFIX: &str = "refs/heads/";
+
+/// Canonical prefix for tag refs (e.g. `refs/tags/v1.0`).
+///
+/// Every tag in mnem lives under this namespace. Using this constant
+/// instead of the raw string literal ensures that a single rename is
+/// sufficient if the convention ever changes (BUG-41).
+pub const TAGS_PREFIX: &str = "refs/tags/";

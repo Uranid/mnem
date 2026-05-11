@@ -8,17 +8,19 @@
 pub(crate) mod add;
 pub(crate) mod bench;
 pub(crate) mod blame;
-pub(crate) mod delete_node;
 pub(crate) mod branch;
 pub(crate) mod cat_file;
 pub(crate) mod cfg_cmd;
 pub(crate) mod clone;
 pub(crate) mod completions;
 pub(crate) mod deferred;
+pub(crate) mod delete_node;
 pub(crate) mod diff;
 pub(crate) mod embed_cmd;
 pub(crate) mod export;
 pub(crate) mod fetch;
+pub(crate) mod fsck;
+pub(crate) mod gc;
 pub(crate) mod get_node;
 pub(crate) mod global_cmd;
 pub(crate) mod import;
@@ -34,15 +36,20 @@ pub(crate) mod reindex;
 pub(crate) mod remote;
 pub(crate) mod repos;
 pub(crate) mod retrieve;
+pub(crate) mod schema;
 pub(crate) mod show;
 pub(crate) mod stats;
 pub(crate) mod status;
+pub(crate) mod switch;
+pub(crate) mod tag;
 pub(crate) mod tombstone;
+pub(crate) mod traverse;
 
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow, bail};
 use ipld_core::ipld::Ipld;
+use mnem_core::HEADS_PREFIX;
 use mnem_core::codec::{from_canonical_bytes, json_to_ipld};
 use mnem_core::id::{EdgeId, NodeId};
 use mnem_core::index::{PropPredicate, Query};
@@ -137,7 +144,7 @@ pub(super) fn resolve_commitish(r: &ReadonlyRepo, s: &str) -> Result<mnem_core::
     let candidate = if refs.contains_key(s) {
         s.to_string()
     } else {
-        format!("refs/heads/{s}")
+        format!("{HEADS_PREFIX}{s}")
     };
     match refs.get(&candidate) {
         Some(RefTarget::Normal { target }) => Ok(target.clone()),
@@ -146,7 +153,7 @@ pub(super) fn resolve_commitish(r: &ReadonlyRepo, s: &str) -> Result<mnem_core::
         }
         None => bail!(
             "cannot resolve `{s}` to a commit. Tried HEAD alias, raw CID, \
-             ref `{s}`, and `refs/heads/{s}`."
+             ref `{s}`, and `{HEADS_PREFIX}{s}`."
         ),
     }
 }

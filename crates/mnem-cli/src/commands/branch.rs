@@ -33,9 +33,12 @@
 //! mnem branch delete old-experiment
 //! ```
 
-use super::*;
+use std::sync::Arc;
 
-const BRANCH_PREFIX: &str = "refs/heads/";
+use mnem_core::HEADS_PREFIX;
+use mnem_core::store::Blockstore;
+
+use super::*;
 
 /// `mnem branch` subcommand dispatcher.
 #[derive(clap::Subcommand, Debug)]
@@ -74,7 +77,7 @@ pub(crate) enum BranchCmd {
 pub(crate) fn run(override_path: Option<&Path>, cmd: BranchCmd) -> Result<()> {
     let data_dir = repo::locate_data_dir(override_path)?;
     let cfg = config::load(&data_dir)?;
-    let r = repo::open_repo(Some(data_dir.as_path()))?;
+    let (_dir, r, bs, _ohs) = repo::open_all(Some(data_dir.as_path()))?;
 
     match cmd {
         BranchCmd::List => list_branches(&r),
@@ -87,7 +90,7 @@ pub(crate) fn run(override_path: Option<&Path>, cmd: BranchCmd) -> Result<()> {
             // clap `conflicts_with` annotation prevents both being
             // set, so an `or` is sufficient here.
             let resolved = from.or(start_point);
-            create_branch(&r, &cfg, &name, resolved.as_deref())
+            create_branch(&r, &bs, &cfg, &name, resolved.as_deref())
         }
         BranchCmd::Delete { name } => delete_branch(&r, &cfg, &name),
     }
@@ -95,16 +98,28 @@ pub(crate) fn run(override_path: Option<&Path>, cmd: BranchCmd) -> Result<()> {
 
 fn list_branches(r: &ReadonlyRepo) -> Result<()> {
     let refs = &r.view().refs;
+    // BUG-38: use the active_branch pointer from View.extra as the
+    // primary source of truth for which branch is current.  Fall back
+    // to head-CID matching for repos that predate BUG-38 (old Views
+    // have no active_branch in extra).
+    let active_branch = r.view().active_branch().map(str::to_string);
     let head = r.view().heads.first().cloned();
     let mut any = false;
     for (name, target) in refs {
-        let Some(short) = name.strip_prefix(BRANCH_PREFIX) else {
+        let Some(short) = name.strip_prefix(HEADS_PREFIX) else {
             continue;
         };
         any = true;
-        let marker = match target {
-            RefTarget::Normal { target } if Some(target) == head.as_ref() => "*",
-            _ => " ",
+        let marker = if active_branch.as_deref() == Some(name.as_str()) {
+            "*"
+        } else if active_branch.is_none() {
+            // Legacy fallback: mark whichever branch points at the current head.
+            match target {
+                RefTarget::Normal { target } if Some(target) == head.as_ref() => "*",
+                _ => " ",
+            }
+        } else {
+            " "
         };
         let summary = match target {
             RefTarget::Normal { target } => format!("-> {target}"),
@@ -122,6 +137,7 @@ fn list_branches(r: &ReadonlyRepo) -> Result<()> {
 
 fn create_branch(
     r: &ReadonlyRepo,
+    bs: &Arc<dyn Blockstore>,
     cfg: &config::Config,
     name: &str,
     from: Option<&str>,
@@ -129,14 +145,41 @@ fn create_branch(
     if name.is_empty() {
         bail!("branch name must not be empty");
     }
+    // G6: reject refname characters that are invalid in most VCS tooling.
+    // Extended in G6-patch to cover the full git check-ref-format spec.
+    if name.contains(' ')
+        || name.contains('\t')
+        || name.contains('\n')
+        || name.contains('\x00')
+        || name.contains('~')
+        || name.contains('^')
+        || name.contains(':')
+        || name.contains('?')
+        || name.contains('*')
+        || name.contains('[')
+        || name.contains('\\')
+        || name.contains("@{")
+        || name.contains("..")
+        || name.contains("//")
+        || name.starts_with('/')
+        || name.ends_with('/')
+        || name.ends_with('.')
+        || name.ends_with(".lock")
+    {
+        bail!(
+            "invalid branch name `{name}`: branch names may not contain spaces, \
+             control characters, `~`, `^`, `:`, `?`, `*`, `[`, `\\`, `@{{`, `..`, \
+             `//`, trailing `.`, `.lock` suffix, or start/end with `/`"
+        );
+    }
     // Accept either a raw name (common) or a fully-qualified refname.
     // A raw name gets the `refs/heads/` prefix; a refname passes
     // through unchanged. This matches git's `git branch refs/foo` UX
     // loosely while preserving "happy path = bare name".
-    let full = if name.starts_with(BRANCH_PREFIX) {
+    let full = if name.starts_with(HEADS_PREFIX) {
         name.to_string()
     } else {
-        format!("{BRANCH_PREFIX}{name}")
+        format!("{HEADS_PREFIX}{name}")
     };
     if r.view().refs.contains_key(&full) {
         bail!("branch `{name}` already exists");
@@ -155,6 +198,26 @@ fn create_branch(
             .cloned()
             .ok_or_else(|| anyhow!("repository has no commits yet; pass --from <cid>"))?,
     };
+
+    // G_BUG: validate that target_cid actually points to a Commit block.
+    // `mnem log --format=json` returns op-log CIDs, which are Operations,
+    // not Commits. Without this check, the CID is accepted silently and
+    // causes a deterministic crash in `mnem merge` later
+    // ("missing field `change_id`"). Fetch the block and attempt a
+    // Commit decode now so the user gets an actionable error immediately.
+    {
+        let bytes = bs
+            .get(&target_cid)?
+            .ok_or_else(|| anyhow!("block {target_cid} not found in blockstore"))?;
+        if from_canonical_bytes::<Commit>(&bytes).is_err() {
+            bail!(
+                "`{target_cid}` does not decode as a commit.\n\
+                 `mnem log --format=json` returns op CIDs; use \
+                 `mnem show <op-cid>` to see the commit CID, or use \
+                 `HEAD` / a branch name as the --from argument."
+            );
+        }
+    }
     let new_r = r.update_ref(
         &full,
         None,
@@ -170,11 +233,20 @@ fn delete_branch(r: &ReadonlyRepo, cfg: &config::Config, name: &str) -> Result<(
     if name.is_empty() {
         bail!("branch name must not be empty");
     }
-    let full = if name.starts_with(BRANCH_PREFIX) {
+    let full = if name.starts_with(HEADS_PREFIX) {
         name.to_string()
     } else {
-        format!("{BRANCH_PREFIX}{name}")
+        format!("{HEADS_PREFIX}{name}")
     };
+    // BUG-40: refuse to delete the currently checked-out branch.
+    if let Some(active) = r.view().active_branch() {
+        if active == full.as_str() {
+            bail!(
+                "cannot delete branch '{name}': it is the currently checked-out branch; \
+                 switch to another branch first"
+            );
+        }
+    }
     let prev = r
         .view()
         .refs

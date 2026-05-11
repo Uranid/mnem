@@ -139,13 +139,35 @@ pub(crate) fn init_mnem_dir(parent: &Path) -> Result<()> {
 /// ultimately into content_cid, breaking the determinism invariant.
 const ANCHOR_NODE_ID: &str = "00000000-0000-7000-8000-6d6e656d0001";
 
+/// Fixed change-id for the anchor commit so the commit CID is byte-identical
+/// across all fresh repos. BUG-56: without this, the anchor commit produced by
+/// `mnem init` differs between publisher and subscriber (different ChangeId
+/// random bits), making the subscriber's anchor look like divergent history
+/// even for a fresh subscriber who has done no real work.
+///
+/// The bytes spell out "mnem/anchor/v1" zero-padded to 16 bytes.
+const ANCHOR_CHANGE_ID_BYTES: [u8; 16] = *b"mnem/anchor/v1\0\0";
+
+/// Fixed commit timestamp for the anchor commit (Unix epoch). Paired with
+/// `ANCHOR_CHANGE_ID_BYTES` to make the anchor commit CID deterministic.
+const ANCHOR_TIME_MICROS: u64 = 0;
+
 /// Commit a minimal anchor node to a freshly-initialised repo.
 /// Non-fatal: store or embed failures are silently swallowed so they
 /// never block `mnem init` or `mnem integrate`. The node gives the
 /// embedder a warm-up write and makes the graph non-empty from the
 /// first second, so `mnem global retrieve` has something to return
 /// without a manual `mnem reindex` run.
+///
+/// The anchor commit is fully deterministic (fixed node-id, change-id,
+/// and timestamp) so every `mnem init` produces the same anchor commit
+/// CID. This means the anchor IS an ancestor of any publisher's commit
+/// chain that started with `mnem init`, enabling fast-forward pulls
+/// into fresh subscriber repos (BUG-56).
 fn seed_anchor_node(repo: &ReadonlyRepo, _data_dir: &std::path::Path) {
+    use mnem_core::id::ChangeId;
+    use mnem_core::repo::CommitOptions;
+
     let anchor_id = NodeId::parse_uuid(ANCHOR_NODE_ID)
         .expect("ANCHOR_NODE_ID is a valid UUID; this is a compile-time constant");
     let node = Node::new(anchor_id, "Meta");
@@ -156,5 +178,8 @@ fn seed_anchor_node(repo: &ReadonlyRepo, _data_dir: &std::path::Path) {
         Err(_) => return,
     };
 
-    let _ = tx.commit("mnem init", "seed anchor node");
+    let opts = CommitOptions::new("mnem init", "seed anchor node")
+        .with_time_micros(ANCHOR_TIME_MICROS)
+        .with_change_id(ChangeId::from_bytes_raw(ANCHOR_CHANGE_ID_BYTES));
+    let _ = tx.commit_opts(opts);
 }

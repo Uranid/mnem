@@ -152,6 +152,20 @@ fn build_merge_commit(
         return Ok(None);
     }
 
+    // Fast path: all contributing head ops point at the SAME commit CID.
+    // This happens when multiple concurrent update_ref ops all branched from
+    // the same base view (e.g. fetch's stale-base double-write of tracking
+    // refs, or two processes racing to write different refs from the same
+    // base). There is no divergence to resolve; return the existing commit CID
+    // directly rather than creating a spurious synthetic merge commit.
+    // A synthetic merge commit would have a different CID, breaking ancestry
+    // checks (BUG-56): the subscriber's real anchor commit would be shadowed
+    // by a merge commit that is not part of any remote's history.
+    let first_cid = &parents[0].0;
+    if parents.iter().all(|(cid, _)| cid == first_cid) {
+        return Ok(Some(first_cid.clone()));
+    }
+
     let node_roots: Vec<&Cid> = parents.iter().map(|(_, c)| &c.nodes).collect();
     let edge_roots: Vec<&Cid> = parents.iter().map(|(_, c)| &c.edges).collect();
     let node_union = union_prolly_trees(bs, &node_roots)?;

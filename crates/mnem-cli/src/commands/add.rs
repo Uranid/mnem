@@ -65,6 +65,23 @@ pub(crate) struct NodeArgs {
     /// is tracked for v0.5. Conflicts with `--id`.
     #[arg(long = "deterministic", conflicts_with = "id")]
     pub deterministic: bool,
+    /// Resolve-or-create mode: anchor the node on this property
+    /// instead of always creating a new one. Format: `key=value`.
+    /// If a node with `(label, key=value)` already exists in the
+    /// graph its UUID is reused; otherwise a new node is created
+    /// with that property. Additional `--prop` flags set extra
+    /// properties on the resolved or newly-created node.
+    /// Conflicts with `--id` and `--deterministic`.
+    #[arg(
+        long = "canonical",
+        value_name = "KEY=VALUE",
+        conflicts_with_all = &["id", "deterministic"]
+    )]
+    pub canonical: Option<String>,
+    /// Also resolve-or-create the entity in the global knowledge graph
+    /// (~/.mnemglobal/.mnem/). Only valid when --canonical is also provided.
+    #[arg(long, requires = "canonical")]
+    pub global: bool,
     /// Commit message.
     #[arg(long, short = 'm', default_value = "mnem add node")]
     pub message: String,
@@ -107,6 +124,175 @@ fn add_node(override_path: Option<&Path>, a: NodeArgs) -> Result<()> {
     let data_dir = repo::locate_data_dir(override_path)?;
     let cfg = config::load(&data_dir)?;
     let r = repo::open_repo(Some(data_dir.as_path()))?;
+
+    // --canonical KEY=VALUE: resolve-or-create path.
+    //
+    // Find an existing node with (label, key=value); if absent create
+    // it. Then apply any additional --prop flags and --summary on top,
+    // mirroring the MCP `mnem_resolve_or_create` tool so the CLI has
+    // full feature parity.
+    if let Some(ref canonical_arg) = a.canonical {
+        let (prop_name, anchor_value) = parse_prop(canonical_arg).with_context(|| {
+            format!("--canonical expects KEY=VALUE format, got `{canonical_arg}`")
+        })?;
+        let label = a
+            .label
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(Node::DEFAULT_NTYPE);
+
+        let mut tx = r.start_transaction();
+        // Resolve or create the anchor node.
+        let node_id = tx.resolve_or_create_node(label, &prop_name, anchor_value.clone())?;
+
+        // Build the full node: start from any existing props (so we
+        // don't lose them), then layer the anchor prop + extra --prop +
+        // --summary on top.  New values win on key conflict; existing
+        // props that are not mentioned in this call are preserved.
+        //
+        // Clone prop_name and anchor_value before moving them into the
+        // node builder; we need them again below if --global is set.
+        let prop_name_for_global = prop_name.clone();
+        let anchor_value_for_global = anchor_value.clone();
+
+        // Load the committed base for this node (if it already existed).
+        // `resolve_or_create_node` may have just created a brand-new
+        // node (in which case lookup returns None) or found an existing
+        // one.  Either way we start building from a clean slate and
+        // then re-apply the existing props before layering the new ones.
+        let mut node = match tx.base().lookup_node(&node_id)? {
+            Some(existing) => existing,
+            None => Node::new(node_id, label),
+        };
+        // Ensure the ntype is (re-)set to the caller's label in case the
+        // existing node had a different label somehow (shouldn't happen,
+        // but defensive).
+        node.ntype = label.to_string();
+        // Layer: anchor prop (always wins).
+        node = node.with_prop(prop_name, anchor_value);
+        if let Some(s) = &a.summary {
+            node = node.with_summary(s);
+        }
+        for p in &a.props {
+            let (k, v) = parse_prop(p)?;
+            node = node.with_prop(k, v);
+        }
+        if let Some(c) = a.content {
+            let data = if c == "@-" {
+                use std::io::Read;
+                let mut buf = String::new();
+                std::io::stdin().read_to_string(&mut buf)?;
+                buf
+            } else {
+                c
+            };
+            node = node.with_content(bytes::Bytes::from(data.into_bytes()));
+        }
+
+        // Embed (same warn-but-commit semantics as the plain path).
+        let mut pending_embed: Option<(String, mnem_core::objects::node::Embedding)> = None;
+        let mut embedded_dim: Option<usize> = None;
+        let mut embedded_model: Option<String> = None;
+        if !a.no_embed
+            && let Some(pc) = config::resolve_embedder(&cfg)
+            && let Some(text) = embed_text_of(&node)
+        {
+            match mnem_embed_providers::open(&pc) {
+                Ok(embedder) => match embedder.embed(&text) {
+                    Ok(v) => {
+                        let model = embedder.model().to_string();
+                        let emb = mnem_embed_providers::to_embedding(&model, &v);
+                        embedded_dim = Some(v.len());
+                        embedded_model = Some(model.clone());
+                        pending_embed = Some((model, emb));
+                    }
+                    Err(e) => {
+                        eprintln!("{}", format_embed_failure(&e, &pc, "embedding"));
+                        eprintln!(
+                            " note: [embed] unreachable; node added without dense_embed. \
+ Run `mnem reindex` later to backfill, or use --no-embed to silence."
+                        );
+                    }
+                },
+                Err(e) => {
+                    eprintln!("{}", format_embed_failure(&e, &pc, "embedding"));
+                    eprintln!(
+                        " note: [embed] unreachable; node added without dense_embed. \
+ Run `mnem reindex` later to backfill, or use --no-embed to silence."
+                    );
+                }
+            }
+        }
+
+        let node_cid = tx.add_node(&node)?;
+        if let Some((model, emb)) = pending_embed {
+            tx.set_embedding(node_cid, model, emb)?;
+        }
+        let new_r = tx.commit(&config::author_string(&cfg), &a.message)?;
+        println!("resolved node {}", node_id.to_uuid_string());
+        if let (Some(dim), Some(model)) = (embedded_dim, embedded_model.as_ref()) {
+            println!(" embedded (dim={dim}) via {model}");
+        }
+        println!(" op_id {}", new_r.op_id());
+
+        // --global: also resolve-or-create the same entity in
+        // ~/.mnemglobal/.mnem/. Mirrors the `global: true` parameter of
+        // the MCP `mnem_resolve_or_create` tool. Best-effort: if the
+        // global graph is not initialised (or errors), we warn to stderr
+        // and exit 0 -- the local operation already succeeded.
+        if a.global {
+            let global_dir = crate::global::default_dir();
+            let global_data_dir = global_dir.join(crate::repo::MNEM_DIR);
+            if !global_data_dir.is_dir() {
+                eprintln!(
+                    " note: global graph not found at {}; skipping global stamp. \
+                     Run `mnem integrate` to create it.",
+                    global_data_dir.display()
+                );
+            } else {
+                match repo::open_repo(Some(&global_dir)) {
+                    Err(e) => {
+                        eprintln!(" note: could not open global graph: {e}; skipping global stamp");
+                    }
+                    Ok(global_r) => {
+                        let mut global_tx = global_r.start_transaction();
+                        match global_tx.resolve_or_create_node(
+                            label,
+                            &prop_name_for_global,
+                            anchor_value_for_global,
+                        ) {
+                            Err(e) => {
+                                eprintln!(
+                                    " note: global resolve_or_create failed: {e}; \
+                                     skipping global stamp"
+                                );
+                            }
+                            Ok(global_id) => {
+                                match global_tx.commit(
+                                    &config::author_string(&cfg),
+                                    "mnem add node --canonical (global stamp)",
+                                ) {
+                                    Err(e) => {
+                                        eprintln!(
+                                            " note: global commit failed: {e}; \
+                                             global stamp not written"
+                                        );
+                                    }
+                                    Ok(_) => {
+                                        println!("global node {}", global_id.to_uuid_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return Ok(());
+    }
+
+    // Plain add-node path (no --canonical): always create a new node.
 
     // audit-2026-04-25 P0-1: honour `--id` so callers can pin node
     // identity for deterministic content_cid. Fresh UUIDv7 otherwise.
@@ -221,6 +407,16 @@ fn add_edge(override_path: Option<&Path>, a: EdgeArgs) -> Result<()> {
 
     let src = NodeId::parse_uuid(&a.src).context("parsing --from")?;
     let dst = NodeId::parse_uuid(&a.dst).context("parsing --to")?;
+
+    // C8: validate both endpoints exist before writing, so we never
+    // commit a dangling edge that points at a non-existent node.
+    if r.lookup_node(&src)?.is_none() {
+        anyhow::bail!("no node with id={src} (--from)");
+    }
+    if r.lookup_node(&dst)?.is_none() {
+        anyhow::bail!("no node with id={dst} (--to)");
+    }
+
     let mut edge = Edge::new(EdgeId::new_v7(), &a.label, src, dst);
     for p in &a.props {
         let (k, v) = parse_prop(p)?;
@@ -316,6 +512,8 @@ mod c3_2_deterministic_node_id_tests {
             no_embed: true,
             id: None,
             deterministic: true,
+            canonical: None,
+            global: false,
             message: "t".into(),
         }
     }

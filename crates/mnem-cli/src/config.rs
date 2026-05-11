@@ -163,6 +163,18 @@ pub(crate) fn save(data_dir: &Path, cfg: &Config) -> Result<()> {
     std::fs::write(&p, s).with_context(|| format!("writing {}", p.display()))
 }
 
+/// Write `cfg` directly to `path` (used by `mnem config --global`).
+/// Creates parent directories if they don't exist yet, so a fresh
+/// `~/.mnem/` directory is set up automatically on first write.
+pub(crate) fn save_to_path(path: &std::path::Path, cfg: &Config) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating directory {}", parent.display()))?;
+    }
+    let s = toml::to_string_pretty(cfg).context("serialising config")?;
+    std::fs::write(path, s).with_context(|| format!("writing {}", path.display()))
+}
+
 /// Known dotted keys, for `mnem config list` and tab-completion hints.
 pub(crate) const KNOWN_KEYS: &[&str] = &[
     "user.name",
@@ -177,6 +189,10 @@ pub(crate) const KNOWN_KEYS: &[&str] = &[
     "rerank.model",
     "rerank.api_key_env",
     "rerank.base_url",
+    "llm.provider",
+    "llm.model",
+    "llm.api_key_env",
+    "llm.base_url",
     "ner.provider",
     "retrieve.limit",
     "retrieve.budget",
@@ -234,6 +250,22 @@ pub(crate) fn get_dotted(cfg: &Config, key: &str) -> Option<String> {
             RerankProviderConfig::Cohere(c) => c.base_url.clone(),
             RerankProviderConfig::Voyage(c) => c.base_url.clone(),
             RerankProviderConfig::Jina(c) => c.base_url.clone(),
+        }),
+        "llm.provider" => cfg.llm.as_ref().map(|l| match l {
+            LlmProviderConfig::Openai(_) => "openai".into(),
+            LlmProviderConfig::Ollama(_) => "ollama".into(),
+        }),
+        "llm.model" => cfg.llm.as_ref().map(|l| match l {
+            LlmProviderConfig::Openai(c) => c.model.clone(),
+            LlmProviderConfig::Ollama(c) => c.model.clone(),
+        }),
+        "llm.api_key_env" => cfg.llm.as_ref().and_then(|l| match l {
+            LlmProviderConfig::Openai(c) => Some(c.api_key_env.clone()),
+            LlmProviderConfig::Ollama(_) => None,
+        }),
+        "llm.base_url" => cfg.llm.as_ref().map(|l| match l {
+            LlmProviderConfig::Openai(c) => c.base_url.clone(),
+            LlmProviderConfig::Ollama(c) => c.base_url.clone(),
         }),
         "ner.provider" => cfg.ner.as_ref().map(|n| match n {
             NerConfig::Rule => "rule".into(),
@@ -312,6 +344,11 @@ pub(crate) fn set_dotted(cfg: &mut Config, key: &str, value: Option<String>) -> 
         "rerank.model" => set_rerank_model(cfg, value.as_deref())?,
         "rerank.api_key_env" => set_rerank_api_key_env(cfg, value.as_deref())?,
         "rerank.base_url" => set_rerank_base_url(cfg, value.as_deref())?,
+
+        "llm.provider" => set_llm_provider(cfg, value.as_deref())?,
+        "llm.model" => set_llm_model(cfg, value.as_deref())?,
+        "llm.api_key_env" => set_llm_api_key_env(cfg, value.as_deref())?,
+        "llm.base_url" => set_llm_base_url(cfg, value.as_deref())?,
 
         "ner.provider" => match value.as_deref() {
             Some("rule") | None => cfg.ner = Some(NerConfig::Rule),
@@ -672,6 +709,110 @@ fn set_rerank_base_url(cfg: &mut Config, value: Option<&str>) -> Result<()> {
         RerankProviderConfig::Cohere(c) => c.base_url = v.to_string(),
         RerankProviderConfig::Voyage(c) => c.base_url = v.to_string(),
         RerankProviderConfig::Jina(c) => c.base_url = v.to_string(),
+    }
+    Ok(())
+}
+
+fn set_llm_provider(cfg: &mut Config, value: Option<&str>) -> Result<()> {
+    match value {
+        None => {
+            cfg.llm = None;
+        }
+        Some("openai") => {
+            let model = cfg
+                .llm
+                .as_ref()
+                .and_then(|l| match l {
+                    LlmProviderConfig::Openai(c) => Some(c.model.clone()),
+                    LlmProviderConfig::Ollama(_) => None,
+                })
+                .unwrap_or_else(|| "gpt-4o-mini".into());
+            cfg.llm = Some(LlmProviderConfig::Openai(OpenAiLlmConfig {
+                model,
+                ..Default::default()
+            }));
+        }
+        Some("ollama") => {
+            let model = cfg
+                .llm
+                .as_ref()
+                .and_then(|l| match l {
+                    LlmProviderConfig::Ollama(c) => Some(c.model.clone()),
+                    LlmProviderConfig::Openai(_) => None,
+                })
+                .unwrap_or_else(|| "llama3.2:3b".into());
+            cfg.llm = Some(LlmProviderConfig::Ollama(OllamaLlmConfig {
+                model,
+                ..Default::default()
+            }));
+        }
+        Some(other) => {
+            anyhow::bail!("unknown llm.provider `{other}` (expected openai|ollama)")
+        }
+    }
+    Ok(())
+}
+
+fn set_llm_model(cfg: &mut Config, value: Option<&str>) -> Result<()> {
+    let Some(v) = value else {
+        anyhow::bail!(
+            "llm.model requires a value; use `mnem config unset llm.provider` to drop the whole section"
+        )
+    };
+    let llm = cfg.llm.as_mut().context(
+        "no llm.provider is set; run `mnem config set llm.provider openai|ollama` first",
+    )?;
+    match llm {
+        LlmProviderConfig::Openai(c) => c.model = v.to_string(),
+        LlmProviderConfig::Ollama(c) => c.model = v.to_string(),
+    }
+    Ok(())
+}
+
+fn set_llm_api_key_env(cfg: &mut Config, value: Option<&str>) -> Result<()> {
+    let Some(v) = value else {
+        anyhow::bail!(
+            "llm.api_key_env requires a value (the name of the env var holding the API key)"
+        )
+    };
+    // Validate env-var shape: [A-Z_][A-Z0-9_]{0,127}. Catches accidental
+    // secret paste (e.g. `mnem config set llm.api_key_env sk-...`).
+    let shape_ok = !v.is_empty()
+        && v.len() <= 128
+        && v.bytes().enumerate().all(|(i, b)| match b {
+            b'A'..=b'Z' | b'_' => true,
+            b'0'..=b'9' => i > 0,
+            _ => false,
+        });
+    if !shape_ok {
+        anyhow::bail!(
+            "llm.api_key_env must be a plain env-var name matching [A-Z_][A-Z0-9_]{{0,127}} \
+             (e.g. OPENAI_API_KEY), not a secret"
+        );
+    }
+    let llm = cfg
+        .llm
+        .as_mut()
+        .context("no llm.provider is set; run `mnem config set llm.provider openai` first")?;
+    match llm {
+        LlmProviderConfig::Openai(c) => c.api_key_env = v.to_string(),
+        LlmProviderConfig::Ollama(_) => {
+            anyhow::bail!("llm.api_key_env is only meaningful for openai (ollama has no auth)")
+        }
+    }
+    Ok(())
+}
+
+fn set_llm_base_url(cfg: &mut Config, value: Option<&str>) -> Result<()> {
+    let Some(v) = value else {
+        anyhow::bail!("llm.base_url requires a value (e.g. http://localhost:11434 for ollama)")
+    };
+    let llm = cfg.llm.as_mut().context(
+        "no llm.provider is set; run `mnem config set llm.provider openai|ollama` first",
+    )?;
+    match llm {
+        LlmProviderConfig::Openai(c) => c.base_url = v.to_string(),
+        LlmProviderConfig::Ollama(c) => c.base_url = v.to_string(),
     }
     Ok(())
 }
@@ -1127,6 +1268,135 @@ mod tests {
             ProviderConfig::Ollama(c) => assert_eq!(c.model, "nomic-embed-text"),
             other => panic!("expected per-repo Ollama to win; got {other:?}"),
         }
+    }
+
+    // ---------- llm.* config key tests ----------
+
+    #[test]
+    fn llm_known_keys_are_wired() {
+        assert!(KNOWN_KEYS.contains(&"llm.provider"));
+        assert!(KNOWN_KEYS.contains(&"llm.model"));
+        assert!(KNOWN_KEYS.contains(&"llm.api_key_env"));
+        assert!(KNOWN_KEYS.contains(&"llm.base_url"));
+    }
+
+    #[test]
+    fn set_llm_provider_creates_openai_section() {
+        let mut cfg = Config::default();
+        set_dotted(&mut cfg, "llm.provider", Some("openai".into())).unwrap();
+        match cfg.llm.as_ref().unwrap() {
+            LlmProviderConfig::Openai(c) => {
+                assert_eq!(c.model, "gpt-4o-mini");
+            }
+            other => panic!("expected Openai, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn set_llm_provider_creates_ollama_section() {
+        let mut cfg = Config::default();
+        set_dotted(&mut cfg, "llm.provider", Some("ollama".into())).unwrap();
+        match cfg.llm.as_ref().unwrap() {
+            LlmProviderConfig::Ollama(c) => {
+                assert_eq!(c.model, "llama3.2:3b");
+            }
+            other => panic!("expected Ollama, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn set_llm_provider_none_clears_section() {
+        let mut cfg = Config::default();
+        set_dotted(&mut cfg, "llm.provider", Some("openai".into())).unwrap();
+        assert!(cfg.llm.is_some());
+        set_dotted(&mut cfg, "llm.provider", None).unwrap();
+        assert!(cfg.llm.is_none());
+    }
+
+    #[test]
+    fn set_llm_provider_rejects_unknown() {
+        let mut cfg = Config::default();
+        let e = set_dotted(&mut cfg, "llm.provider", Some("acme".into())).unwrap_err();
+        assert!(format!("{e:#}").contains("unknown llm.provider"));
+    }
+
+    #[test]
+    fn set_llm_model_requires_provider_first() {
+        let mut cfg = Config::default();
+        let e = set_dotted(&mut cfg, "llm.model", Some("gpt-4o".into())).unwrap_err();
+        assert!(format!("{e:#}").contains("no llm.provider is set"));
+    }
+
+    #[test]
+    fn set_llm_api_key_env_requires_valid_shape() {
+        let mut cfg = Config::default();
+        set_dotted(&mut cfg, "llm.provider", Some("openai".into())).unwrap();
+        let e = set_dotted(
+            &mut cfg,
+            "llm.api_key_env",
+            Some("sk-this-looks-like-a-secret".into()),
+        )
+        .unwrap_err();
+        assert!(format!("{e:#}").contains("[A-Z_]"));
+    }
+
+    #[test]
+    fn set_llm_api_key_env_rejects_ollama() {
+        let mut cfg = Config::default();
+        set_dotted(&mut cfg, "llm.provider", Some("ollama".into())).unwrap();
+        let e = set_dotted(&mut cfg, "llm.api_key_env", Some("OPENAI_API_KEY".into())).unwrap_err();
+        assert!(format!("{e:#}").contains("ollama has no auth"));
+    }
+
+    #[test]
+    fn llm_config_round_trips_through_toml() {
+        let mut cfg = Config::default();
+        set_dotted(&mut cfg, "llm.provider", Some("openai".into())).unwrap();
+        set_dotted(&mut cfg, "llm.model", Some("gpt-4o".into())).unwrap();
+        set_dotted(&mut cfg, "llm.api_key_env", Some("MY_OPENAI_KEY".into())).unwrap();
+        set_dotted(
+            &mut cfg,
+            "llm.base_url",
+            Some("https://my-proxy.example.com".into()),
+        )
+        .unwrap();
+        let s = toml::to_string_pretty(&cfg).unwrap();
+        assert!(s.contains("[llm]"));
+        let back: Config = toml::from_str(&s).unwrap();
+        assert_eq!(get_dotted(&back, "llm.provider").as_deref(), Some("openai"));
+        assert_eq!(get_dotted(&back, "llm.model").as_deref(), Some("gpt-4o"));
+        assert_eq!(
+            get_dotted(&back, "llm.api_key_env").as_deref(),
+            Some("MY_OPENAI_KEY")
+        );
+        assert_eq!(
+            get_dotted(&back, "llm.base_url").as_deref(),
+            Some("https://my-proxy.example.com")
+        );
+    }
+
+    #[test]
+    fn llm_ollama_round_trips_through_toml() {
+        let mut cfg = Config::default();
+        set_dotted(&mut cfg, "llm.provider", Some("ollama".into())).unwrap();
+        set_dotted(&mut cfg, "llm.model", Some("llama3.2:3b".into())).unwrap();
+        set_dotted(
+            &mut cfg,
+            "llm.base_url",
+            Some("http://localhost:11434".into()),
+        )
+        .unwrap();
+        let s = toml::to_string_pretty(&cfg).unwrap();
+        let back: Config = toml::from_str(&s).unwrap();
+        assert_eq!(get_dotted(&back, "llm.provider").as_deref(), Some("ollama"));
+        assert_eq!(
+            get_dotted(&back, "llm.model").as_deref(),
+            Some("llama3.2:3b")
+        );
+        assert_eq!(
+            get_dotted(&back, "llm.base_url").as_deref(),
+            Some("http://localhost:11434")
+        );
     }
 }
 

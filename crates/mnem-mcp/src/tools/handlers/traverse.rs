@@ -1,11 +1,13 @@
 //! Handler for the `mnem_traverse` MCP tool.
 //!
-//! Extracted from `tools.rs` in R3; body unchanged.
+//! fix(BUG-7): replaced O(N) label-scan + linear find with a direct
+//! `repo.outgoing_edges()` call, matching what `mnem-cli traverse` does.
+//! Also fixed: `edge_labels=[]` now maps to `None` (no filter = all edge
+//! types) instead of `Some(&[])` (filter for nothing = 0 results).
 
 use crate::server::Server;
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use mnem_core::id::NodeId;
-use mnem_core::index::Query;
 use serde_json::Value;
 
 // ============================================================
@@ -34,16 +36,30 @@ pub(in crate::tools) fn traverse(server: &mut Server, args: Value) -> Result<Str
             ));
         }
     };
-    let edge_labels: Vec<String> = args
+
+    // Collect requested edge-label filters; discard empty strings so that
+    // callers who pass `edge_labels: []` get *all* edge types (None filter),
+    // not zero results (Some(&[]) filter).
+    let filter_strs: Vec<String> = args
         .get("edge_labels")
         .and_then(Value::as_array)
         .map(|a| {
             a.iter()
                 .filter_map(Value::as_str)
+                .filter(|s| !s.is_empty())
                 .map(String::from)
                 .collect()
         })
         .unwrap_or_default();
+
+    // Build the optional filter slice: None means "all edge types".
+    let filter_refs: Vec<&str> = filter_strs.iter().map(String::as_str).collect();
+    let etype_filter: Option<&[&str]> = if filter_refs.is_empty() {
+        None
+    } else {
+        Some(&filter_refs)
+    };
+
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(25) as usize;
 
     let repo = server.load_repo()?;
@@ -51,15 +67,12 @@ pub(in crate::tools) fn traverse(server: &mut Server, args: Value) -> Result<Str
         return Ok(format!("mnem_traverse: start node {start_str} not found\n"));
     };
 
-    // Build a Query hit on this one node so we can reuse the adjacency
-    // path. For Week 1 the cleanest route is to run a full label-scan
-    // query restricted to just this label, with the edges requested.
-    let mut q = Query::new(&repo).label(node.ntype.as_str());
-    for lbl in &edge_labels {
-        q = q.with_outgoing(lbl.as_str());
-    }
-    let hits = q.limit(usize::MAX).execute()?;
-    let hit = hits.into_iter().find(|h| h.node.id == start);
+    // BUG-7 fix: call outgoing_edges() directly - O(1) adjacency index
+    // lookup - instead of scanning all nodes with the same ntype label.
+    let all_edges = repo
+        .outgoing_edges(&start, etype_filter)
+        .context("walking outgoing-adjacency index")?;
+    let edges: Vec<_> = all_edges.into_iter().take(limit).collect();
 
     let mut out = String::new();
     out.push_str(&format!(
@@ -67,17 +80,9 @@ pub(in crate::tools) fn traverse(server: &mut Server, args: Value) -> Result<Str
         node.ntype,
         start.to_uuid_string()
     ));
-    match hit {
-        None => {
-            out.push_str("0 edges\n");
-        }
-        Some(h) => {
-            let edges = h.edges.into_iter().take(limit).collect::<Vec<_>>();
-            out.push_str(&format!("{} edge(s)\n", edges.len()));
-            for e in edges {
-                out.push_str(&format!("  -[{}]-> {}\n", e.etype, e.dst.to_uuid_string()));
-            }
-        }
+    out.push_str(&format!("{} edge(s)\n", edges.len()));
+    for e in &edges {
+        out.push_str(&format!("  -[{}]-> {}\n", e.etype, e.dst.to_uuid_string()));
     }
     Ok(out)
 }

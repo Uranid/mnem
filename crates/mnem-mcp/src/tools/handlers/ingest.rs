@@ -16,8 +16,8 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
-use mnem_ingest::{ChunkerAuto, ChunkerKind, IngestConfig, Ingester, SourceKind, auto_chunker};
 use mnem_core::repo::ReadonlyRepo;
+use mnem_ingest::{ChunkerAuto, ChunkerKind, IngestConfig, Ingester, SourceKind, auto_chunker};
 use serde_json::Value;
 
 use crate::server::Server;

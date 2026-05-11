@@ -97,8 +97,17 @@ pub(in crate::tools) fn resolve_or_create(server: &mut Server, args: Value) -> R
     let id = tx.resolve_or_create_node(&label, &prop_name, value.clone())?;
 
     // Always write the node explicitly so we get a CID back for
-    // embedding. Including extra_props and _global_anchor as before.
-    let mut node = Node::new(id, label.clone()).with_prop(prop_name.clone(), value);
+    // embedding.  Start from the existing committed node (if any) so
+    // that previously-stored props are preserved rather than silently
+    // overwritten.  New props passed in this call win on key conflict.
+    let mut node = match tx.base().lookup_node(&id)? {
+        Some(existing) => existing,
+        None => Node::new(id, label.clone()),
+    };
+    // Re-assert the label (defensive: keep caller's label authoritative).
+    node.ntype = label.clone();
+    // Layer: anchor prop (always wins).
+    node = node.with_prop(prop_name.clone(), value);
     for (k, v) in &extra_props {
         node = node.with_prop(k.clone(), json_to_ipld(v)?);
     }

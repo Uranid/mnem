@@ -99,6 +99,9 @@ fn run_all_checks(override_path: Option<&Path>) -> Vec<Check> {
     out.extend(check_rerank_reachability(override_path));
     out.extend(check_integrations());
     out.extend(check_system_prompt_wired());
+    // TODO(BUG-52): doctor does not call fsck internally. Adding a full fsck
+    // pass here is a larger refactor (fsck is expensive and writes its own
+    // output); for now the operator must run `mnem fsck` separately.
     out
 }
 
@@ -242,7 +245,7 @@ fn check_repo(override_path: Option<&Path>) -> Vec<Check> {
         Err(_) => vec![Check {
             section: "repo",
             name: ".mnem".into(),
-            state: State::Info,
+            state: State::Fail,
             detail: "no mnem repo in cwd or parents".into(),
             fix: Some("run `mnem init` in a project directory".into()),
         }],
@@ -432,9 +435,11 @@ fn check_embed_reachability(override_path: Option<&Path>) -> Vec<Check> {
             }]
         }
         mnem_embed_providers::ProviderConfig::Ollama(ref c) => {
+            // BUG-52: cap the Ollama probe at 5 s so a slow/hung server
+            // never blocks the doctor command indefinitely.
             let url = format!("{}/api/tags", c.base_url.trim_end_matches('/'));
             let agent = ureq::AgentBuilder::new()
-                .timeout(Duration::from_secs(2))
+                .timeout(Duration::from_secs(5))
                 .build();
             match agent.get(&url).call() {
                 Ok(resp) if resp.status() == 200 => vec![Check {

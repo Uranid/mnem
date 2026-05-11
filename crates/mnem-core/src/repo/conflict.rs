@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 use crate::id::{Cid, NodeId};
-use crate::objects::{Commit, Edge, View};
+use crate::objects::{Commit, Edge, Operation, View};
 use crate::prolly::{Cursor, ProllyKey};
 use crate::repo::ReadonlyRepo;
 use crate::repo::readonly::decode_from_store;
@@ -222,6 +222,13 @@ pub struct Conflict {
     /// Intended for future UI surfacing; NOT auto-applied.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggested: Option<serde_json::Value>,
+    /// User's chosen resolution. Set this field to `"ours"` to keep
+    /// the left/current-branch side, or `"theirs"` to take the
+    /// right/incoming-branch side. `mnem merge --continue` reads this
+    /// field for every conflict and refuses to proceed until all
+    /// entries carry a valid resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<String>,
 }
 
 /// Full structured conflict set emitted by [`detect_conflicts`].
@@ -343,8 +350,8 @@ pub fn detect_conflicts_with_policy(
     // the current reality (merge.rs loads Views separately). B4.3
     // will thread the View through; for B4.2 the detector surfaces
     // what it can from Commit + opportunistic View lookup.
-    let left_tombstones = tombstones_for_commit(bs, &left)?;
-    let right_tombstones = tombstones_for_commit(bs, &right)?;
+    let left_tombstones = tombstones_for_commit(repo, &left)?;
+    let right_tombstones = tombstones_for_commit(repo, &right)?;
 
     let mut conflicts = Vec::new();
 
@@ -390,6 +397,7 @@ pub fn detect_conflicts_with_policy(
                 right: serde_json::json!({ "node_cid": r.expect("checked is_some").to_string() }),
                 base: base.map(|c| serde_json::json!({ "node_cid": c.to_string() })),
                 suggested,
+                resolution: None,
             });
             continue;
         }
@@ -409,6 +417,7 @@ pub fn detect_conflicts_with_policy(
                 right: serde_json::json!({ "tombstoned": true }),
                 base: base.map(|c| serde_json::json!({ "node_cid": c.to_string() })),
                 suggested,
+                resolution: None,
             });
             continue;
         }
@@ -433,6 +442,7 @@ pub fn detect_conflicts_with_policy(
                         right: serde_json::json!({ "node_cid": rc.to_string() }),
                         base: base.map(|c| serde_json::json!({ "node_cid": c.to_string() })),
                         suggested: None,
+                        resolution: None,
                     });
                 }
             }
@@ -494,6 +504,7 @@ pub fn detect_conflicts_with_policy(
                 right: right_json,
                 base: base_json,
                 suggested,
+                resolution: None,
             });
         }
     }
@@ -563,28 +574,81 @@ fn nodeid_from_key(key: &ProllyKey) -> NodeId {
     NodeId::from_bytes_raw(key.0)
 }
 
-/// Load the tombstone set for the op-head View attached to `commit_cid`.
+/// Load the tombstone **delta** introduced by the op whose View lists
+/// `commit_cid` as its head commit.
 ///
 /// The detector needs to know "is this NodeId tombstoned?" on each
 /// side. Tombstones live on the [`View`], not the [`Commit`], so we
-/// search the op-heads for the matching View. If we can't find one
-/// (e.g. a dry-run where the op hasn't been published), we fall back
-/// to an empty set rather than erroring - the detector is still
-/// correct on all non-tombstone categories.
-fn tombstones_for_commit(
-    bs: &dyn Blockstore,
-    _commit_cid: &Cid,
-) -> Result<BTreeSet<NodeId>, Error> {
-    // B4.2 narrow path: tombstones are passed in via the View, but we
-    // don't have a direct Commit -> View reverse index. The merge
-    // executor (B4.3) will thread Views through explicitly. For the
-    // detect-only scope, return empty so the other categories still
-    // surface correctly.
-    //
-    // Tests construct Views directly via the helper below, which
-    // bypasses this lookup. Production callers from B4.3 will pass
-    // tombstone sets through the executor hook.
-    let _ = bs;
+/// walk the op-DAG starting from the repo's current op-heads to find
+/// the Op whose `view.heads` contains `commit_cid`. Once found, we
+/// load the parent Op's View and compute the delta:
+///
+/// ```text
+/// delta = current_view.tombstones − parent_view.tombstones
+/// ```
+///
+/// This gives the set of tombstones that were **added** by the commit's
+/// Op (not inherited from ancestors). For the root Op (no parent),
+/// all tombstones in the current View are "new".
+///
+/// If no matching Op is found (e.g. a dry-run or synthetic commit
+/// not yet recorded as an op), we fall back to an empty set rather
+/// than erroring - the detector is still correct on all non-tombstone
+/// categories in that case.
+fn tombstones_for_commit(repo: &ReadonlyRepo, commit_cid: &Cid) -> Result<BTreeSet<NodeId>, Error> {
+    let bs: &dyn Blockstore = &**repo.blockstore();
+
+    // Walk the op-DAG via BFS/DFS from the current op-heads, searching
+    // for an Op whose View has `commit_cid` as one of its head commits.
+    // We start with the op-heads store's current heads so we cover the
+    // full reachable op history, not just the repo's pinned op.
+    let start_heads = repo.op_heads_store().current()?;
+    let mut stack: Vec<Cid> = start_heads;
+    let mut visited: BTreeSet<Cid> = BTreeSet::new();
+
+    while let Some(op_cid) = stack.pop() {
+        if !visited.insert(op_cid.clone()) {
+            continue;
+        }
+        let op: Operation = decode_from_store(bs, &op_cid)?;
+        let view: View = decode_from_store(bs, &op.view)?;
+
+        if view.heads.iter().any(|h| h == commit_cid) {
+            // Found the Op. Compute the tombstone delta vs parent Op's View.
+            let parent_tombstones: BTreeSet<NodeId> = if op.parents.is_empty() {
+                // Root op: all tombstones in this view are "new".
+                BTreeSet::new()
+            } else {
+                // Load the first parent Op's View and collect its tombstones.
+                // For multi-parent merge ops the union of all parents is the
+                // correct baseline; the delta is what this op added on top.
+                let mut parent_ts: BTreeSet<NodeId> = BTreeSet::new();
+                for parent_op_cid in &op.parents {
+                    let parent_op: Operation = decode_from_store(bs, parent_op_cid)?;
+                    let parent_view: View = decode_from_store(bs, &parent_op.view)?;
+                    parent_ts.extend(parent_view.tombstones.keys().copied());
+                }
+                parent_ts
+            };
+
+            let current_tombstones: BTreeSet<NodeId> = view.tombstones.keys().copied().collect();
+            // Delta = tombstones present in this commit's View but not in any parent's View.
+            return Ok(current_tombstones
+                .difference(&parent_tombstones)
+                .copied()
+                .collect());
+        }
+
+        // Push parent ops for further traversal.
+        for parent_op_cid in &op.parents {
+            if !visited.contains(parent_op_cid) {
+                stack.push(parent_op_cid.clone());
+            }
+        }
+    }
+
+    // No Op found for this commit CID (synthetic / dry-run commit).
+    // Fall back to empty: detector is still correct on non-tombstone categories.
     Ok(BTreeSet::new())
 }
 
@@ -685,6 +749,7 @@ pub fn detect_conflicts_with_views(
             } else {
                 None
             },
+            resolution: None,
         })
     };
 
@@ -1010,5 +1075,153 @@ mod tests {
     #[test]
     fn schema_constant_pinned() {
         assert_eq!(MERGE_CONFLICTS_SCHEMA, "mnem.v1.merge_conflicts");
+    }
+
+    // ---- tombstones_for_commit delta computation (BUG-19) ----
+
+    /// Basic case: parent commit has 0 tombstones, the next commit adds 1
+    /// tombstone. `tombstones_for_commit` must return exactly that 1 NodeId.
+    #[test]
+    fn tombstones_for_commit_basic_delta_one_new_tombstone() {
+        let (bs, ohs) = stores();
+        let repo0 = ReadonlyRepo::init(bs.clone(), ohs.clone()).unwrap();
+
+        let target_id = nid(42);
+
+        // Seed a node on the base.
+        let (repo_seed, _) = commit_snapshot(
+            &repo0,
+            "seed",
+            vec![Node::new(target_id, "Person").with_prop("name", Ipld::String("Target".into()))],
+            vec![],
+        );
+
+        // Tombstone it in the next commit. The repo after this commit has
+        // 1 tombstone; the parent's view had 0.
+        let mut tx = repo_seed.start_transaction();
+        tx.tombstone_node(target_id, "test-reason").unwrap();
+        let repo_after = tx.commit("L", "tombstone target").unwrap();
+        let head_after = repo_after.view().heads.first().cloned().unwrap();
+
+        // The delta should contain exactly the one newly-added tombstone.
+        let delta = tombstones_for_commit(&repo_after, &head_after).unwrap();
+        assert_eq!(
+            delta.len(),
+            1,
+            "expected 1 tombstone in delta, got: {:?}",
+            delta
+        );
+        assert!(
+            delta.contains(&target_id),
+            "delta must contain the tombstoned NodeId"
+        );
+    }
+
+    /// Root op edge case: a tombstone present in the very first commit's
+    /// View (no parent op) should be included in the delta because
+    /// the baseline is empty.
+    #[test]
+    fn tombstones_for_commit_root_op_all_tombstones_are_new() {
+        // We can't tombstone in the init op (it has no nodes), so we
+        // simulate a root-like scenario: commit a node then tombstone it
+        // from the *root* repo (repo0), which has an empty-tombstone view.
+        // The first real transaction from repo0 becomes the test target.
+        let (bs, ohs) = stores();
+        let repo0 = ReadonlyRepo::init(bs.clone(), ohs.clone()).unwrap();
+
+        let target_id = nid(77);
+
+        // Single commit from the root: add a node AND tombstone it in one tx.
+        let mut tx = repo0.start_transaction();
+        tx.add_node(&Node::new(target_id, "X")).unwrap();
+        tx.tombstone_node(target_id, "immediate-revoke").unwrap();
+        let repo_after = tx.commit("A", "add+tombstone").unwrap();
+        let head_after = repo_after.view().heads.first().cloned().unwrap();
+
+        let delta = tombstones_for_commit(&repo_after, &head_after).unwrap();
+        assert!(
+            delta.contains(&target_id),
+            "tombstone added in first commit must appear in delta"
+        );
+    }
+
+    /// When a commit adds NO new tombstones (only adds nodes), the delta
+    /// must be empty.
+    #[test]
+    fn tombstones_for_commit_no_new_tombstones_returns_empty() {
+        let (bs, ohs) = stores();
+        let repo0 = ReadonlyRepo::init(bs.clone(), ohs.clone()).unwrap();
+
+        let (repo_after, head_after) = commit_snapshot(
+            &repo0,
+            "A",
+            vec![Node::new(nid(1), "Person").with_prop("name", Ipld::String("Alice".into()))],
+            vec![],
+        );
+
+        let delta = tombstones_for_commit(&repo_after, &head_after).unwrap();
+        assert!(
+            delta.is_empty(),
+            "expected empty delta for a node-only commit, got: {:?}",
+            delta
+        );
+    }
+
+    /// Verify that `detect_conflicts_with_policy` (the commit-only path)
+    /// now surfaces TombstoneVsModify when one side tombstones a node
+    /// that the other side modified — previously the stub always returned
+    /// an empty set, silencing this category.
+    #[test]
+    fn detect_conflicts_with_policy_surfaces_tombstone_vs_modify_via_op_lookup() {
+        let (bs, ohs) = stores();
+        let repo0 = ReadonlyRepo::init(bs.clone(), ohs.clone()).unwrap();
+
+        let id = nid(55);
+        // Seed node on a shared base.
+        let (repo_seed, _) = commit_snapshot(
+            &repo0,
+            "S",
+            vec![Node::new(id, "Person").with_prop("name", Ipld::String("Seed".into()))],
+            vec![],
+        );
+
+        // Left: tombstone the node.
+        let mut tx_l = repo_seed.start_transaction();
+        tx_l.tombstone_node(id, "gdpr").unwrap();
+        let repo_l = tx_l.commit("L", "tombstone").unwrap();
+        let head_l = repo_l.view().heads.first().cloned().unwrap();
+
+        // Right: modify the node (from the same seed, concurrent).
+        let (repo_r, head_r) = commit_snapshot(
+            &repo_seed,
+            "R",
+            vec![Node::new(id, "Person").with_prop("name", Ipld::String("Changed".into()))],
+            vec![],
+        );
+        let _ = repo_r;
+
+        // Use the commit-only path (detect_conflicts_with_policy, NOT
+        // detect_conflicts_with_views) so tombstone lookup goes through
+        // tombstones_for_commit. Before BUG-19 this returned no TvM conflicts.
+        let lca_head = repo_seed.view().heads.first().cloned();
+        let mc = detect_conflicts_with_policy(
+            &repo_l,
+            head_l,
+            head_r,
+            lca_head,
+            ConflictPolicy::default(),
+        )
+        .unwrap();
+
+        let tvm_count = mc
+            .conflicts
+            .iter()
+            .filter(|c| c.category == ConflictCategory::TombstoneVsModify)
+            .count();
+        assert!(
+            tvm_count > 0,
+            "BUG-19: TombstoneVsModify must be surfaced via commit-only path; got conflicts: {:?}",
+            mc.conflicts
+        );
     }
 }

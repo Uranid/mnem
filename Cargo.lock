@@ -2077,6 +2077,7 @@ dependencies = [
  "mnem-core-testutils",
  "proptest",
  "serde",
+ "tracing",
 ]
 
 [[package]]

@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use mnem_backend_redb::open_or_init;
 use mnem_core::repo::ReadonlyRepo;
 use tower_http::cors::{Any, CorsLayer};
@@ -38,6 +38,7 @@ mod error;
 mod handlers;
 mod handlers_ingest;
 mod metrics;
+mod remote_rate_limit;
 mod routes;
 mod state;
 
@@ -79,6 +80,11 @@ pub struct AppOptions {
     /// counters still runs either way -- flipping this on at the next
     /// restart begins exposing already-collected data.
     pub metrics_enabled: bool,
+    /// Override for `MNEM_HTTP_PUSH_TOKEN`. `None` means "read the env
+    /// var"; set to `Some("tok".into())` in integration tests that need
+    /// to exercise authenticated write routes without touching the
+    /// process-wide environment.
+    pub push_token: Option<String>,
 }
 
 /// Build the router for a repo whose `.mnem/` lives at `repo_dir`.
@@ -102,12 +108,43 @@ pub fn route_table(metrics_enabled: bool) -> Vec<(&'static str, &'static str, &'
             "/v1/stats",
             "head op-id, commit CID, ref + label counts",
         ),
+        (
+            "GET",
+            "/v1/log",
+            "op-log history (limit, format=json|oneline|full)",
+        ),
+        (
+            "GET",
+            "/v1/export",
+            "export all reachable blocks as NDJSON (hex-encoded)",
+        ),
+        (
+            "GET",
+            "/v1/blocks/{cid}",
+            "fetch one raw block by CID (format=json|raw|cbor)",
+        ),
+        (
+            "POST",
+            "/v1/import",
+            "import blocks from NDJSON stream (block-level sync)",
+        ),
+        (
+            "POST",
+            "/v1/diff",
+            "structural diff between two commits or ops",
+        ),
+        (
+            "POST",
+            "/v1/merge",
+            "3-way merge two commit CIDs; returns fast_forward / clean / conflicts",
+        ),
         ("POST", "/v1/nodes", "commit a new node"),
         (
             "POST",
             "/v1/nodes/bulk",
             "commit N nodes in one transaction",
         ),
+        ("POST", "/v1/edges", "commit a new directed edge"),
         ("GET/DELETE", "/v1/nodes/{id}", "fetch / delete a node"),
         ("POST", "/v1/nodes/{id}/tombstone", "tombstone a node"),
         ("GET/POST", "/v1/retrieve", "agent-facing retrieval"),
@@ -122,6 +159,10 @@ pub fn route_table(metrics_enabled: bool) -> Vec<(&'static str, &'static str, &'
             "/v1/traverse_answer",
             "single-call multihop (gated)",
         ),
+        ("GET/POST", "/v1/branches", "list / create branches"),
+        ("DELETE", "/v1/branches/{*name}", "delete a branch by name"),
+        ("GET/POST", "/v1/tags", "list / create tags"),
+        ("DELETE", "/v1/tags/{*name}", "delete a tag by name"),
         ("GET", "/remote/v1/refs", "transport: list refs"),
         ("POST", "/remote/v1/fetch-blocks", "transport: fetch blocks"),
         (
@@ -202,7 +243,10 @@ pub fn app_with_options(repo_dir: &Path, opts: AppOptions) -> Result<Router> {
     // Remote-push bearer token lives in env only (MNEM_HTTP_PUSH_TOKEN),
     // never on disk. `None` disables the two authenticated `/remote/v1/*`
     // verbs (fail-closed 503). See crate::auth for the extractor.
-    let push_token = AppState::resolve_push_token_from_env();
+    let push_token = opts
+        .push_token
+        .clone()
+        .or_else(|| AppState::resolve_push_token_from_env());
     if push_token.is_some() {
         tracing::info!(
             "mnem http: MNEM_HTTP_PUSH_TOKEN configured; /remote/v1/push-blocks + /remote/v1/advance-head enabled."
@@ -249,8 +293,15 @@ pub fn app_with_options(repo_dir: &Path, opts: AppOptions) -> Result<Router> {
     let mut router = Router::new()
         .route("/v1/healthz", get(handlers::healthz))
         .route("/v1/stats", get(handlers::stats))
+        .route("/v1/log", get(handlers::get_log))
+        .route("/v1/export", get(handlers::get_export))
+        .route("/v1/blocks/{cid}", get(handlers::get_block))
+        .route("/v1/import", post(handlers::post_import))
+        .route("/v1/diff", post(handlers::post_diff))
+        .route("/v1/merge", post(handlers::post_merge))
         .route("/v1/nodes", post(handlers::post_node))
         .route("/v1/nodes/bulk", post(handlers::post_nodes_bulk))
+        .route("/v1/edges", post(handlers::post_edge))
         .route(
             "/v1/nodes/{id}",
             get(handlers::get_node).delete(handlers::delete_node),
@@ -260,6 +311,13 @@ pub fn app_with_options(repo_dir: &Path, opts: AppOptions) -> Result<Router> {
             "/v1/retrieve",
             get(handlers::retrieve).post(handlers::retrieve_full),
         )
+        .route(
+            "/v1/branches",
+            get(handlers::get_branches).post(handlers::post_branch),
+        )
+        .route("/v1/branches/{*name}", delete(handlers::delete_branch))
+        .route("/v1/tags", get(handlers::get_tags).post(handlers::post_tag))
+        .route("/v1/tags/{*name}", delete(handlers::delete_tag))
         .route("/v1/ingest", post(handlers_ingest::ingest))
         .route("/v1/explain", post(handlers::explain))
         // gap-09: `/v1/traverse_answer` is registered but gated by
@@ -270,24 +328,18 @@ pub fn app_with_options(repo_dir: &Path, opts: AppOptions) -> Result<Router> {
             "/v1/traverse_answer",
             post(routes::traverse::traverse_answer),
         )
-        // `/remote/v1/*` transport surface . Auth is
-        // enforced per-handler via the `RequireBearer` extractor
-        // (see crate::auth), not via a tower layer, so the
-        // read-open verbs (`refs`, `fetch-blocks`) stay reachable
-        // without a token.
-        .route("/remote/v1/refs", get(routes::remote::get_refs))
-        .route(
-            "/remote/v1/fetch-blocks",
-            post(routes::remote::post_fetch_blocks),
-        )
-        .route(
-            "/remote/v1/push-blocks",
-            post(routes::remote::post_push_blocks),
-        )
-        .route(
-            "/remote/v1/advance-head",
-            post(routes::remote::post_advance_head),
-        );
+        // `/remote/v1/*` transport surface. Auth is enforced
+        // per-handler via the `RequireBearer` extractor (see
+        // crate::auth), not via a tower layer, so the read-open verbs
+        // (`refs`, `fetch-blocks`) stay reachable without a token.
+        //
+        // BUG-49: Rate limiting is applied to the entire `/remote/v1/*`
+        // group via a token-bucket middleware (100 req/s, burst 50).
+        // The limiter is process-global (not per-IP) because remote
+        // sync clients are trusted peers whose IP space is not
+        // predictable. See `crate::remote_rate_limit` for tunability
+        // via `MNEM_REMOTE_RATE_PER_SEC` / `MNEM_REMOTE_RATE_BURST`.
+        .merge(remote_routes());
     if opts.metrics_enabled {
         // `/metrics` is intentionally NOT under `/v1/` so a Prometheus
         // scrape config that targets the canonical path works without
@@ -322,6 +374,40 @@ pub fn app_with_options(repo_dir: &Path, opts: AppOptions) -> Result<Router> {
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(correlation::correlation_id))
         .with_state(state))
+}
+
+/// Build the rate-limited `/remote/v1/*` sub-router.
+///
+/// The four remote-protocol verbs are grouped into a dedicated
+/// [`Router`] that has the [`remote_rate_limit::remote_rate_limit_middleware`]
+/// applied via `axum::middleware::from_fn`. The limiter instance is
+/// shared across all four routes via an [`Arc`] clone captured in the
+/// closure; no heap allocation occurs per request beyond the `Arc`
+/// refcount bump.
+///
+/// The resulting router is merged into the main router via
+/// [`Router::merge`] so axum's standard route-dispatch table sees
+/// the `/remote/v1/*` paths alongside `/v1/*`.
+fn remote_routes() -> Router<AppState> {
+    let limiter = Arc::new(remote_rate_limit::RemoteRateLimiter::from_env());
+    Router::new()
+        .route("/remote/v1/refs", get(routes::remote::get_refs))
+        .route(
+            "/remote/v1/fetch-blocks",
+            post(routes::remote::post_fetch_blocks),
+        )
+        .route(
+            "/remote/v1/push-blocks",
+            post(routes::remote::post_push_blocks),
+        )
+        .route(
+            "/remote/v1/advance-head",
+            post(routes::remote::post_advance_head),
+        )
+        .layer(axum::middleware::from_fn(move |req, next| {
+            let limiter = Arc::clone(&limiter);
+            remote_rate_limit::remote_rate_limit_middleware(limiter, req, next)
+        }))
 }
 
 /// Load `embed` section from `<data_dir>/config.toml` if it exists.

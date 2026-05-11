@@ -12,6 +12,11 @@ Examples:
   mnem config unset embed.provider
   mnem config list
 
+  # Write to ~/.mnem/config.toml instead of the per-repo config:
+  mnem config --global set user.name Alice
+  mnem config -g set user.email alice@example.com
+  mnem config -g list
+
 Known keys:
   user.name, user.email, user.key, user.agent_id
   embed.provider    openai | ollama
@@ -34,6 +39,11 @@ pub(crate) struct Args {
     /// Unset the key (legacy positional form only).
     #[arg(long)]
     pub unset: bool,
+
+    /// Read/write the user-global config (~/.mnem/config.toml) instead
+    /// of the per-repo .mnem/config.toml. Mirrors `git config --global`.
+    #[arg(long, short = 'g')]
+    pub global: bool,
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -49,12 +59,21 @@ pub(crate) enum Verb {
 }
 
 pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
-    let data_dir = repo::locate_data_dir(override_path)?;
-    let mut cfg = config::load(&data_dir)?;
+    // Resolve the config path and load the config, branching on --global.
+    let (cfg_path, mut cfg) = if args.global {
+        let p = config::global_path()
+            .ok_or_else(|| anyhow::anyhow!("cannot determine home directory for global config"))?;
+        let c = config::load_global()?;
+        (p, c)
+    } else {
+        let data_dir = repo::locate_data_dir(override_path)?;
+        let c = config::load(&data_dir)?;
+        (config::path_of(&data_dir), c)
+    };
 
     // Dispatch: subcommand wins over legacy positional.
     if let Some(v) = args.verb {
-        return run_verb(v, &data_dir, &mut cfg);
+        return run_verb(v, &cfg_path, &mut cfg);
     }
 
     // Legacy: `mnem config <key> [value]` (+ optional --unset).
@@ -64,7 +83,7 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
         }
         [key] if args.unset => {
             config::set_dotted(&mut cfg, key, None)?;
-            config::save(&data_dir, &cfg)?;
+            config::save_to_path(&cfg_path, &cfg)?;
             println!("unset {key}");
         }
         [key] => match config::get_dotted(&cfg, key) {
@@ -73,7 +92,7 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
         },
         [key, value] => {
             config::set_dotted(&mut cfg, key, Some(value.clone()))?;
-            config::save(&data_dir, &cfg)?;
+            config::save_to_path(&cfg_path, &cfg)?;
             println!("{key} = {value}");
         }
         _ => bail!("too many positional args; did you mean `mnem config set <key> <value>`?"),
@@ -81,11 +100,11 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
     Ok(())
 }
 
-fn run_verb(v: Verb, data_dir: &Path, cfg: &mut config::Config) -> Result<()> {
+fn run_verb(v: Verb, cfg_path: &Path, cfg: &mut config::Config) -> Result<()> {
     match v {
         Verb::Set { key, value } => {
             config::set_dotted(cfg, &key, Some(value.clone()))?;
-            config::save(data_dir, cfg)?;
+            config::save_to_path(cfg_path, cfg)?;
             println!("{key} = {value}");
         }
         Verb::Get { key } => match config::get_dotted(cfg, &key) {
@@ -94,7 +113,7 @@ fn run_verb(v: Verb, data_dir: &Path, cfg: &mut config::Config) -> Result<()> {
         },
         Verb::Unset { key } => {
             config::set_dotted(cfg, &key, None)?;
-            config::save(data_dir, cfg)?;
+            config::save_to_path(cfg_path, cfg)?;
             println!("unset {key}");
         }
         Verb::List => {

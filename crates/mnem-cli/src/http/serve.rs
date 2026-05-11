@@ -46,6 +46,7 @@ pub(crate) fn run(args: ServeArgs) -> Result<()> {
             allow_labels: None,
             in_memory: args.in_memory,
             metrics_enabled,
+            push_token: None,
         },
     )?;
 

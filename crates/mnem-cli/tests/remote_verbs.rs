@@ -205,13 +205,6 @@ fn fetch_round_trip_against_local_server() {
 }
 
 #[test]
-#[ignore = "TODO(B3.5): first-push birth-commit protocol gap. Client \
-            sends `old=local_head` when remote is empty; server \
-            rejects because current heads are empty. Fix requires a \
-            joint client+server change (either a `null`/zero-CID \
-            sentinel in advance-head, or a dedicated `/birth-head` \
-            route). Schema fix + auth coverage is sufficient for B3.4 \
-            acceptance; full push round-trip lands in B3.5."]
 fn push_round_trip_against_local_server() {
     let server = HttpServer::spawn(Some(TEST_TOKEN));
     let client_dir = TempDir::new().unwrap();
@@ -286,8 +279,6 @@ fn push_with_wrong_token_is_401_to_cli() {
 }
 
 #[test]
-#[ignore = "TODO(B3.5): depends on first-push birth-commit protocol \
-            (see `push_round_trip_against_local_server`)."]
 fn push_then_second_push_no_op_is_idempotent() {
     let server = HttpServer::spawn(Some(TEST_TOKEN));
     let client_dir = TempDir::new().unwrap();
@@ -334,8 +325,6 @@ fn fetch_twice_is_idempotent() {
 }
 
 #[test]
-#[ignore = "TODO(B3.5): publisher's initial push hits the birth-commit \
-            gap; once that lands this test flips back on."]
 fn pull_fast_forward_succeeds() {
     // Publisher writes a commit + pushes; consumer pulls it.
     let server = HttpServer::spawn(Some(TEST_TOKEN));
@@ -370,8 +359,6 @@ fn pull_fast_forward_succeeds() {
 }
 
 #[test]
-#[ignore = "TODO(B3.5): needs a prior successful push (birth-commit \
-            gap) before the non-ff scenario can be reproduced."]
 fn pull_non_ff_prints_merge_hint() {
     // Two clients push independent histories. After A pushes, B has
     // a divergent local head; `mnem pull` from B must refuse with
@@ -410,9 +397,6 @@ fn pull_non_ff_prints_merge_hint() {
 }
 
 #[test]
-#[ignore = "TODO(B3.5): needs a prior successful push from client A \
-            (birth-commit gap) before client B's competing push can \
-            observe the CAS mismatch."]
 fn push_cas_mismatch_surfaces_pull_hint_to_cli() {
     // Two clients push to the same ref without syncing. The second
     // push trips the CAS and the CLI prints the "run mnem pull" hint.

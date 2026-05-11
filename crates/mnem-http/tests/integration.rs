@@ -22,6 +22,7 @@ fn make_app() -> (axum::Router, TempDir) {
         allow_labels: Some(true),
         in_memory: false,
         metrics_enabled: false,
+        push_token: None,
     };
     let app = mnem_http::app_with_options(td.path(), opts).expect("build app");
     (app, td)
@@ -137,7 +138,18 @@ async fn post_node_then_get_then_retrieve() {
 
 #[tokio::test]
 async fn delete_node_round_trip() {
-    let (app, _td) = make_app();
+    // DELETE /v1/nodes/{id} requires a bearer token (BUG-16 fix).
+    // Build a dedicated app instance with push_token configured so the
+    // RequireBearer extractor has a token to validate against.
+    let td = TempDir::new().expect("tmp dir");
+    let opts = mnem_http::AppOptions {
+        allow_labels: Some(true),
+        in_memory: false,
+        metrics_enabled: false,
+        push_token: Some("test-token".into()),
+    };
+    let app = mnem_http::app_with_options(td.path(), opts).expect("build app");
+
     // Create
     let body = serde_json::json!({
         "label": "Memory",
@@ -161,13 +173,14 @@ async fn delete_node_round_trip() {
         .unwrap()
         .to_string();
 
-    // Delete
+    // Delete -- must supply bearer token; missing/wrong token yields 401.
     let resp = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("DELETE")
                 .uri(format!("/v1/nodes/{id}?author=tests"))
+                .header("authorization", "Bearer test-token")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -761,4 +774,258 @@ async fn ingest_json_body_max_tokens_clamp_is_bad_request() {
     let j = to_json(resp.into_body()).await;
     let err = j["error"].as_str().unwrap_or_default();
     assert!(err.contains("8192"), "expected clamp message, got {err:?}");
+}
+
+// ---------- POST /v1/edges ----------
+
+/// Helper: create a node and return its UUID string.
+async fn create_node(app: &axum::Router, summary: &str) -> String {
+    let body = serde_json::json!({
+        "label": "Entity",
+        "summary": summary,
+        "author": "tests"
+    });
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/nodes")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "create_node should succeed");
+    to_json(resp.into_body()).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+#[tokio::test]
+async fn post_edge_happy_path() {
+    // Build app with push_token so RequireBearer passes.
+    let td = tempfile::TempDir::new().unwrap();
+    let opts = mnem_http::AppOptions {
+        allow_labels: Some(true),
+        in_memory: false,
+        metrics_enabled: false,
+        push_token: Some("tok".into()),
+    };
+    let app = mnem_http::app_with_options(td.path(), opts).unwrap();
+
+    let src_id = create_node(&app, "Alice").await;
+    let dst_id = create_node(&app, "Berlin").await;
+
+    let edge_body = serde_json::json!({
+        "src": src_id,
+        "dst": dst_id,
+        "etype": "lives_in",
+        "author": "tests"
+    });
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/edges")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer tok")
+                .body(Body::from(serde_json::to_vec(&edge_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "post_edge happy path");
+    let j = to_json(resp.into_body()).await;
+    assert_eq!(j["schema"], "mnem.v1.post-edge");
+    assert!(
+        j["edge_id"].as_str().unwrap().len() > 10,
+        "edge_id should be a UUID string"
+    );
+    assert!(
+        j["op_id"].as_str().unwrap().starts_with("bafyrei"),
+        "op_id should be a CID"
+    );
+}
+
+#[tokio::test]
+async fn post_edge_missing_src_is_404() {
+    let td = tempfile::TempDir::new().unwrap();
+    let opts = mnem_http::AppOptions {
+        allow_labels: Some(true),
+        in_memory: false,
+        metrics_enabled: false,
+        push_token: Some("tok".into()),
+    };
+    let app = mnem_http::app_with_options(td.path(), opts).unwrap();
+
+    let dst_id = create_node(&app, "Berlin").await;
+    let ghost_src = "00000000-0000-7000-8000-000000000001";
+
+    let edge_body = serde_json::json!({
+        "src": ghost_src,
+        "dst": dst_id,
+        "etype": "lives_in",
+        "author": "tests"
+    });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/edges")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer tok")
+                .body(Body::from(serde_json::to_vec(&edge_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND, "missing src => 404");
+}
+
+#[tokio::test]
+async fn post_edge_missing_dst_is_404() {
+    let td = tempfile::TempDir::new().unwrap();
+    let opts = mnem_http::AppOptions {
+        allow_labels: Some(true),
+        in_memory: false,
+        metrics_enabled: false,
+        push_token: Some("tok".into()),
+    };
+    let app = mnem_http::app_with_options(td.path(), opts).unwrap();
+
+    let src_id = create_node(&app, "Alice").await;
+    let ghost_dst = "00000000-0000-7000-8000-000000000002";
+
+    let edge_body = serde_json::json!({
+        "src": src_id,
+        "dst": ghost_dst,
+        "etype": "lives_in",
+        "author": "tests"
+    });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/edges")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer tok")
+                .body(Body::from(serde_json::to_vec(&edge_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND, "missing dst => 404");
+}
+
+#[tokio::test]
+async fn post_edge_bad_uuid_is_400() {
+    let td = tempfile::TempDir::new().unwrap();
+    let opts = mnem_http::AppOptions {
+        allow_labels: Some(true),
+        in_memory: false,
+        metrics_enabled: false,
+        push_token: Some("tok".into()),
+    };
+    let app = mnem_http::app_with_options(td.path(), opts).unwrap();
+
+    let edge_body = serde_json::json!({
+        "src": "not-a-uuid",
+        "dst": "also-not-a-uuid",
+        "etype": "relates_to",
+        "author": "tests"
+    });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/edges")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer tok")
+                .body(Body::from(serde_json::to_vec(&edge_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "bad UUID => 400");
+    let j = to_json(resp.into_body()).await;
+    assert_eq!(j["schema"], "mnem.v1.err");
+}
+
+#[tokio::test]
+async fn post_edge_missing_author_is_400() {
+    let td = tempfile::TempDir::new().unwrap();
+    let opts = mnem_http::AppOptions {
+        allow_labels: Some(true),
+        in_memory: false,
+        metrics_enabled: false,
+        push_token: Some("tok".into()),
+    };
+    let app = mnem_http::app_with_options(td.path(), opts).unwrap();
+
+    let src_id = create_node(&app, "Alice").await;
+    let dst_id = create_node(&app, "Berlin").await;
+
+    let edge_body = serde_json::json!({
+        "src": src_id,
+        "dst": dst_id,
+        "etype": "lives_in"
+        // author intentionally omitted
+    });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/edges")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer tok")
+                .body(Body::from(serde_json::to_vec(&edge_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "missing author => 400"
+    );
+}
+
+#[tokio::test]
+async fn post_edge_without_auth_is_401() {
+    let td = tempfile::TempDir::new().unwrap();
+    let opts = mnem_http::AppOptions {
+        allow_labels: Some(true),
+        in_memory: false,
+        metrics_enabled: false,
+        push_token: Some("tok".into()),
+    };
+    let app = mnem_http::app_with_options(td.path(), opts).unwrap();
+
+    let edge_body = serde_json::json!({
+        "src": "00000000-0000-7000-8000-000000000001",
+        "dst": "00000000-0000-7000-8000-000000000002",
+        "etype": "relates_to",
+        "author": "tests"
+    });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/edges")
+                .header("content-type", "application/json")
+                // No Authorization header
+                .body(Body::from(serde_json::to_vec(&edge_body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "no bearer token => 401"
+    );
 }

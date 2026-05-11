@@ -39,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         allow_labels: Some(true),
         in_memory: true,
         metrics_enabled: false,
+        push_token: None,
     };
     let repo_path = td.path().to_path_buf();
 

@@ -6,7 +6,7 @@
 //! - `--oneline`: `<short-cid> <message>` one line per op, matching
 //!   `git log --oneline`.
 //! - `--format=json`: JSON Lines, one compact object per op. Each
-//!   line is a `{ "cid", "time", "author", "description", "parents"
+//!   line is a `{ "cid", "timestamp", "author", "description", "parents"
 //!   }` record. Stable across releases ; scripts can
 //!   depend on it.
 
@@ -22,7 +22,7 @@ use super::*;
 #[derive(Serialize)]
 struct LogRecord<'a> {
     cid: String,
-    time: u64,
+    timestamp: String,
     author: &'a str,
     description: &'a str,
     parents: Vec<String>,
@@ -126,7 +126,7 @@ fn write_human_record(w: &mut impl Write, cid: &mnem_core::id::Cid, op: &Operati
 fn write_json_record(w: &mut impl Write, cid: &mnem_core::id::Cid, op: &Operation) -> Result<()> {
     let record = LogRecord {
         cid: cid.to_string(),
-        time: op.time,
+        timestamp: micros_to_rfc3339(op.time),
         author: &op.author,
         description: &op.description,
         parents: op.parents.iter().map(ToString::to_string).collect(),
@@ -136,6 +136,53 @@ fn write_json_record(w: &mut impl Write, cid: &mnem_core::id::Cid, op: &Operatio
     let line = serde_json::to_string(&record).context("serialising log record")?;
     writeln!(w, "{line}")?;
     Ok(())
+}
+
+/// Convert microseconds-since-epoch to an RFC 3339 timestamp string.
+/// Falls back to the raw integer (as a string) on overflow.
+fn micros_to_rfc3339(micros: u64) -> String {
+    use std::time::{Duration, UNIX_EPOCH};
+    let secs = micros / 1_000_000;
+    let nanos = ((micros % 1_000_000) * 1_000) as u32;
+    match UNIX_EPOCH.checked_add(Duration::new(secs, nanos)) {
+        Some(_t) => {
+            // Format as RFC 3339 UTC without pulling in `chrono` or `time`.
+            let s = secs % 60;
+            let m = (secs / 60) % 60;
+            let h = (secs / 3600) % 24;
+            let days = secs / 86400;
+            let (year, month, day) = days_to_ymd(days);
+            format!(
+                "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:06}Z",
+                year,
+                month,
+                day,
+                h,
+                m,
+                s,
+                micros % 1_000_000,
+            )
+        }
+        None => micros.to_string(),
+    }
+}
+
+/// Convert days since Unix epoch to (year, month, day).
+/// Implements the standard proleptic Gregorian calendar algorithm.
+fn days_to_ymd(days: u64) -> (u64, u8, u8) {
+    // Algorithm from https://howardhinnant.github.io/date_algorithms.html
+    // (civil_from_days, public domain). Adapted for unsigned input.
+    let z = days as i64 + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as u64, m as u8, d as u8)
 }
 
 /// Produce a short-hex prefix of a CID for `--oneline` output. mnem

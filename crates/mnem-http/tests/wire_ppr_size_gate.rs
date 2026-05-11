@@ -24,6 +24,7 @@ fn make_app() -> (axum::Router, TempDir) {
         allow_labels: Some(true),
         in_memory: false,
         metrics_enabled: true,
+        push_token: None,
     };
     let app = mnem_http::app_with_options(td.path(), opts).expect("build app");
     (app, td)

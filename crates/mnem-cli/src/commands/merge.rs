@@ -38,6 +38,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow, bail};
+use mnem_core::HEADS_PREFIX;
 use mnem_core::id::Cid;
 use mnem_core::objects::RefTarget;
 use mnem_core::repo::{MergeOutcome, MergeStrategy, conflict_category_counts, merge_three_way};
@@ -225,7 +226,7 @@ fn resolve_commitish(r: &mnem_core::repo::ReadonlyRepo, s: &str) -> Result<Cid> 
     let candidate = if refs.contains_key(s) {
         s.to_string()
     } else {
-        format!("refs/heads/{s}")
+        format!("{HEADS_PREFIX}{s}")
     };
     match refs.get(&candidate) {
         Some(RefTarget::Normal { target }) => Ok(target.clone()),
@@ -234,7 +235,7 @@ fn resolve_commitish(r: &mnem_core::repo::ReadonlyRepo, s: &str) -> Result<Cid> 
         }
         None => bail!(
             "cannot resolve `{s}` to a commit. Tried raw CID, `{s}`, and \
-             `refs/heads/{s}`."
+             `{HEADS_PREFIX}{s}`."
         ),
     }
 }
@@ -247,7 +248,7 @@ fn current_branch_name(r: &mnem_core::repo::ReadonlyRepo) -> Option<String> {
     for (name, target) in &r.view().refs {
         if let RefTarget::Normal { target: t } = target
             && t == head
-            && name.starts_with("refs/heads/")
+            && name.starts_with(HEADS_PREFIX)
         {
             return Some(name.clone());
         }
@@ -302,25 +303,106 @@ fn run_continue(data_dir: &Path, override_path: Option<&Path>) -> Result<()> {
              or re-run the command after resolving the conflict file."
         );
     }
+    if !mc_path.exists() {
+        bail!(
+            "`.mnem/{MERGE_CONFLICTS_FILE}` not found. \
+             Re-run `mnem merge <branch>` to regenerate it, or \
+             run `mnem merge --abort` to cancel."
+        );
+    }
+
+    // Read and parse the user-edited conflict file.
+    let mc_json = fs::read_to_string(&mc_path)
+        .with_context(|| format!("reading .mnem/{MERGE_CONFLICTS_FILE}"))?;
+    let mc: mnem_core::repo::MergeConflicts =
+        serde_json::from_str(&mc_json).with_context(|| {
+            format!(
+                "parsing .mnem/{MERGE_CONFLICTS_FILE}. \
+                 Make sure the file is valid JSON."
+            )
+        })?;
+
+    // Validate that every conflict has a resolution set.
+    // Each `resolution` must be `"ours"` (keep left/current side) or
+    // `"theirs"` (take right/incoming side).
+    let mut unresolved_indices: Vec<usize> = Vec::new();
+    for (i, c) in mc.conflicts.iter().enumerate() {
+        match c.resolution.as_deref() {
+            Some("ours") | Some("theirs") => {}
+            Some(other) => bail!(
+                "conflict #{} has unrecognised resolution {:?}. \
+                 Set `\"resolution\"` to `\"ours\"` or `\"theirs\"` \
+                 in `.mnem/{MERGE_CONFLICTS_FILE}`.",
+                i + 1,
+                other
+            ),
+            None => unresolved_indices.push(i + 1),
+        }
+    }
+    if !unresolved_indices.is_empty() {
+        bail!(
+            "{} conflict(s) still lack a `\"resolution\"` field (entries: {}). \
+             Open `.mnem/{MERGE_CONFLICTS_FILE}`, add \
+             `\"resolution\": \"ours\"` or `\"resolution\": \"theirs\"` \
+             to each conflict entry, then re-run `mnem merge --continue`.",
+            unresolved_indices.len(),
+            unresolved_indices
+                .iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    }
+
+    // Derive the merge strategy from the user's per-conflict picks.
+    // The current merge engine applies one strategy to all conflicts;
+    // per-conflict resolution is not yet supported. If picks are mixed,
+    // reject with a helpful error rather than silently discarding picks.
+    let all_ours = mc
+        .conflicts
+        .iter()
+        .all(|c| c.resolution.as_deref() == Some("ours"));
+    let all_theirs = mc
+        .conflicts
+        .iter()
+        .all(|c| c.resolution.as_deref() == Some("theirs"));
+    let strategy = if all_theirs {
+        MergeStrategy::Theirs
+    } else if all_ours {
+        MergeStrategy::Ours
+    } else if mc.conflicts.is_empty() {
+        // No conflicts at all - file was empty or all entries were resolved
+        // before this path; treat as a clean-merge continuation with Ours.
+        MergeStrategy::Ours
+    } else {
+        // Mixed picks: the merge engine applies one strategy globally.
+        // Tell the user to make picks consistent.
+        let ours_count = mc
+            .conflicts
+            .iter()
+            .filter(|c| c.resolution.as_deref() == Some("ours"))
+            .count();
+        let theirs_count = mc
+            .conflicts
+            .iter()
+            .filter(|c| c.resolution.as_deref() == Some("theirs"))
+            .count();
+        bail!(
+            "mixed resolutions: {ours_count} conflict(s) set to \"ours\" and \
+             {theirs_count} set to \"theirs\". The current merge engine applies \
+             one strategy to all conflicts. Set every `\"resolution\"` to \
+             the same value (all `\"ours\"` or all `\"theirs\"`), then re-run \
+             `mnem merge --continue`."
+        );
+    };
+
     // Read left/right from the markers on disk.
     let left = parse_cid_file(&oh)?;
     let right = parse_cid_file(&mh)?;
-    // Validate the conflict file parses even if we don't pass
-    // per-conflict picks (this wave: the continue path trusts the
-    // user's manual edits have produced a consistent tree at the
-    // Prolly layer and simply re-runs the merge executor, which will
-    // either succeed cleanly now or re-report the same conflicts.
-    // Per-conflict commit provenance is deferred to B4.4).
-    let _ = fs::read_to_string(&mc_path)
-        .with_context(|| format!("reading .mnem/{MERGE_CONFLICTS_FILE}"))?;
 
     let cfg = config::load(data_dir)?;
     let (_dir, r, bs, ohs) = repo::open_all(override_path)?;
-    // On --continue we force an auto-resolving strategy (default
-    // `ours`, since the user edited the file and implicitly committed
-    // to the left side). This is the minimum-viable continue loop;
-    // richer per-conflict picks land in B4.4 with a proper manifest.
-    let outcome = merge_three_way(&bs, &ohs, left.clone(), right.clone(), MergeStrategy::Ours)
+    let outcome = merge_three_way(&bs, &ohs, left.clone(), right.clone(), strategy)
         .context("3-way merge --continue")?;
 
     match outcome {
@@ -343,11 +425,14 @@ fn run_continue(data_dir: &Path, override_path: Option<&Path>) -> Result<()> {
         }
         MergeOutcome::Conflicts(mc) => {
             let (n_node, n_edge, n_tvm) = conflict_category_counts(&mc);
+            let json =
+                serde_json::to_string_pretty(&mc).context("serialising MergeConflicts to JSON")?;
+            fs::write(&mc_path, json).with_context(|| format!("writing {MERGE_CONFLICTS_FILE}"))?;
             bail!(
                 "merge --continue still has {} unresolved conflict(s) \
                  ({n_node} node-cid, {n_edge} edge-prop, {n_tvm} tombstone-vs-modify). \
-                 Re-edit `.mnem/{MERGE_CONFLICTS_FILE}` and try again, or run \
-                 `mnem merge --abort`.",
+                 Conflict file updated - re-edit `.mnem/{MERGE_CONFLICTS_FILE}` and run \
+                 `mnem merge --continue` again, or run `mnem merge --abort`.",
                 mc.conflicts.len(),
             );
         }

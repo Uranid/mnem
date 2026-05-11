@@ -122,6 +122,7 @@ async fn main() -> Result<()> {
             allow_labels: None,
             in_memory: cli.in_memory,
             metrics_enabled,
+            push_token: None,
         },
     )?;
     let listener = tokio::net::TcpListener::bind(cli.bind).await?;

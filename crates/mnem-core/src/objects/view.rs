@@ -178,6 +178,25 @@ impl View {
     pub fn tracking_ref(&self, remote: &str, ref_name: &str) -> Option<&RefTarget> {
         self.remote_refs.as_ref()?.get(remote)?.get(ref_name)
     }
+
+    /// Get the currently active branch ref name (like git's HEAD -> refs/heads/X).
+    ///
+    /// Returns `None` for old Views that predate BUG-38 (detached HEAD behaviour).
+    #[must_use]
+    pub fn active_branch(&self) -> Option<&str> {
+        match self.extra.get("active_branch") {
+            Some(Ipld::String(s)) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Set the active branch ref name in extra. Returns `self` for chaining.
+    #[must_use]
+    pub fn with_active_branch(mut self, branch: impl Into<String>) -> Self {
+        self.extra
+            .insert("active_branch".to_string(), Ipld::String(branch.into()));
+        self
+    }
 }
 
 // ---------------- Serde for View ----------------

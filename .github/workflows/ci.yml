@@ -151,3 +151,32 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
+
+  # ----------------------------------------------------------------
+  # Python bindings: build via maturin and run the pytest suite.
+  # This catches Python-level regressions (wrong return types, panics
+  # on edge cases, API mismatches) that `cargo check -p mnem-py` can
+  # never surface.
+  # ----------------------------------------------------------------
+  python-bindings-test:
+    name: python bindings (maturin + pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo artefacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-python-bindings
+      - name: Install maturin and pytest
+        run: pip install maturin pytest
+      - name: Build and install pymnem in-place
+        working-directory: crates/mnem-py
+        run: maturin develop
+      - name: Run Python tests
+        run: pytest crates/mnem-py/tests -q

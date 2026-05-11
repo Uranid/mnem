@@ -116,9 +116,30 @@ pub(crate) async fn ingest(
         .to_ascii_lowercase();
 
     if content_type.starts_with("application/json") {
-        let bytes = axum::body::to_bytes(multipart_or_json.into_body(), usize::MAX)
+        let limit = max_ingest_bytes() as usize;
+        let bytes = axum::body::to_bytes(multipart_or_json.into_body(), limit)
             .await
-            .map_err(|e| Error::bad_request(format!("reading body: {e}")))?;
+            .map_err(|e| {
+                // `to_bytes` wraps a `http_body_util::LengthLimitError` as
+                // its source when the body exceeds the supplied cap.
+                // Detect that via the source chain so the client receives
+                // 413 Payload Too Large rather than a generic 400.
+                use std::error::Error as StdError;
+                let is_length_limit = e
+                    .source()
+                    .map_or(false, |src| src.to_string().contains("length limit"));
+                if is_length_limit {
+                    Error::status(
+                        axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                        format!(
+                            "JSON body exceeds the {limit}-byte cap \
+                             (raise MNEM_HTTP_INGEST_MAX_BYTES if legitimate)"
+                        ),
+                    )
+                } else {
+                    Error::bad_request(format!("reading body: {e}"))
+                }
+            })?;
         let body: IngestJsonBody = serde_json::from_slice(&bytes)
             .map_err(|e| Error::bad_request(format!("malformed JSON body: {e}")))?;
         ingest_json(state, body).await
@@ -149,7 +170,7 @@ async fn ingest_multipart(state: AppState, mut multipart: Multipart) -> Result<J
 
     let max_bytes = max_ingest_bytes();
 
-    while let Some(field) = multipart
+    while let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|e| Error::bad_request(format!("multipart field: {e}")))?
@@ -158,18 +179,30 @@ async fn ingest_multipart(state: AppState, mut multipart: Multipart) -> Result<J
         match name.as_str() {
             "file" => {
                 file_name = field.file_name().map(ToString::to_string);
-                let data = field
-                    .bytes()
-                    .await
-                    .map_err(|e| Error::bad_request(format!("reading file field: {e}")))?;
-                if data.len() as u64 > max_bytes {
-                    return Err(Error::bad_request(format!(
-                        "file field is {} bytes; exceeds the {max_bytes}-byte cap \
-                         (raise MNEM_HTTP_INGEST_MAX_BYTES if legitimate)",
-                        data.len()
-                    )));
+                // Stream chunks instead of buffering the whole field
+                // before checking the size (BUG-9): abort as soon as
+                // the accumulated length exceeds the cap so we never
+                // hold more than `max_bytes + one chunk` in RAM.
+                let max_bytes_usize = max_bytes as usize;
+                let mut buf = Vec::with_capacity(1024 * 1024); // 1 MiB initial
+                loop {
+                    match field.chunk().await {
+                        Ok(Some(chunk)) => {
+                            if buf.len() + chunk.len() > max_bytes_usize {
+                                return Err(Error::status(
+                                    axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                                    "upload too large (max 33 MiB)".to_string(),
+                                ));
+                            }
+                            buf.extend_from_slice(&chunk);
+                        }
+                        Ok(None) => break,
+                        Err(e) => {
+                            return Err(Error::bad_request(format!("reading file field: {e}")));
+                        }
+                    }
                 }
-                file_bytes = Some(data.to_vec());
+                file_bytes = Some(buf);
             }
             "ntype" => ntype = Some(field_text(field).await?),
             "chunker" => chunker_str = Some(field_text(field).await?),
@@ -195,8 +228,10 @@ async fn ingest_multipart(state: AppState, mut multipart: Multipart) -> Result<J
                 // Ignore unknown fields rather than 400: clients that
                 // add forward-compatible metadata (trace_id,
                 // client_version) shouldn't break here.
+                // Drain via chunk() to avoid buffering the entire
+                // unknown field in RAM (BUG-9 guard for non-file fields).
                 tracing::debug!(field = %other, "ignoring unknown multipart field on /v1/ingest");
-                let _ = field.bytes().await;
+                while field.chunk().await.unwrap_or(None).is_some() {}
             }
         }
     }

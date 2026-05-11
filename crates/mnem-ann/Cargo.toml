@@ -35,6 +35,7 @@ hnsw    = ["dep:instant-distance"]
 [dependencies]
 mnem-core  = { workspace = true }
 serde      = { workspace = true }
+tracing    = { workspace = true }
 # instant-distance is a pure-Rust HNSW implementation (MIT licensed,
 # maintained by Dirkjan Ochtman). Chosen over hnsw_rs for active
 # maintenance, and over usearch for cxx-free build. No SIMD intrinsics

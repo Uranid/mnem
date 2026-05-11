@@ -10,9 +10,11 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use ipld_core::ipld::Ipld;
+
 use crate::codec::{from_canonical_bytes, hash_to_cid};
 use crate::error::{Error, RepoError, StoreError};
-use crate::id::{Cid, NodeId};
+use crate::id::{Cid, EdgeId, NodeId};
 use crate::objects::node::Embedding;
 use crate::objects::{Commit, Edge, EmbeddingBucket, Node, Operation, RefTarget, View};
 use crate::prolly::{self, ProllyKey};
@@ -214,6 +216,27 @@ impl ReadonlyRepo {
             Some(node_cid) => {
                 let node: Node = decode_from_store(&*self.blockstore, &node_cid)?;
                 Ok(Some(node))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Look up an edge by its stable [`EdgeId`] in the current commit's
+    /// edge tree. Returns `None` if absent or if the repository has no
+    /// commits yet.
+    ///
+    /// # Errors
+    ///
+    /// Store or codec errors while walking the Prolly tree.
+    pub fn lookup_edge(&self, id: &EdgeId) -> Result<Option<Edge>, Error> {
+        let Some(commit) = self.commit.as_ref() else {
+            return Ok(None);
+        };
+        let key = ProllyKey::from(*id);
+        match prolly::lookup(&*self.blockstore, &commit.edges, &key)? {
+            Some(edge_cid) => {
+                let edge: Edge = decode_from_store(&*self.blockstore, &edge_cid)?;
+                Ok(Some(edge))
             }
             None => Ok(None),
         }
@@ -570,6 +593,55 @@ impl ReadonlyRepo {
             author,
             now_micros(),
             format!("update_heads: {new_head}"),
+        )
+        .with_parent(self.op_id.clone());
+        let (op_bytes, op_cid) = hash_to_cid(&op)?;
+        bs.put(op_cid.clone(), op_bytes)?;
+
+        ohs.update(op_cid.clone(), std::slice::from_ref(&self.op_id))?;
+
+        Self::load_at(bs, ohs, op_cid)
+    }
+
+    /// BUG-38: Switch HEAD to a named branch and record it as the active
+    /// branch in `View.extra["active_branch"]`.
+    ///
+    /// Identical to [`update_heads`] except it also writes the branch
+    /// refname into `extra["active_branch"]` so that subsequent
+    /// `Transaction::commit_opts` calls know which branch ref to advance
+    /// automatically.
+    ///
+    /// `branch_refname` must be the fully-qualified ref name
+    /// (e.g. `"refs/heads/main"`).
+    ///
+    /// # Errors
+    ///
+    /// Blockstore or hash errors.
+    pub fn switch_branch(
+        &self,
+        new_head: Cid,
+        branch_refname: impl Into<String>,
+        author: &str,
+    ) -> Result<Self, Error> {
+        let bs = self.blockstore.clone();
+        let ohs = self.op_heads.clone();
+
+        let branch_ref: String = branch_refname.into();
+        let mut new_view: View = (*self.view).clone();
+        new_view.heads = vec![new_head.clone()];
+        new_view.extra.insert(
+            "active_branch".to_string(),
+            Ipld::String(branch_ref.clone()),
+        );
+
+        let (view_bytes, view_cid) = hash_to_cid(&new_view)?;
+        bs.put(view_cid.clone(), view_bytes)?;
+
+        let op = Operation::new(
+            view_cid,
+            author,
+            now_micros(),
+            format!("switch: {branch_ref} -> {new_head}"),
         )
         .with_parent(self.op_id.clone());
         let (op_bytes, op_cid) = hash_to_cid(&op)?;

@@ -17,15 +17,16 @@
 #![deny(missing_docs)]
 #![allow(clippy::needless_pass_by_value)] // pyo3 consumes most Py-side values
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use ipld_core::ipld::Ipld;
 use mnem_core::Error as CoreError;
 use mnem_core::error::{CodecError, ObjectError, RepoError};
-use mnem_core::id::NodeId;
+use mnem_core::id::{EdgeId, NodeId};
 use mnem_core::index::PropPredicate;
-use mnem_core::objects::{Dtype, Embedding, Node as CoreNode};
+use mnem_core::objects::{Dtype, Edge as CoreEdge, Embedding, Node as CoreNode};
 use mnem_core::repo::ReadonlyRepo;
 use mnem_core::store::{Blockstore, MemoryBlockstore, MemoryOpHeadsStore, OpHeadsStore};
 use pyo3::create_exception;
@@ -126,6 +127,31 @@ fn map_core_err(e: CoreError) -> PyErr {
 }
 
 // ============================================================
+// Global graph helpers
+// ============================================================
+
+/// Resolve the global graph parent directory.
+///
+/// Precedence:
+/// 1. `MNEM_GLOBAL_DIR` env var (absolute path) — useful on WSL.
+/// 2. `$HOME/.mnemglobal` (Unix) / `$USERPROFILE/.mnemglobal` (Windows).
+/// 3. `./.mnemglobal` as a last-resort fallback.
+fn global_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("MNEM_GLOBAL_DIR") {
+        return PathBuf::from(dir);
+    }
+    // Unix HOME → Windows USERPROFILE → cwd fallback.
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        });
+    home.join(".mnemglobal")
+}
+
+// ============================================================
 // Repo - the main entry point
 // ============================================================
 
@@ -177,6 +203,52 @@ impl Repo {
         Ok(Self {
             inner: Arc::new(Mutex::new(repo)),
         })
+    }
+
+    /// Open (or initialise) the global knowledge graph at
+    /// ``~/.mnemglobal/.mnem/``.
+    ///
+    /// The path is resolved from the ``MNEM_GLOBAL_DIR`` env var when set,
+    /// or ``$HOME/.mnemglobal`` otherwise. The ``~/.mnem/`` sub-directory
+    /// and its database file are created automatically on first call.
+    ///
+    /// Returns a fully-functional :class:`Repo` — all existing methods
+    /// (``retrieve``, ``commit_node``, ``tombstone_node``, ``transaction``,
+    /// etc.) work identically on the global graph.
+    ///
+    /// Example::
+    ///
+    ///     global_repo = pymnem.Repo.open_global()
+    ///     results = global_repo.retrieve("programming languages")
+    ///
+    #[staticmethod]
+    pub fn open_global() -> PyResult<Self> {
+        let dir = global_dir();
+        let data_dir = dir.join(".mnem");
+        std::fs::create_dir_all(&data_dir)
+            .map_err(|e| MnemError::new_err(format!("creating global dir: {e}")))?;
+        let db_path = data_dir.join("repo.redb");
+        let (bs, ohs, _) = mnem_backend_redb::open_or_init(&db_path).map_err(map_core_err)?;
+        let bs_arc: Arc<dyn Blockstore> = bs;
+        let ohs_arc: Arc<dyn OpHeadsStore> = ohs;
+        let repo = match ReadonlyRepo::open(bs_arc.clone(), ohs_arc.clone()) {
+            Ok(r) => r,
+            Err(e) if e.is_uninitialized() => {
+                ReadonlyRepo::init(bs_arc, ohs_arc).map_err(map_core_err)?
+            }
+            Err(e) => return Err(map_err(e)),
+        };
+        Ok(Self {
+            inner: Arc::new(Mutex::new(repo)),
+        })
+    }
+
+    /// Return the path to the global graph directory as a string.
+    ///
+    /// Useful for debugging / logging which directory ``open_global()`` will use.
+    #[staticmethod]
+    pub fn global_dir_path() -> String {
+        global_dir().to_string_lossy().into_owned()
     }
 
     /// Current operation ID as a CID string. Advances on every commit.
@@ -338,6 +410,184 @@ impl Repo {
             pending_nodes: Vec::new(),
             committed: false,
         }
+    }
+
+    // ---- BUG-42: tombstone_node ----
+
+    /// Logically "forget" a node: inserts a [`Tombstone`] record in the
+    /// new View so that the node no longer surfaces in retrieval results.
+    /// The node's CID remains in the store (mnem is append-only); only
+    /// the View filter changes.
+    ///
+    /// Python signature::
+    ///
+    ///   repo.tombstone_node(author, message, uuid, reason)
+    ///
+    /// `uuid`   - canonical UUID string of the node to tombstone.
+    /// `reason` - human-readable rationale (stored on the Tombstone; shown
+    ///            by `mnem log` and audit callers).
+    ///
+    /// Raises `ValueError` on a malformed UUID, `MnemError` on store /
+    /// codec failures.
+    #[pyo3(signature = (author, message, uuid, reason))]
+    pub fn tombstone_node(
+        &self,
+        author: &str,
+        message: &str,
+        uuid: &str,
+        reason: String,
+    ) -> PyResult<()> {
+        let node_id = NodeId::parse_uuid(uuid)
+            .map_err(|e| PyValueError::new_err(format!("invalid UUID: {e}")))?;
+        let mut guard = self.inner.lock().map_err(poison)?;
+        let mut tx = guard.start_transaction();
+        tx.tombstone_node(node_id, reason).map_err(map_core_err)?;
+        let new_repo = tx.commit(author, message).map_err(map_core_err)?;
+        *guard = new_repo;
+        Ok(())
+    }
+
+    // ---- BUG-43: add_edge ----
+
+    /// Create a typed, directed edge between two nodes and commit.
+    ///
+    /// Python signature::
+    ///
+    ///   repo.add_edge(author, message, src, dst, etype, props=None) -> str
+    ///
+    /// `src`   - UUID string of the source node.
+    /// `dst`   - UUID string of the destination node.
+    /// `etype` - free-form edge-type label (e.g. `"works_at"`, `"lives_in"`).
+    /// `props` - optional dict of scalar edge properties (str/int/float/bool/None).
+    ///
+    /// Returns the new edge's UUID string. Raises `ValueError` on malformed
+    /// UUIDs or unsupported prop types; `MnemError` on store / referential-
+    /// integrity failures (both endpoints must exist at the current head).
+    #[pyo3(signature = (author, message, src, dst, etype, props = None))]
+    pub fn add_edge(
+        &self,
+        author: &str,
+        message: &str,
+        src: &str,
+        dst: &str,
+        etype: &str,
+        props: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<String> {
+        let src_id = NodeId::parse_uuid(src)
+            .map_err(|e| PyValueError::new_err(format!("invalid src UUID: {e}")))?;
+        let dst_id = NodeId::parse_uuid(dst)
+            .map_err(|e| PyValueError::new_err(format!("invalid dst UUID: {e}")))?;
+
+        // Build the edge object while the GIL is still held (we need
+        // to extract from the Python dict here).
+        let edge_id = EdgeId::new_v7();
+        let mut edge = CoreEdge::new(edge_id, etype, src_id, dst_id);
+        if let Some(dict) = props {
+            for (k, v) in dict {
+                let key: String = k.extract()?;
+                edge = edge.with_prop(key, py_to_ipld(&v)?);
+            }
+        }
+        let edge_id_str = edge.id.to_uuid_string();
+
+        let mut guard = self.inner.lock().map_err(poison)?;
+        let mut tx = guard.start_transaction();
+        tx.add_edge(&edge).map_err(map_core_err)?;
+        let new_repo = tx.commit(author, message).map_err(map_core_err)?;
+        *guard = new_repo;
+        Ok(edge_id_str)
+    }
+
+    // ---- BUG-43: commit_relation ----
+
+    /// Resolve-or-create both endpoint nodes by a canonical property, then
+    /// create a typed edge between them - all in a single atomic commit.
+    ///
+    /// Python signature::
+    ///
+    ///   repo.commit_relation(author, message,
+    ///       src_label, src_canonical_prop, src_canonical_value,
+    ///       dst_label, dst_canonical_prop, dst_canonical_value,
+    ///       etype) -> dict
+    ///
+    /// This is the primary helper for the MCP "commit_relation" pattern:
+    /// if a node with `(src_label, src_canonical_prop == src_canonical_value)`
+    /// already exists at the current head it is reused; otherwise a fresh
+    /// node is created. The same logic applies to the dst endpoint.
+    ///
+    /// Parameters
+    /// ----------
+    /// author, message       - commit metadata.
+    /// src_label             - ntype of the source entity (e.g. `"Entity:Person"`).
+    /// src_canonical_prop    - property used as the primary key (e.g. `"name"`).
+    /// src_canonical_value   - value of that property (str).
+    /// dst_label             - ntype of the destination entity.
+    /// dst_canonical_prop    - primary-key property for the destination.
+    /// dst_canonical_value   - value of that property (str).
+    /// etype                 - edge-type label (e.g. `"works_at"`).
+    ///
+    /// Returns a dict with keys `src_id`, `dst_id`, `edge_id` (all UUID
+    /// strings).
+    ///
+    /// Raises `MnemError` on store / codec failures.
+    #[pyo3(signature = (
+        author,
+        message,
+        src_label,
+        src_canonical_prop,
+        src_canonical_value,
+        dst_label,
+        dst_canonical_prop,
+        dst_canonical_value,
+        etype,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    pub fn commit_relation(
+        &self,
+        py: Python<'_>,
+        author: &str,
+        message: &str,
+        src_label: &str,
+        src_canonical_prop: &str,
+        src_canonical_value: &str,
+        dst_label: &str,
+        dst_canonical_prop: &str,
+        dst_canonical_value: &str,
+        etype: &str,
+    ) -> PyResult<Py<PyAny>> {
+        let edge_id = EdgeId::new_v7();
+
+        let mut guard = self.inner.lock().map_err(poison)?;
+        let mut tx = guard.start_transaction();
+
+        let src_node_id = tx
+            .resolve_or_create_node(
+                src_label,
+                src_canonical_prop,
+                ipld_core::ipld::Ipld::String(src_canonical_value.to_owned()),
+            )
+            .map_err(map_core_err)?;
+
+        let dst_node_id = tx
+            .resolve_or_create_node(
+                dst_label,
+                dst_canonical_prop,
+                ipld_core::ipld::Ipld::String(dst_canonical_value.to_owned()),
+            )
+            .map_err(map_core_err)?;
+
+        let edge = CoreEdge::new(edge_id, etype, src_node_id, dst_node_id);
+        tx.add_edge(&edge).map_err(map_core_err)?;
+
+        let new_repo = tx.commit(author, message).map_err(map_core_err)?;
+        *guard = new_repo;
+
+        // Build the result dict.
+        let d = PyDict::new(py);
+        d.set_item("src_id", src_node_id.to_uuid_string())?;
+        d.set_item("dst_id", dst_node_id.to_uuid_string())?;
+        d.set_item("edge_id", edge_id.to_uuid_string())?;
+        Ok(d.into_any().unbind())
     }
 
     /// Retrieve ranked, rendered nodes under a token budget. Returns a
@@ -879,6 +1129,44 @@ fn ipld_to_py_scalar(py: Python<'_>, v: &Ipld) -> Option<Py<PyAny>> {
         Ipld::Float(f) => Some(f.into_pyobject(py).ok()?.to_owned().unbind().into()),
         Ipld::String(s) => Some(s.clone().into_pyobject(py).ok()?.to_owned().unbind().into()),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod global_repo_tests {
+    use super::*;
+    use std::sync::OnceLock;
+
+    // Serialize global-dir tests to prevent env-var races between threads.
+    static GLOBAL_DIR_LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+    fn global_lock() -> std::sync::MutexGuard<'static, ()> {
+        GLOBAL_DIR_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap()
+    }
+
+    #[test]
+    fn open_global_creates_repo_in_custom_dir() {
+        let _guard = global_lock();
+        let tmp = std::env::temp_dir()
+            .join(format!("mnemtest_global_{}", std::process::id()));
+        std::env::set_var("MNEM_GLOBAL_DIR", &tmp);
+        let result = Repo::open_global();
+        std::env::remove_var("MNEM_GLOBAL_DIR");
+        let repo = result.expect("open_global should succeed");
+        let _op_id = repo.op_id().expect("op_id() should succeed");
+        // Clean up
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn global_dir_path_returns_env_override() {
+        let _guard = global_lock();
+        std::env::set_var("MNEM_GLOBAL_DIR", "/tmp/custom_global");
+        let path = Repo::global_dir_path();
+        std::env::remove_var("MNEM_GLOBAL_DIR");
+        assert_eq!(path, "/tmp/custom_global");
     }
 }
 

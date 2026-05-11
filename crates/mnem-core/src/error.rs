@@ -137,6 +137,18 @@ pub enum StoreError {
     /// Backend-specific I/O failure, translated into a string.
     #[error("io: {0}")]
     Io(String),
+    /// On-disk content does not hash to the CID it is stored under.
+    /// Indicates silent disk corruption or a store-level bug (e.g. a
+    /// `put_trusted` caller that violated the safety contract).
+    /// The caller MUST treat this as an unrecoverable integrity failure
+    /// for the affected block.
+    #[error("corruption: block stored under {cid} hashes to a different CID: {detail}")]
+    Corruption {
+        /// The CID that was requested (and used as the storage key).
+        cid: String,
+        /// Human-readable description of the mismatch.
+        detail: String,
+    },
 }
 
 /// Errors from [`crate::sign`] - commit / operation signing + verification.
@@ -236,6 +248,18 @@ pub enum RepoError {
          (or pass `--where K=V` / `--label L` for a pure filter query)."
     )]
     RetrievalEmpty,
+    /// C8: `add_edge` was called with an endpoint that does not exist
+    /// in the current view (neither in the base commit's node tree nor
+    /// in nodes staged in this transaction). Committing such an edge
+    /// would produce a dangling reference that retrieval and graph-
+    /// expand cannot resolve.
+    #[error("dangling edge: node {id} ({role}) does not exist in the current view")]
+    DanglingEdge {
+        /// The `NodeId` that was not found.
+        id: crate::id::NodeId,
+        /// `"src"` or `"dst"` - which endpoint is missing.
+        role: &'static str,
+    },
 }
 
 /// Errors from [`crate::objects`] - Node/Edge/Tree/... validation and decode.

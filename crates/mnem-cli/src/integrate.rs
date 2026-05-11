@@ -1781,8 +1781,7 @@ fn wsl_to_windows_path(path: &Path) -> Option<String> {
     }
     #[cfg(target_os = "linux")]
     {
-        let osrelease = std::fs::read_to_string("/proc/sys/kernel/osrelease")
-            .unwrap_or_default();
+        let osrelease = std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default();
         if !osrelease.to_ascii_lowercase().contains("microsoft") {
             return None;
         }

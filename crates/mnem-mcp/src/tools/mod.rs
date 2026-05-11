@@ -64,11 +64,13 @@ pub(crate) fn dispatch(server: &mut Server, name: &str, args: Value) -> Result<S
         "mnem_search" => handlers::search::search(server, args),
         "mnem_get_node" => handlers::get_node::get_node(server, args),
         "mnem_traverse" => handlers::traverse::traverse(server, args),
+        "mnem_incoming_edges" => handlers::incoming_edges::incoming_edges(server, args),
         "mnem_commit" => handlers::commit::commit(server, args),
         "mnem_commit_relation" => handlers::commit_relation::commit_relation(server, args),
         "mnem_delete_node" => handlers::delete_node::delete_node(server, args),
         "mnem_tombstone_node" => handlers::tombstone_node::tombstone_node(server, args),
         "mnem_list_nodes" => handlers::list_nodes::list_nodes(server, args),
+        "mnem_list_tags" => handlers::list_tags::list_tags(server, args),
         "mnem_resolve_or_create" => handlers::resolve_or_create::resolve_or_create(server, args),
         "mnem_recent" => handlers::recent::recent(server, args),
         "mnem_vector_search" => handlers::vector_search::vector_search(server, args),
@@ -76,6 +78,9 @@ pub(crate) fn dispatch(server: &mut Server, name: &str, args: Value) -> Result<S
         "mnem_global_retrieve" => handlers::global_retrieve::global_retrieve(server, args),
         "mnem_global_add" => handlers::global_add::global_add(server, args),
         "mnem_global_ingest" => handlers::global_ingest::global_ingest(server, args),
+        "mnem_global_tombstone_node" => {
+            handlers::global_tombstone_node::global_tombstone_node(server, args)
+        }
         "mnem_ingest" => handlers::ingest::ingest(server, args),
         #[cfg(feature = "summarize")]
         "mnem_community_summarize" => {
@@ -552,6 +557,165 @@ mod mnem_bench_gate_tests {
         assert!(
             msg.contains("rerank_top_k=") && msg.contains("exceeds max"),
             "error must name the knob + cap: {msg}"
+        );
+    }
+
+    // ---- BUG-1 fix: resolve_or_create must merge props, not overwrite ----
+
+    /// Helper: extract the node UUID from a `mnem_resolve_or_create` response.
+    fn extract_resolved_id(out: &str) -> String {
+        for line in out.lines() {
+            if let Some(rest) = line.trim().strip_prefix("id:") {
+                return rest.trim().to_string();
+            }
+        }
+        panic!("no 'id:' line in resolve_or_create output:\n{out}");
+    }
+
+    #[test]
+    fn resolve_or_create_existing_node_old_props_survive() {
+        // BUG-1 regression test (1/3): existing props must be preserved
+        // when resolve_or_create is called a second time with only new
+        // extra_props.  Before the fix, the second call would silently
+        // drop `city=Berlin` and only retain the anchor prop `name=Alice`.
+        let (mut s, _td) = mk_server(true);
+
+        // First call: create a Person node with anchor `name=Alice` and
+        // extra prop `city=Berlin`.
+        let out1 = dispatch(
+            &mut s,
+            "mnem_resolve_or_create",
+            json!({
+                "label": "Person",
+                "prop_name": "name",
+                "value": "Alice",
+                "extra_props": { "city": "Berlin" },
+                "agent_id": "bug1-test"
+            }),
+        )
+        .expect("first resolve_or_create ok");
+        let id = extract_resolved_id(&out1);
+
+        // Second call: resolve the same node (same anchor) and add a new
+        // extra prop `job=Engineer`.  Does NOT pass `city` again.
+        let out2 = dispatch(
+            &mut s,
+            "mnem_resolve_or_create",
+            json!({
+                "label": "Person",
+                "prop_name": "name",
+                "value": "Alice",
+                "extra_props": { "job": "Engineer" },
+                "agent_id": "bug1-test"
+            }),
+        )
+        .expect("second resolve_or_create ok");
+        let id2 = extract_resolved_id(&out2);
+        assert_eq!(id, id2, "both calls must resolve to the same node");
+
+        // Inspect the node: city must survive, job must be present too.
+        let node_out = dispatch(&mut s, "mnem_get_node", json!({ "id": id })).expect("get_node ok");
+        assert!(
+            node_out.contains("city"),
+            "old prop 'city' must survive after second resolve_or_create; got:\n{node_out}"
+        );
+        assert!(
+            node_out.contains("Berlin"),
+            "old prop value 'Berlin' must survive; got:\n{node_out}"
+        );
+        assert!(
+            node_out.contains("job"),
+            "new prop 'job' from second call must be present; got:\n{node_out}"
+        );
+        assert!(
+            node_out.contains("Engineer"),
+            "new prop value 'Engineer' from second call must be present; got:\n{node_out}"
+        );
+    }
+
+    #[test]
+    fn resolve_or_create_new_prop_value_wins_over_old() {
+        // BUG-1 regression test (2/3): when a second call passes the same
+        // extra_prop key but with a different value, the new value must win.
+        let (mut s, _td) = mk_server(true);
+
+        // Create node with city=Berlin.
+        let out1 = dispatch(
+            &mut s,
+            "mnem_resolve_or_create",
+            json!({
+                "label": "Person",
+                "prop_name": "name",
+                "value": "Bob",
+                "extra_props": { "city": "Berlin" },
+                "agent_id": "bug1-test"
+            }),
+        )
+        .expect("create ok");
+        let id = extract_resolved_id(&out1);
+
+        // Second call: update city to Paris.
+        dispatch(
+            &mut s,
+            "mnem_resolve_or_create",
+            json!({
+                "label": "Person",
+                "prop_name": "name",
+                "value": "Bob",
+                "extra_props": { "city": "Paris" },
+                "agent_id": "bug1-test"
+            }),
+        )
+        .expect("update ok");
+
+        let node_out = dispatch(&mut s, "mnem_get_node", json!({ "id": id })).expect("get_node ok");
+        assert!(
+            node_out.contains("Paris"),
+            "updated value 'Paris' must win; got:\n{node_out}"
+        );
+        assert!(
+            !node_out.contains("Berlin"),
+            "old value 'Berlin' must be replaced; got:\n{node_out}"
+        );
+    }
+
+    #[test]
+    fn resolve_or_create_new_node_still_works() {
+        // BUG-1 regression test (3/3): creating a brand-new node (no
+        // prior match) must still work correctly with the merge path.
+        let (mut s, _td) = mk_server(true);
+
+        let out = dispatch(
+            &mut s,
+            "mnem_resolve_or_create",
+            json!({
+                "label": "Entity:Place",
+                "prop_name": "slug",
+                "value": "london-uk",
+                "extra_props": { "country": "UK", "pop": 9_000_000 },
+                "agent_id": "bug1-test"
+            }),
+        )
+        .expect("create new node ok");
+        let id = extract_resolved_id(&out);
+        assert!(!id.is_empty(), "must return a node UUID");
+
+        let node_out = dispatch(&mut s, "mnem_get_node", json!({ "id": id })).expect("get_node ok");
+        assert!(
+            node_out.contains("slug"),
+            "anchor prop 'slug' must be present; got:\n{node_out}"
+        );
+        assert!(
+            node_out.contains("london-uk"),
+            "anchor value 'london-uk' must be present; got:\n{node_out}"
+        );
+        assert!(
+            node_out.contains("country"),
+            "extra prop 'country' must be present; got:\n{node_out}"
+        );
+        assert!(
+            node_out.contains("UK"),
+            "extra prop value 'UK' must be present; got:\n{node_out}"
         );
     }
 }

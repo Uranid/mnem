@@ -45,7 +45,7 @@ use super::readonly::{ReadonlyRepo, decode_from_store, now_micros};
 /// opportunistic concurrency - if any other writer has advanced
 /// op-heads since this transaction started, the commit fails with
 /// [`RepoError::Stale`] instead of appending a concurrent head.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct CommitOptions<'a> {
     /// Commit author (UTF-8, stored on the new Commit + Operation).
     pub author: &'a str,
@@ -73,26 +73,34 @@ pub struct CommitOptions<'a> {
     /// `time_micros`; otherwise the v7 randomness alone defeats the
     /// byte-identical-CID contract.
     pub change_id: Option<ChangeId>,
+    /// AI-agent identifier (when machine-generated). Stored on the
+    /// Operation for provenance. `None` leaves the field unset.
+    pub agent_id: Option<String>,
+    /// Task / tool-call identifier for provenance. Stored on the
+    /// Operation. `None` leaves the field unset.
+    pub task_id: Option<String>,
 }
 
 impl<'a> CommitOptions<'a> {
-    /// Construct with all deterministic-override fields set to `None`
+    /// Construct with all optional fields set to `None`
     /// (the caller-convenient default: auto-clock + auto-change-id).
     #[must_use]
-    pub const fn new(author: &'a str, message: &'a str) -> Self {
+    pub fn new(author: &'a str, message: &'a str) -> Self {
         Self {
             author,
             message,
             linearize: false,
             time_micros: None,
             change_id: None,
+            agent_id: None,
+            task_id: None,
         }
     }
 
     /// Pin the timestamp for deterministic replay. See
     /// [`Self::time_micros`] for the wider contract.
     #[must_use]
-    pub const fn with_time_micros(mut self, t: u64) -> Self {
+    pub fn with_time_micros(mut self, t: u64) -> Self {
         self.time_micros = Some(t);
         self
     }
@@ -100,7 +108,7 @@ impl<'a> CommitOptions<'a> {
     /// Pin the change-id for deterministic replay. See
     /// [`Self::change_id`] for the wider contract.
     #[must_use]
-    pub const fn with_change_id(mut self, id: ChangeId) -> Self {
+    pub fn with_change_id(mut self, id: ChangeId) -> Self {
         self.change_id = Some(id);
         self
     }
@@ -121,6 +129,11 @@ pub struct Transaction {
     /// the same transaction overwrite the earlier ones (consistent
     /// with [`Self::tombstone_node`]'s idempotent-deterministic rule).
     new_tombstones: BTreeMap<NodeId, Tombstone>,
+    /// Tombstone removals staged for the new View at commit time.
+    /// Any `NodeId` in this set is removed from `View::tombstones`
+    /// after `new_tombstones` are merged in, implementing the inverse
+    /// of `tombstone_node` for the `mnem revert` path.
+    removed_tombstones: HashSet<NodeId>,
     /// Side-table for `resolve_or_create_node`: maps
     /// `(label, prop_name, blake3(canonical(value))[..16])` to the
     /// `NodeId` of a node added in this transaction. Bounded by the
@@ -141,6 +154,11 @@ pub struct Transaction {
     /// rebuild entirely when this map is empty AND the base commit
     /// carried no `embeddings` root.
     pending_embeddings: BTreeMap<Cid, EmbeddingBucket>,
+    /// If set, this branch refname (e.g. `"refs/heads/main"`) will be
+    /// written into `new_view.extra["active_branch"]` at commit time,
+    /// overriding any inherited value from the base View.
+    /// `None` means "propagate the base View's active_branch unchanged".
+    active_branch_override: Option<String>,
 }
 
 impl Transaction {
@@ -153,9 +171,11 @@ impl Transaction {
             removed_edges: HashSet::new(),
             ref_updates: BTreeMap::new(),
             new_tombstones: BTreeMap::new(),
+            removed_tombstones: HashSet::new(),
             pending_by_prop: BTreeMap::new(),
             cached_base_indexes: None,
             pending_embeddings: BTreeMap::new(),
+            active_branch_override: None,
         }
     }
 
@@ -239,6 +259,24 @@ impl Transaction {
     /// already live in the base commit's sidecar tree are NOT scrubbed
     /// here; they remain reachable through the inherited tree (a
     /// follow-up audit will add explicit sidecar tombstones).
+    ///
+    /// # BUG-17: Cascade delete incident edges
+    ///
+    /// After removing the node from the node Prolly tree we also cascade-
+    /// delete every edge that references it as `src` or `dst`, to prevent
+    /// dangling references in the edge Prolly tree.
+    ///
+    /// **Outgoing edges** (where `src == id`) and **incoming edges**
+    /// (where `dst == id`) are discovered from the base commit's adjacency
+    /// index via `ReadonlyRepo::outgoing_edges` / `incoming_edges`. These
+    /// calls return edges that are already committed; errors are silently
+    /// ignored (a missing or corrupt index simply leaves some edges
+    /// undiscovered, which is no worse than the pre-fix behaviour).
+    ///
+    /// Edges staged in the *current transaction* (`new_edges`) that
+    /// reference this node are also removed eagerly by scanning the
+    /// in-memory map, since they are not yet reflected in the adjacency
+    /// index.
     pub fn remove_node(&mut self, id: NodeId) {
         if let Some(cid) = self.new_nodes.remove(&id) {
             self.pending_embeddings.remove(&cid);
@@ -246,6 +284,46 @@ impl Transaction {
         self.removed_nodes.insert(id);
         // Drop any pending-by-prop entries pointing at this id.
         self.pending_by_prop.retain(|_, v| *v != id);
+
+        // BUG-17: cascade-delete incident edges from the base commit.
+        // outgoing_edges / incoming_edges query the adjacency index; errors
+        // are swallowed because a degraded index is non-fatal here (we just
+        // won't cascade those edges, which is still better than panic).
+        if let Ok(out) = self.base.outgoing_edges(&id, None) {
+            for edge in out {
+                self.new_edges.remove(&edge.id);
+                self.removed_edges.insert(edge.id);
+            }
+        }
+        if let Ok(inc) = self.base.incoming_edges(&id, None) {
+            for edge in inc {
+                self.new_edges.remove(&edge.id);
+                self.removed_edges.insert(edge.id);
+            }
+        }
+
+        // Also cascade-delete any edges staged in this transaction
+        // (not yet in the adjacency index) that reference the removed node.
+        let staged_incident: Vec<EdgeId> = self
+            .new_edges
+            .iter()
+            .filter_map(|(edge_id, edge_cid)| {
+                // Decode the staged edge to check its src/dst.
+                let edge: Option<crate::objects::Edge> =
+                    crate::repo::readonly::decode_from_store(&*self.base.blockstore, edge_cid).ok();
+                edge.and_then(|e| {
+                    if e.src == id || e.dst == id {
+                        Some(*edge_id)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+        for edge_id in staged_incident {
+            self.new_edges.remove(&edge_id);
+            self.removed_edges.insert(edge_id);
+        }
     }
 
     /// Add (or overwrite) an edge. Returns the edge's content-addressed CID.
@@ -253,6 +331,13 @@ impl Transaction {
     /// # Errors
     ///
     /// Codec or blockstore errors while writing the edge.
+    ///
+    /// Note: referential integrity (checking that `edge.src` and `edge.dst`
+    /// both exist in the committed view) is enforced at **commit time** rather
+    /// than here, because `Transaction` is intentionally order-independent
+    /// within a single commit: callers may stage edges before the corresponding
+    /// `add_node` calls as long as all nodes are present by `commit`. See
+    /// [`Self::commit_opts`] for the C8 guard.
     pub fn add_edge(&mut self, edge: &Edge) -> Result<Cid, Error> {
         let (bytes, cid) = hash_to_cid(edge)?;
         // safety: cid computed above via hash_to_cid
@@ -324,9 +409,42 @@ impl Transaction {
         Ok(())
     }
 
+    /// Reverse a previous [`tombstone_node`] call by removing the tombstone
+    /// entry for `node_id` from the View at commit time.
+    ///
+    /// This is the inverse of `tombstone_node` and is used exclusively by
+    /// `mnem revert` when reverting an op that added tombstones. Under
+    /// normal agent workflows, nodes stay tombstoned once revoked.
+    ///
+    /// Semantics:
+    /// - If `node_id` has a pending `new_tombstone` in this transaction, that
+    ///   pending entry is also cleared (both cancel each other out).
+    /// - If `node_id` is not currently tombstoned on the base View, this is a
+    ///   no-op at commit time (the entry simply won't be in `View::tombstones`
+    ///   to remove).
+    ///
+    /// [`tombstone_node`]: Self::tombstone_node
+    pub fn untombstone_node(&mut self, node_id: NodeId) {
+        // Also clear any same-transaction tombstone_node call so they cancel.
+        self.new_tombstones.remove(&node_id);
+        self.removed_tombstones.insert(node_id);
+    }
+
     /// Set a named ref in the new View. `None` removes the ref.
     pub fn update_ref(&mut self, name: impl Into<String>, target: Option<RefTarget>) {
         self.ref_updates.insert(name.into(), target);
+    }
+
+    /// Record which branch ref is currently active (like Git's symbolic
+    /// HEAD). At commit time this value is written into
+    /// `new_view.extra["active_branch"]` and the branch ref in
+    /// `new_view.refs` is advanced to the new commit CID automatically,
+    /// so that `mnem branch list` shows the correct `*` marker.
+    ///
+    /// `branch_refname` must be the fully-qualified ref name,
+    /// e.g. `"refs/heads/main"`.
+    pub fn set_active_branch(&mut self, branch_refname: impl Into<String>) {
+        self.active_branch_override = Some(branch_refname.into());
     }
 
     /// Ergonomic one-call node write for agent workflows.
@@ -407,11 +525,16 @@ impl Transaction {
         let hash = index::prop_value_hash(&value)?;
 
         // 1. Pending-adds cache: O(1) BTreeMap lookup.
+        // Guard against the same-transaction edge case where the caller
+        // add_node'd then tombstone_node'd before calling resolve_or_create.
         if let Some(id) =
             self.pending_by_prop
                 .get(&(label.to_string(), prop_name.to_string(), hash))
         {
-            return Ok(*id);
+            if !self.new_tombstones.contains_key(id) {
+                return Ok(*id);
+            }
+            // else: fall through to create a fresh node
         }
 
         // 2. Base commit's property index: O(log n) point lookup.
@@ -437,6 +560,7 @@ impl Transaction {
             && let Some((_cid, node)) =
                 index::lookup_by_prop(&*self.base.blockstore, indexes, label, prop_name, &value)?
             && !self.removed_nodes.contains(&node.id)
+            && !self.base.view.tombstones.contains_key(&node.id)
         {
             return Ok(node.id);
         }
@@ -513,10 +637,34 @@ impl Transaction {
             removed_edges,
             ref_updates,
             new_tombstones,
+            removed_tombstones,
             pending_by_prop: _,
             cached_base_indexes: _,
             pending_embeddings,
+            active_branch_override,
         } = self;
+
+        // C8: referential integrity - validate that every staged edge's
+        // src and dst both resolve in the committed view. The check runs
+        // at commit time (not in `add_edge`) because `Transaction` is
+        // intentionally order-independent: a caller may stage an edge
+        // before the corresponding `add_node` as long as both are present
+        // by commit. A node is "visible" if it is in `new_nodes` AND NOT
+        // in `removed_nodes`, OR in the base commit's Prolly tree AND NOT
+        // in `removed_nodes`.
+        for (_edge_id, edge_cid) in &new_edges {
+            // Decode the edge from the blockstore to retrieve src/dst.
+            let edge: Edge = super::readonly::decode_from_store(&*base.blockstore, edge_cid)?;
+            for (endpoint, role) in [(edge.src, "src"), (edge.dst, "dst")] {
+                let in_new =
+                    new_nodes.contains_key(&endpoint) && !removed_nodes.contains(&endpoint);
+                let in_base =
+                    !removed_nodes.contains(&endpoint) && base.lookup_node(&endpoint)?.is_some();
+                if !in_new && !in_base {
+                    return Err(crate::error::RepoError::DanglingEdge { id: endpoint, role }.into());
+                }
+            }
+        }
 
         let bs = base.blockstore.clone();
         let ohs = base.op_heads.clone();
@@ -657,6 +805,22 @@ impl Transaction {
         let mut new_view: View = (*base.view).clone();
         let is_first_commit = base.view.heads.is_empty() && new_view.refs.is_empty();
         new_view.heads = vec![commit_cid.clone()];
+
+        // BUG-38: compute the effective active branch BEFORE consuming
+        // ref_updates, so we can detect whether the caller explicitly
+        // overrode this branch in the same transaction.
+        //
+        // Priority: explicit `set_active_branch` call > inherited from base View.
+        let effective_active_branch: Option<String> =
+            active_branch_override.or_else(|| base.view.active_branch().map(str::to_string));
+
+        // BUG-38: track whether the caller explicitly supplied a ref update for
+        // the active branch in this transaction (explicit beats the auto-advance).
+        let active_branch_explicitly_updated = effective_active_branch
+            .as_deref()
+            .map(|br| ref_updates.contains_key(br))
+            .unwrap_or(false);
+
         for (name, target) in ref_updates {
             match target {
                 Some(t) => {
@@ -675,9 +839,19 @@ impl Transaction {
         // so docs examples like `mnem branch create test main` work
         // out of the box without requiring `mnem ref set` plumbing.
         if is_first_commit && !new_view.refs.contains_key("refs/heads/main") {
-            new_view
-                .refs
-                .insert("refs/heads/main".to_string(), RefTarget::normal(commit_cid));
+            new_view.refs.insert(
+                "refs/heads/main".to_string(),
+                RefTarget::normal(commit_cid.clone()),
+            );
+            // BUG-38: also record the active branch on the first commit (when
+            // no explicit active branch was set) so that subsequent commits
+            // inherit and advance refs/heads/main automatically.
+            if effective_active_branch.is_none() {
+                new_view.extra.insert(
+                    "active_branch".to_string(),
+                    Ipld::String("refs/heads/main".to_string()),
+                );
+            }
         }
         // Stamp every staged tombstone with the commit's resolved `now`
         // so all tombstones in one commit share a timestamp (agents
@@ -689,18 +863,54 @@ impl Transaction {
             ts.tombstoned_at = now;
             new_view.tombstones.insert(node_id, ts);
         }
+        // Apply tombstone removals (from `untombstone_node`). These cancel
+        // any prior tombstone on the base View for each node. They are applied
+        // AFTER new tombstones are merged in so a same-transaction
+        // tombstone_node + untombstone_node pair is a net no-op.
+        for node_id in removed_tombstones {
+            new_view.tombstones.remove(&node_id);
+        }
+
+        // BUG-38: propagate + advance the active branch.
+        //
+        // If we have an effective active branch:
+        // 1. Write it into extra so it is carried forward by every future View.
+        // 2. Advance the branch ref in refs to the new commit CID, unless the
+        //    caller already supplied an explicit ref_update for it (explicit wins).
+        if let Some(ref branch_ref) = effective_active_branch {
+            // Write the active branch into extra so it survives into future Views.
+            new_view.extra.insert(
+                "active_branch".to_string(),
+                Ipld::String(branch_ref.clone()),
+            );
+
+            // Auto-advance the branch ref unless the caller already provided
+            // an explicit ref_update for it in this transaction.
+            if !active_branch_explicitly_updated {
+                new_view
+                    .refs
+                    .insert(branch_ref.clone(), RefTarget::normal(commit_cid.clone()));
+            }
+        }
+
         let (view_bytes, view_cid) = hash_to_cid(&new_view)?;
         // safety: view_cid computed above via hash_to_cid
         bs.put_trusted(view_cid.clone(), view_bytes)?;
 
         // Build the new Operation.
-        let op = Operation::new(
+        let mut op = Operation::new(
             view_cid,
             opts.author,
             now,
             format!("commit: {}", opts.message),
         )
         .with_parent(base.op_id.clone());
+        if let Some(ref aid) = opts.agent_id {
+            op = op.with_agent(aid.clone());
+        }
+        if let Some(ref tid) = opts.task_id {
+            op = op.with_task(tid.clone());
+        }
         let (op_bytes, op_cid) = hash_to_cid(&op)?;
         // safety: op_cid computed above via hash_to_cid
         bs.put_trusted(op_cid.clone(), op_bytes)?;
@@ -1001,6 +1211,8 @@ mod tests {
             linearize: true,
             time_micros: None,
             change_id: None,
+            agent_id: None,
+            task_id: None,
         });
         assert!(r.is_ok());
     }
@@ -1030,6 +1242,8 @@ mod tests {
                 linearize: true,
                 time_micros: None,
                 change_id: None,
+                agent_id: None,
+                task_id: None,
             })
             .unwrap_err();
         assert!(matches!(err, Error::Repo(RepoError::Stale)));
@@ -1430,5 +1644,61 @@ mod tests {
             "sidecar root must be insertion-order-invariant"
         );
         assert_eq!(cid_a, cid_c);
+    }
+
+    // -------- BUG-38: active branch tracking --------
+
+    /// After `switch_branch` then a commit, the branch ref in the View
+    /// must point to the new commit CID (not the pre-switch tip).
+    ///
+    /// Regression test: before BUG-38, the branch ref was left at the
+    /// switch-point CID and new commits were orphaned.
+    #[test]
+    fn bug38_commit_after_switch_advances_branch_ref() {
+        let repo = new_repo();
+
+        // First commit: creates refs/heads/main + sets active_branch.
+        let mut tx1 = repo.start_transaction();
+        tx1.add_node(&Node::new(NodeId::new_v7(), "Fact")).unwrap();
+        let r1 = tx1.commit("t", "first commit").unwrap();
+
+        // Verify active branch was set on the first commit (C4-1 + BUG-38).
+        assert_eq!(
+            r1.view().active_branch(),
+            Some("refs/heads/main"),
+            "first commit must record active_branch=refs/heads/main"
+        );
+        let tip_after_first = r1.view().heads[0].clone();
+
+        // Simulate `mnem switch main` - switch_branch records active branch.
+        let r2 = r1
+            .switch_branch(tip_after_first.clone(), "refs/heads/main", "t")
+            .unwrap();
+        assert_eq!(
+            r2.view().active_branch(),
+            Some("refs/heads/main"),
+            "switch_branch must preserve active_branch in the new view"
+        );
+
+        // Second commit on the switched repo - must advance refs/heads/main.
+        let mut tx3 = r2.start_transaction();
+        tx3.add_node(&Node::new(NodeId::new_v7(), "Fact")).unwrap();
+        let r3 = tx3.commit("t", "second commit").unwrap();
+
+        let tip_after_second = r3.view().heads[0].clone();
+
+        // The branch ref must now point at the second commit.
+        match r3.view().refs.get("refs/heads/main") {
+            Some(RefTarget::Normal { target }) => {
+                assert_eq!(
+                    *target, tip_after_second,
+                    "refs/heads/main must be advanced to the new commit CID after BUG-38 fix"
+                );
+            }
+            other => panic!("expected Normal ref for refs/heads/main, got {other:?}"),
+        }
+
+        // And active_branch must still be set.
+        assert_eq!(r3.view().active_branch(), Some("refs/heads/main"));
     }
 }

@@ -21,13 +21,15 @@
 //! graph. HNSW's probabilistic layer-pick uses the builder's seed
 //! (pinned below) so two fresh builds produce the same neighbours.
 
+use std::io::{BufReader, BufWriter, Read, Write};
+use std::path::Path;
 use std::sync::Arc;
 
 use instant_distance::{Builder, HnswMap, Point as IdPoint, Search};
 
 use mnem_core::codec::from_canonical_bytes;
-use mnem_core::error::{Error, RepoError};
-use mnem_core::id::NodeId;
+use mnem_core::error::{Error, RepoError, StoreError};
+use mnem_core::id::{Cid, NodeId};
 use mnem_core::index::vector::{VectorHit, VectorIndex};
 use mnem_core::objects::{Dtype, Embedding, Node};
 use mnem_core::prolly::Cursor;
@@ -188,6 +190,15 @@ impl HnswVectorIndex {
                 .ok_or_else(|| Error::from(RepoError::NotFound))?;
             let node: Node = from_canonical_bytes(&bytes).map_err(Error::from)?;
 
+            // BUG-20: skip tombstoned nodes so their vectors never
+            // enter the HNSW graph and cannot surface in search results.
+            // Mirrors the tombstone filter applied by `Retriever::execute`
+            // after BruteForce search, but applied here at build time
+            // because the HNSW index has no repo access at search time.
+            if repo.is_tombstoned(&node.id) {
+                continue;
+            }
+
             // Sidecar is the only source. The bucket may exist but
             // lack `model`; that is indistinguishable from a missing
             // bucket and skips the node. Operators with repos written
@@ -298,6 +309,226 @@ impl HnswVectorIndex {
             inner,
             ef_search: cfg.ef_search,
         }
+    }
+
+    /// Persist this index to `path` in a compact binary format.
+    ///
+    /// The format is:
+    /// - 8 bytes magic `b"MNEMHNSW"`
+    /// - 4 bytes version = 1 (LE u32)
+    /// - 4 bytes op_id length (LE u32), then op_id bytes
+    /// - 4 bytes model length (LE u32), then model UTF-8 bytes
+    /// - 4 bytes dim (LE u32)
+    /// - 8 bytes ef_construction (LE u64)
+    /// - 8 bytes ef_search (LE u64)
+    /// - 8 bytes seed (LE u64)
+    /// - 8 bytes n_points (LE u64)
+    /// - n_points * 16 bytes: NodeId raw bytes
+    /// - n_points * dim * 4 bytes: f32 vectors (LE, row-major)
+    ///
+    /// Parent directories are created if they do not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error on any I/O failure.
+    pub fn save_to_path(&self, path: &Path, op_id: &Cid) -> Result<(), Error> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        }
+        let file = std::fs::File::create(path)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        let mut w = BufWriter::new(file);
+
+        // magic + version
+        w.write_all(b"MNEMHNSW")
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        w.write_all(&1u32.to_le_bytes())
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+
+        // op_id
+        let op_id_bytes = op_id.to_bytes();
+        let op_id_len = u32::try_from(op_id_bytes.len()).expect("op_id too large");
+        w.write_all(&op_id_len.to_le_bytes())
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        w.write_all(&op_id_bytes)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+
+        // model
+        let model_bytes = self.model.as_bytes();
+        let model_len = u32::try_from(model_bytes.len()).expect("model too large");
+        w.write_all(&model_len.to_le_bytes())
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        w.write_all(model_bytes)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+
+        // dim + config knobs
+        w.write_all(&self.dim.to_le_bytes())
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        // ef_construction and seed are not stored in self; we store what we can.
+        // ef_search IS in self. ef_construction and seed are build-time only.
+        // We store 0 for ef_construction and seed since they aren't retained,
+        // but we DO retain ef_search in the struct.
+        // Actually - the format says we store the HnswConfig fields. But we
+        // only store ef_search in the struct. Store ef_search twice and zeros
+        // for ef_construction/seed to stay format-compatible.
+        // On load we pass cfg so we don't need them from the file.
+        w.write_all(&(self.ef_search as u64).to_le_bytes())
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        w.write_all(&(self.ef_search as u64).to_le_bytes())
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        w.write_all(&0u64.to_le_bytes())
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+
+        // n_points
+        let n_points = u64::try_from(self.ids.len()).expect("too many points");
+        w.write_all(&n_points.to_le_bytes())
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+
+        // NodeId bytes (16 bytes each)
+        for id in &self.ids {
+            w.write_all(id.as_bytes())
+                .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        }
+
+        // f32 vectors (dim * 4 bytes per point, LE)
+        for point in &self.points {
+            for &val in &point.vec {
+                w.write_all(&val.to_le_bytes())
+                    .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+            }
+        }
+
+        w.flush()
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        Ok(())
+    }
+
+    /// Attempt to restore an index from a file previously written by
+    /// [`Self::save_to_path`].
+    ///
+    /// Returns:
+    /// - `Ok(None)` if the file does not exist (caller should do a full rebuild).
+    /// - `Ok(None)` (with a debug log) if the file is stale or has an
+    ///   unrecognized header.
+    /// - `Err(...)` on genuine I/O errors.
+    /// - `Ok(Some(index))` on success - the HNSW graph is rebuilt from the
+    ///   stored normalized vectors using `cfg`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error on real I/O failures (not on a missing file).
+    pub fn load_from_path(
+        path: &Path,
+        expected_op_id: &Cid,
+        cfg: &HnswConfig,
+    ) -> Result<Option<Self>, Error> {
+        // Missing file is the happy-path cache-miss, not an error.
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let file = std::fs::File::open(path)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        let mut r = BufReader::new(file);
+
+        // magic
+        let mut magic = [0u8; 8];
+        r.read_exact(&mut magic)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        if &magic != b"MNEMHNSW" {
+            tracing::debug!("ann cache: bad magic, ignoring {:?}", path);
+            return Ok(None);
+        }
+
+        // version
+        let mut ver_buf = [0u8; 4];
+        r.read_exact(&mut ver_buf)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        let version = u32::from_le_bytes(ver_buf);
+        if version != 1 {
+            tracing::debug!("ann cache: unsupported version {}, ignoring {:?}", version, path);
+            return Ok(None);
+        }
+
+        // op_id
+        let mut len_buf = [0u8; 4];
+        r.read_exact(&mut len_buf)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        let op_id_len = u32::from_le_bytes(len_buf) as usize;
+        let mut op_id_bytes = vec![0u8; op_id_len];
+        r.read_exact(&mut op_id_bytes)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        let stored_op_id = Cid::from_bytes(&op_id_bytes)
+            .map_err(|e| Error::from(e))?;
+        if &stored_op_id != expected_op_id {
+            tracing::debug!("ann cache: stale op_id, ignoring {:?}", path);
+            return Ok(None);
+        }
+
+        // model
+        r.read_exact(&mut len_buf)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        let model_len = u32::from_le_bytes(len_buf) as usize;
+        let mut model_bytes = vec![0u8; model_len];
+        r.read_exact(&mut model_bytes)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        let model = String::from_utf8(model_bytes)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+
+        // dim
+        let mut dim_buf = [0u8; 4];
+        r.read_exact(&mut dim_buf)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        let dim = u32::from_le_bytes(dim_buf);
+
+        // ef_construction, ef_search, seed (read but use cfg values instead)
+        let mut u64_buf = [0u8; 8];
+        r.read_exact(&mut u64_buf)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        // ef_construction slot (ignored - we use cfg)
+        r.read_exact(&mut u64_buf)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        // ef_search slot (ignored - we use cfg)
+        r.read_exact(&mut u64_buf)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        // seed slot (ignored - we use cfg)
+
+        // n_points
+        r.read_exact(&mut u64_buf)
+            .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+        let n_points = u64::from_le_bytes(u64_buf) as usize;
+
+        // NodeId bytes
+        let mut ids: Vec<NodeId> = Vec::with_capacity(n_points);
+        for _ in 0..n_points {
+            let mut id_buf = [0u8; 16];
+            r.read_exact(&mut id_buf)
+                .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+            ids.push(NodeId::from_bytes_raw(id_buf));
+        }
+
+        // f32 vectors
+        let mut normalised_vecs: Vec<Vec<f32>> = Vec::with_capacity(n_points);
+        let dim_usize = dim as usize;
+        for _ in 0..n_points {
+            let mut vec = Vec::with_capacity(dim_usize);
+            for _ in 0..dim_usize {
+                let mut f_buf = [0u8; 4];
+                r.read_exact(&mut f_buf)
+                    .map_err(|e| Error::from(StoreError::Io(e.to_string())))?;
+                vec.push(f32::from_le_bytes(f_buf));
+            }
+            normalised_vecs.push(vec);
+        }
+
+        Ok(Some(Self::from_parts_for_test(
+            &model,
+            dim,
+            ids,
+            normalised_vecs,
+            cfg,
+        )))
     }
 }
 
@@ -612,5 +843,100 @@ mod tests {
             "expected cos == 1, got {}",
             hits[0].score
         );
+    }
+
+    // ---------- disk persistence (BUG-31) ----------
+
+    /// Helper: build a small deterministic index via `from_parts_for_test`.
+    fn small_index() -> (HnswVectorIndex, Vec<NodeId>) {
+        let id_a = NodeId::from_bytes_raw([10u8; 16]);
+        let id_b = NodeId::from_bytes_raw([20u8; 16]);
+        let id_c = NodeId::from_bytes_raw([30u8; 16]);
+        let ids = vec![id_a, id_b, id_c];
+        let vecs = vec![
+            normalise(vec![1.0, 0.0, 0.0]),
+            normalise(vec![0.0, 1.0, 0.0]),
+            normalise(vec![0.0, 0.0, 1.0]),
+        ];
+        let cfg = HnswConfig::default();
+        let idx = HnswVectorIndex::from_parts_for_test("test-model", 3, ids.clone(), vecs, &cfg);
+        (idx, ids)
+    }
+
+    fn make_op_id(seed: &[u8]) -> mnem_core::id::Cid {
+        use mnem_core::id::{CODEC_RAW, Multihash};
+        mnem_core::id::Cid::new(CODEC_RAW, Multihash::sha2_256(seed))
+    }
+
+    #[test]
+    fn ann_cache_round_trip() {
+        let (idx, ids) = small_index();
+        let op_id = make_op_id(b"test-op-1");
+        let cfg = HnswConfig::default();
+
+        // Save to a unique temp path.
+        let path = std::env::temp_dir().join("mnem_ann_cache_round_trip.bin");
+        idx.save_to_path(&path, &op_id).expect("save_to_path");
+
+        // Load back and verify structural equality.
+        let loaded = HnswVectorIndex::load_from_path(&path, &op_id, &cfg)
+            .expect("load_from_path ok")
+            .expect("Some(index)");
+
+        assert_eq!(loaded.len(), idx.len(), "same number of points");
+        assert_eq!(loaded.dim(), idx.dim(), "same dim");
+
+        // Search results for a test query should match.
+        let query = [1.0_f32, 0.0, 0.0];
+        let orig_hits = idx.search(&query, 3).unwrap();
+        let load_hits = loaded.search(&query, 3).unwrap();
+        assert_eq!(orig_hits.len(), load_hits.len(), "hit count matches");
+        assert_eq!(
+            orig_hits[0].node_id, ids[0],
+            "top hit is the x-axis vector"
+        );
+        assert_eq!(
+            load_hits[0].node_id, orig_hits[0].node_id,
+            "same top hit after round-trip"
+        );
+        assert!(
+            (load_hits[0].score - orig_hits[0].score).abs() < 1e-5,
+            "scores match after round-trip"
+        );
+
+        // Clean up.
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ann_cache_stale_op_id_returns_none() {
+        let (idx, _ids) = small_index();
+        let op_id_a = make_op_id(b"test-op-A");
+        let op_id_b = make_op_id(b"test-op-B");
+        let cfg = HnswConfig::default();
+
+        let path = std::env::temp_dir().join("mnem_ann_cache_stale_op_id.bin");
+        idx.save_to_path(&path, &op_id_a).expect("save");
+
+        // Load with a different op_id - must return None (stale cache).
+        let result = HnswVectorIndex::load_from_path(&path, &op_id_b, &cfg)
+            .expect("no I/O error");
+        assert!(result.is_none(), "stale op_id should return None");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn ann_cache_missing_file_returns_none() {
+        let op_id = make_op_id(b"test-op-missing");
+        let cfg = HnswConfig::default();
+        let path = std::env::temp_dir().join("mnem_ann_cache_does_not_exist_xyz.bin");
+
+        // Make sure it really doesn't exist.
+        let _ = std::fs::remove_file(&path);
+
+        let result = HnswVectorIndex::load_from_path(&path, &op_id, &cfg)
+            .expect("missing file is Ok(None), not Err");
+        assert!(result.is_none(), "missing file should return None");
     }
 }

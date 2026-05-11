@@ -137,6 +137,15 @@ Examples:
   watch -n 5 mnem stats          # live tail while ingesting
 ")]
     Stats,
+    /// Print index schema: node labels, indexed props, and adjacency
+    /// index presence. Mirrors the `mnem_schema` MCP tool.
+    #[command(after_long_help = "\
+Examples:
+  mnem schema                    # human-readable label + prop index summary
+  mnem schema --json             # machine-readable JSON
+  mnem -R ~/notes schema         # explicit repo path
+")]
+    Schema(commands::schema::Args),
     /// Export the subtree reachable from a ref / CID to a CAR v1
     /// archive. The file can be shipped over any channel (email, USB,
     /// SSH, S3) and imported on the other side with `mnem import`.
@@ -149,6 +158,7 @@ Examples:
     #[command(after_long_help = "\
 Examples:
   mnem ingest notes.md                           # single-file markdown
+  mnem ingest --text \"The quick brown fox\"       # inline text (no file needed)
   mnem ingest --chunker recursive --max-tokens 1024 book.pdf
   mnem ingest --recursive docs/                  # walk a directory
 ")]
@@ -165,6 +175,18 @@ Examples:
 "
     )]
     Branch(commands::branch::BranchCmd),
+    /// Manage `refs/tags/<name>` pointers (git analog: `git tag`).
+    #[command(
+        subcommand,
+        after_long_help = "\
+Examples:
+  mnem tag list                             # every refs/tags/*
+  mnem tag create v1.0                      # at the current head
+  mnem tag create v1.0 --from <cid>         # at a specific commit
+  mnem tag delete v0.9
+"
+    )]
+    Tag(commands::tag::TagCmd),
     /// Walk the incoming-edge index for a node and report who points
     /// at it (git analog: `git blame`, but coarser - ).
     #[command(after_long_help = "\
@@ -173,6 +195,16 @@ Examples:
   mnem blame <node-uuid> --etype authored
 ")]
     Blame(commands::blame::Args),
+    /// Graph traversal from a node. Lists outgoing edges, optionally
+    /// filtered by --edge-label and bounded by --limit.
+    #[command(after_long_help = "\
+Examples:
+  mnem traverse <node-uuid>
+  mnem traverse <node-uuid> --edge-label knows
+  mnem traverse <node-uuid> -e knows -e authored --limit 10
+  mnem traverse <node-uuid> --json
+")]
+    Traverse(commands::traverse::Args),
     /// Fetch a single node by UUID and print its ntype, summary, and props.
     /// Use `mnem cat-file --json <cid>` when you have a block CID instead.
     #[command(after_long_help = "\
@@ -272,6 +304,28 @@ Examples:
 Fast-forward only. Use `mnem merge <remote>/<branch>` (B4) for 3-way merges.
 ")]
     Pull(commands::pull::Args),
+    /// Switch HEAD to an existing branch (git analog: `git switch` /
+    /// `git checkout <branch>`). Updates the active working position to
+    /// the tip of the named branch without touching the working tree
+    /// (mnem has none).
+    #[command(after_long_help = "\
+Examples:
+  mnem switch main
+  mnem switch feature/oauth
+  mnem switch hotfix
+
+Use 'mnem branch list' to see available branches.
+")]
+    Switch(commands::switch::SwitchArgs),
+    /// Alias for `mnem switch`. Switch HEAD to an existing branch.
+    #[command(after_long_help = "\
+Examples:
+  mnem checkout main
+  mnem checkout feature/oauth
+
+Use 'mnem branch list' to see available branches.
+")]
+    Checkout(commands::switch::SwitchArgs),
     /// 3-way merge between branches. LCA + structured conflict
     /// detector + executor with `ours`/`theirs`/`manual` strategies.
     #[command(after_long_help = "\
@@ -284,12 +338,12 @@ Examples:
   mnem merge --abort                    # cancel an in-progress merge
 ")]
     Merge(commands::merge::Args),
-    /// Revert a commit. Not implemented in 0.3
+    /// Revert an op's changes by creating a new inverse commit.
     Revert(commands::deferred::RevertArgs),
-    /// Check the object DAG for corruption. Not implemented in 0.3
-    Fsck(commands::deferred::FsckArgs),
-    /// Garbage-collect unreferenced blocks. Not implemented in 0.3
-    Gc(commands::deferred::GcArgs),
+    /// Check the object DAG for corruption (reachability-only).
+    Fsck(commands::fsck::Args),
+    /// Garbage-collect unreferenced blocks.
+    Gc(commands::gc::Args),
     /// Wire mnem into every detected MCP agent host (Claude Desktop,
     /// Cursor, Continue, Zed) with atomic backups of the originals.
     Integrate(integrate::Args),
@@ -365,7 +419,6 @@ fn main() {
     // generic 1. We distinguish by pattern-matching the verb BEFORE
     // dispatch, not by parsing the error string, so future refactors
     // of `deferred::ex_config` can't drift the exit code.
-    let is_deferred = matches!(&cli.cmd, Some(Cmd::Revert(_) | Cmd::Fsck(_) | Cmd::Gc(_)));
     let result = match cli.cmd {
         None => wizard::run(cli.repo.as_deref()),
         Some(Cmd::Init(args)) => commands::init::run(cli.repo.as_deref(), args),
@@ -384,11 +437,14 @@ fn main() {
         Some(Cmd::Ref(sub)) => commands::refs::run(cli.repo.as_deref(), sub),
         Some(Cmd::Config(args)) => commands::cfg_cmd::run(cli.repo.as_deref(), args),
         Some(Cmd::Stats) => commands::stats::run(cli.repo.as_deref()),
+        Some(Cmd::Schema(args)) => commands::schema::run(cli.repo.as_deref(), args),
         Some(Cmd::Export(args)) => commands::export::run(cli.repo.as_deref(), args),
         Some(Cmd::Import(args)) => commands::import::run(cli.repo.as_deref(), args),
         Some(Cmd::Ingest(args)) => commands::ingest::run(cli.repo.as_deref(), args),
         Some(Cmd::Branch(sub)) => commands::branch::run(cli.repo.as_deref(), sub),
+        Some(Cmd::Tag(sub)) => commands::tag::run(cli.repo.as_deref(), sub),
         Some(Cmd::Blame(args)) => commands::blame::run(cli.repo.as_deref(), args),
+        Some(Cmd::Traverse(args)) => commands::traverse::run(cli.repo.as_deref(), args),
         Some(Cmd::Get(args)) => commands::get_node::run(cli.repo.as_deref(), args),
         Some(Cmd::Tombstone(args)) => commands::tombstone::run(cli.repo.as_deref(), args),
         Some(Cmd::Delete(args)) => commands::delete_node::run(cli.repo.as_deref(), args),
@@ -400,10 +456,12 @@ fn main() {
         Some(Cmd::Fetch(a)) => commands::fetch::run(cli.repo.as_deref(), a),
         Some(Cmd::Push(a)) => commands::push::run(cli.repo.as_deref(), a),
         Some(Cmd::Pull(a)) => commands::pull::run(cli.repo.as_deref(), a),
+        Some(Cmd::Switch(a)) => commands::switch::run(cli.repo.as_deref(), a),
+        Some(Cmd::Checkout(a)) => commands::switch::run(cli.repo.as_deref(), a),
         Some(Cmd::Merge(a)) => commands::merge::run(cli.repo.as_deref(), a),
         Some(Cmd::Revert(a)) => commands::deferred::run_revert(cli.repo.as_deref(), a),
-        Some(Cmd::Fsck(a)) => commands::deferred::run_fsck(cli.repo.as_deref(), a),
-        Some(Cmd::Gc(a)) => commands::deferred::run_gc(cli.repo.as_deref(), a),
+        Some(Cmd::Fsck(a)) => commands::fsck::run(cli.repo.as_deref(), a),
+        Some(Cmd::Gc(a)) => commands::gc::run(cli.repo.as_deref(), a),
         Some(Cmd::Integrate(args)) => integrate::run(args),
         Some(Cmd::Unintegrate(args)) => unintegrate::run(args),
         Some(Cmd::Doctor(args)) => doctor::run(cli.repo.as_deref(), args),
@@ -438,9 +496,6 @@ fn main() {
             parts.push(s);
         }
         eprintln!("error: {}", parts.join(": "));
-        // EX_CONFIG (78) per BSD sysexits for "user asked for
-        // something the config doesn't allow yet" - this is the
-        // shape of a deferred-stub failure.
-        std::process::exit(if is_deferred { 78 } else { 1 });
+        std::process::exit(1);
     }
 }

@@ -42,12 +42,20 @@ use crate::repo;
 #[command(after_long_help = "\
 Examples:
  mnem ingest notes.md
+ mnem ingest --text \"The quick brown fox\"
  mnem ingest --chunker recursive --max-tokens 1024 book.pdf
  mnem ingest --recursive docs/
 ")]
 pub(crate) struct Args {
     /// Path to a file, or a directory when `--recursive` is set.
-    pub path: PathBuf,
+    /// Mutually exclusive with `--text`.
+    #[arg(conflicts_with = "text")]
+    pub path: Option<PathBuf>,
+
+    /// Inline text to ingest directly (without a file).
+    /// Mutually exclusive with `<PATH>` and `--recursive`.
+    #[arg(long, conflicts_with = "path", conflicts_with = "recursive")]
+    pub text: Option<String>,
 
     /// Root Doc node label (e.g. `Doc`, `Note`, `Transcript`). Default `Doc`.
     #[arg(long, default_value = "Doc")]
@@ -68,7 +76,8 @@ pub(crate) struct Args {
 
     /// Walk directory trees. When set, `path` must be a directory and
     /// each supported file under it is ingested as one Doc.
-    #[arg(long)]
+    /// Mutually exclusive with `--text`.
+    #[arg(long, conflicts_with = "text")]
     pub recursive: bool,
 
     /// Commit message. Overridable per-run; the default embeds the
@@ -137,23 +146,63 @@ pub(crate) fn run(override_path: Option<&Path>, a: Args) -> Result<()> {
     let cfg = config::load(&data_dir)?;
     let r = repo::open_repo(Some(data_dir.as_path()))?;
 
-    let files: Vec<PathBuf> = if a.recursive {
-        collect_files(&a.path)?
-    } else {
-        if !a.path.is_file() {
-            bail!(
-                "{} is not a file; pass --recursive to walk a directory",
-                a.path.display()
-            );
+    // Resolve the source: --text supplies bytes directly as SourceKind::Text;
+    // <PATH> reads from the filesystem (file or recursive directory walk).
+    // Exactly one must be provided; clap's `conflicts_with` catches the
+    // "both supplied" case, and we bail here for "neither supplied".
+    let text_bytes: Option<Vec<u8>> = a.text.as_deref().map(|s| s.as_bytes().to_vec());
+
+    let files: Vec<PathBuf> = if text_bytes.is_some() {
+        // Bypass file collection entirely; we'll synthesise one PreReadFile
+        // entry below from the inline text.
+        Vec::new()
+    } else if let Some(ref p) = a.path {
+        if a.recursive {
+            collect_files(p)?
+        } else {
+            if !p.is_file() {
+                bail!(
+                    "{} is not a file; pass --recursive to walk a directory",
+                    p.display()
+                );
+            }
+            vec![p.clone()]
         }
-        vec![a.path.clone()]
+    } else {
+        bail!("either <PATH> or --text must be provided");
     };
 
-    if files.is_empty() {
-        bail!("no ingestable files found under {}", a.path.display());
+    if text_bytes.is_none() && files.is_empty() {
+        bail!(
+            "no ingestable files found under {}",
+            a.path
+                .as_deref()
+                .unwrap_or_else(|| std::path::Path::new("<unknown>"))
+                .display()
+        );
     }
 
     let choice = parse_chunker(&a.chunker)?;
+
+    // Warn when the caller passes --max-tokens with a chunker that does not
+    // honour it. 512 is the declared default; any deviation means the flag
+    // was intentionally set. Emit to stderr so it is visible even when
+    // stdout is redirected.
+    //
+    // `auto` is intentionally excluded: it maps Text and Pdf sources to
+    // `ChunkerKind::Recursive { max_tokens, ... }`, so the flag has a real
+    // effect for those source types. Only `paragraph` and `session` genuinely
+    // ignore `max_tokens` regardless of source kind.
+    const DEFAULT_MAX_TOKENS: u32 = 512;
+    if a.max_tokens != DEFAULT_MAX_TOKENS
+        && matches!(choice, ChunkerChoice::Paragraph | ChunkerChoice::Session)
+    {
+        eprintln!(
+            "warning: --max-tokens has no effect with --chunker {}; \
+             use --chunker recursive to enable token-based splitting",
+            a.chunker
+        );
+    }
 
     // Extractor selector. Default (`none`) keeps the built-in
     // `RuleExtractor`. `keybert` (C3 FIX-3) wires the statistical
@@ -208,21 +257,36 @@ pub(crate) fn run(override_path: Option<&Path>, a: Args) -> Result<()> {
         chunker: ChunkerKind,
         chunk_count: u64,
     }
-    let mut pre: Vec<PreReadFile> = Vec::with_capacity(files.len());
-    for file in &files {
-        let kind = Ingester::source_kind_for_path(file);
-        let bytes = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
+    let mut pre: Vec<PreReadFile> = Vec::with_capacity(files.len().max(1));
+    if let Some(bytes) = text_bytes {
+        // Inline text: treat as a single plain-text source named "<inline>".
+        let kind = SourceKind::Text;
         let chunker = resolve_chunker(choice, kind, a.max_tokens, a.overlap);
-        // count_chunks_for is best-effort; on parse failure we fall
-        // back to a per-file bar (chunk_count = 0 marks "unknown").
         let chunk_count = count_chunks_for(&bytes, kind, &chunker).unwrap_or(0);
         pre.push(PreReadFile {
-            path: file.clone(),
+            path: PathBuf::from("<inline>"),
             bytes,
             kind,
             chunker,
             chunk_count,
         });
+    } else {
+        for file in &files {
+            let kind = Ingester::source_kind_for_path(file);
+            let bytes =
+                std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
+            let chunker = resolve_chunker(choice, kind, a.max_tokens, a.overlap);
+            // count_chunks_for is best-effort; on parse failure we fall
+            // back to a per-file bar (chunk_count = 0 marks "unknown").
+            let chunk_count = count_chunks_for(&bytes, kind, &chunker).unwrap_or(0);
+            pre.push(PreReadFile {
+                path: file.clone(),
+                bytes,
+                kind,
+                chunker,
+                chunk_count,
+            });
+        }
     }
     let total_chunks: u64 = pre.iter().map(|f| f.chunk_count).sum();
     // If pre-count succeeded for every file, drive the bar in chunks;
@@ -242,7 +306,7 @@ pub(crate) fn run(override_path: Option<&Path>, a: Args) -> Result<()> {
     let pb_total = if use_chunk_progress {
         total_chunks
     } else {
-        files.len() as u64
+        pre.len() as u64
     };
     let pb = ProgressBar::new(pb_total);
     pb.set_style(
@@ -313,7 +377,7 @@ pub(crate) fn run(override_path: Option<&Path>, a: Args) -> Result<()> {
     }
     pb.finish_and_clear();
 
-    let file_count = files.len();
+    let file_count = pre.len();
     let default_msg = format!("mnem ingest: {file_count} file(s)");
     let msg = a.message.as_deref().unwrap_or(&default_msg);
     let new_r = tx.commit(&config::author_string(&cfg), msg)?;

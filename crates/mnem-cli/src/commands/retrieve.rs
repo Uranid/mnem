@@ -186,6 +186,12 @@ pub(crate) struct Args {
     /// set. Default 3; ignored when `--summarize` is off.
     #[arg(long = "summarize-k", value_name = "N", requires = "summarize")]
     pub summarize_k: Option<usize>,
+    /// Filter results by node type (ntype/label). May be specified multiple times.
+    ///
+    /// Note: this is a post-retrieval filter - results are fetched first, then filtered.
+    /// The retrieval budget (--top-k / --limit) applies before filtering.
+    #[arg(long = "label", short = 'l')]
+    pub labels: Vec<String>,
 }
 
 pub(crate) fn run(override_path: Option<&Path>, mut args: Args) -> Result<()> {
@@ -255,6 +261,12 @@ pub(crate) fn run(override_path: Option<&Path>, mut args: Args) -> Result<()> {
     // for N paraphrases, embed each + the original, run N+1
     // retrievals, and RRF-fuse the ranked lists. Returns the
     // fused result directly (early exit from the normal flow).
+    if args.multi_query.is_some_and(|n| n > 0) && config::resolve_llm(&cfg, None).is_none() {
+        eprintln!(
+            "warning: --multi-query requires an LLM provider \
+             (set [llm] in config); falling back to plain retrieve"
+        );
+    }
     if let Some(n_variants) = args.multi_query
         && n_variants > 0
         && let Some(q) = args.text.as_deref()
@@ -264,6 +276,7 @@ pub(crate) fn run(override_path: Option<&Path>, mut args: Args) -> Result<()> {
         match run_multi_query(&r, &cfg, &args, q, n_variants, &lc, &pc) {
             Ok(Some(result)) => {
                 // Render + exit. Share print path with the normal branch.
+                let result = filter_by_label(result, &args.labels);
                 print_retrieval_result(&result, &args, &cfg);
                 return Ok(());
             }
@@ -286,6 +299,12 @@ pub(crate) fn run(override_path: Option<&Path>, mut args: Args) -> Result<()> {
     // is configured, ask the LLM to generate a hypothetical answer
     // and REPLACE the embedder input with it. LLM failures fall
     // back to the plain embedder text.
+    if args.hyde.is_some() && config::resolve_llm(&cfg, args.hyde.as_deref()).is_none() {
+        eprintln!(
+            "warning: --hyde requires an LLM provider \
+             (set [llm] in config); falling back to plain retrieve"
+        );
+    }
     if args.hyde.is_some()
         && let Some(q) = args.text.as_deref()
         && let Some(lc) = config::resolve_llm(&cfg, args.hyde.as_deref())
@@ -504,6 +523,7 @@ pub(crate) fn run(override_path: Option<&Path>, mut args: Args) -> Result<()> {
     }
 
     let result = ret.execute()?;
+    let result = filter_by_label(result, &args.labels);
     print_retrieval_result(&result, &args, &cfg);
 
     // E4 T2: optional Centroid + MMR extractive summarization over
@@ -838,6 +858,25 @@ fn collect_authored_edges_for_community(
         edges.push((edge.src, edge.dst));
     }
     Ok(edges)
+}
+
+/// Post-retrieval label filter. When `labels` is empty, returns the
+/// result unchanged. Otherwise keeps only items whose `node.ntype`
+/// appears in the label list. The count/token header reflects the
+/// filtered set, not the raw retrieval.
+fn filter_by_label(
+    mut result: mnem_core::retrieve::RetrievalResult,
+    labels: &[String],
+) -> mnem_core::retrieve::RetrievalResult {
+    if labels.is_empty() {
+        return result;
+    }
+    result
+        .items
+        .retain(|item| labels.contains(&item.node.ntype));
+    // Recalculate token count to reflect the filtered set
+    result.tokens_used = result.items.iter().map(|i| i.tokens).sum();
+    result
 }
 
 /// Per-call model override: swap the `model` field on whichever

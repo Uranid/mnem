@@ -416,7 +416,7 @@ fn roundtrip_mnem_tombstone_node_absent_is_graceful() {
         "mnem_tombstone_node",
         json!({
             "agent_id": "rt-test",
-            "node_id": "00000000-0000-0000-0000-000000000000",
+            "id": "00000000-0000-0000-0000-000000000000",
             "reason": "test"
         }),
         1,
@@ -642,5 +642,85 @@ fn boundary_commit_honours_ntype_when_gate_on() {
     assert!(
         text.contains("Person"),
         "caller-supplied `ntype` MUST survive gate-on: {text}"
+    );
+}
+
+// ============================================================
+// BUG-1 regression: resolve-or-create must not overwrite existing props.
+// ============================================================
+
+/// Call resolve-or-create twice for the same entity. The second call adds
+/// a different extra_prop. After both calls the node must have ALL props
+/// from BOTH calls (merge semantics, not overwrite semantics).
+#[test]
+fn resolve_or_create_preserves_existing_props_on_re_resolve() {
+    let (mut s, _td) = fresh_server(false);
+
+    // First call: create Alice with an extra prop.
+    let resp1 = tools_call(
+        &mut s,
+        "mnem_resolve_or_create",
+        json!({
+            "agent_id": "bug1-test",
+            "prop_name": "name",
+            "value": "Alice",
+            "extra_props": { "role": "engineer" }
+        }),
+        1,
+    );
+    assert_success_response(&resp1, "mnem_resolve_or_create");
+    let id = {
+        let text = resp1["result"]["content"][0]["text"].as_str().unwrap();
+        // extract id line
+        text.lines()
+            .find(|l| l.trim_start().starts_with("id:"))
+            .and_then(|l| l.split_whitespace().nth(1))
+            .expect("id must appear in response")
+            .to_string()
+    };
+
+    // Second call: resolve the SAME entity and add another prop.
+    let resp2 = tools_call(
+        &mut s,
+        "mnem_resolve_or_create",
+        json!({
+            "agent_id": "bug1-test",
+            "prop_name": "name",
+            "value": "Alice",
+            "extra_props": { "department": "infra" }
+        }),
+        2,
+    );
+    assert_success_response(&resp2, "mnem_resolve_or_create");
+    let id2 = {
+        let text = resp2["result"]["content"][0]["text"].as_str().unwrap();
+        text.lines()
+            .find(|l| l.trim_start().starts_with("id:"))
+            .and_then(|l| l.split_whitespace().nth(1))
+            .expect("id must appear in response")
+            .to_string()
+    };
+    assert_eq!(id, id2, "both calls must resolve to the SAME node id");
+
+    // Now retrieve and verify ALL props are present.
+    let resp3 = tools_call(
+        &mut s,
+        "mnem_get_node",
+        json!({ "id": id }),
+        3,
+    );
+    assert_success_response(&resp3, "mnem_get_node");
+    let text = resp3["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("engineer"),
+        "BUG-1 regression: `role` from first call must survive second call; got: {text}"
+    );
+    assert!(
+        text.contains("infra"),
+        "BUG-1 regression: `department` from second call must be present; got: {text}"
+    );
+    assert!(
+        text.contains("Alice"),
+        "anchor prop `name=Alice` must survive; got: {text}"
     );
 }

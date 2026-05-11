@@ -176,6 +176,60 @@ pub trait Blockstore: Send + Sync + fmt::Debug {
     ) -> Box<dyn Iterator<Item = Result<(Cid, Bytes), StoreError>> + 'a> {
         Box::new(ReachableIter::new(self, root.clone()))
     }
+
+    /// Enumerate every CID currently stored.
+    ///
+    /// Intended exclusively for garbage collection. Returns all CIDs
+    /// in the store in unspecified order. The default implementation
+    /// returns `None`, meaning the backend does not support enumeration.
+    /// Backends that can enumerate (e.g. `RedbBlockstore`) override to
+    /// return `Some(vec)`. Returning `None` does not prevent GC from
+    /// running; the caller degrades gracefully to a dry-run report.
+    ///
+    /// # Errors
+    ///
+    /// Backend-specific I/O errors.
+    fn all_cids(&self) -> Result<Option<Vec<Cid>>, StoreError> {
+        Ok(None)
+    }
+
+    /// Write multiple blocks in a single batch operation.
+    ///
+    /// Implementations SHOULD override this to use a single write
+    /// transaction, amortising the per-transaction fsync cost across all
+    /// blocks in the batch. This is the primary fix for BUG-22: bulk
+    /// operations (ingest, reindex) were previously paying one fsync per
+    /// block, making them ~100x slower than `MemoryBlockstore`.
+    ///
+    /// The iterator is taken as a `&mut dyn Iterator` to keep the trait
+    /// dyn-compatible (`impl IntoIterator` would introduce a generic type
+    /// parameter that prevents `dyn Blockstore` from being used as a trait
+    /// object). Callers pass `.iter().cloned()`, `vec.into_iter()`, etc.
+    /// through `&mut` after collecting or via a temporary:
+    ///
+    /// ```ignore
+    /// bs.batch_put(&mut vec_of_blocks.into_iter())?;
+    /// ```
+    ///
+    /// The default implementation falls back to calling [`Blockstore::put`]
+    /// in a loop, so existing implementations that do not override remain
+    /// correct.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first backend-specific I/O error encountered; blocks
+    /// written before the error are not rolled back in the default
+    /// implementation (overrides that use a single transaction will roll
+    /// back the whole batch on failure).
+    fn batch_put(
+        &self,
+        blocks: &mut dyn Iterator<Item = (Cid, Bytes)>,
+    ) -> Result<(), StoreError> {
+        for (cid, data) in blocks {
+            self.put(cid, data)?;
+        }
+        Ok(())
+    }
 }
 
 /// Default depth-first reachable-block iterator over a [`Blockstore`].
@@ -383,6 +437,17 @@ impl Blockstore for MemoryBlockstore {
     fn delete(&self, cid: &Cid) -> Result<(), StoreError> {
         self.blocks.lock().expect("mutex not poisoned").remove(cid);
         Ok(())
+    }
+
+    fn all_cids(&self) -> Result<Option<Vec<Cid>>, StoreError> {
+        let keys: Vec<Cid> = self
+            .blocks
+            .lock()
+            .expect("mutex not poisoned")
+            .keys()
+            .cloned()
+            .collect();
+        Ok(Some(keys))
     }
 }
 

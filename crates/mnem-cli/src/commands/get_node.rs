@@ -53,8 +53,10 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
                         .map(|b| format!("{b:02x}"))
                         .collect::<Vec<_>>()
                         .join(" ");
-                    println!("(binary) {preview}{}",
-                        if bytes.len() > 256 { " ..." } else { "" });
+                    println!(
+                        "(binary) {preview}{}",
+                        if bytes.len() > 256 { " ..." } else { "" }
+                    );
                 }
             }
         }

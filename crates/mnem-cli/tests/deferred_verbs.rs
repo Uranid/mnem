@@ -1,11 +1,15 @@
-//! Integration tests for the deferred verbs.
+//! Integration tests for verbs that were formerly deferred (EX_CONFIG stubs).
 //!
-//! Each deferred verb MUST:
+//! Coverage here:
 //!
-//! - appear in `mnem --help` so a Git user's `mnem <TAB>` completion
-//!   shows the full vocabulary
-//! - exit with code 78 (EX_CONFIG)
-//! - print an error that points at + `docs/ROADMAP.md`
+//! - All formerly-deferred verbs appear in `mnem --help` so a Git user's
+//!   `mnem <TAB>` completion shows the full vocabulary.
+//! - `mnem fsck` exits 0 on a clean repo (real implementation).
+//! - `mnem gc` exits 0 on a clean repo in dry-run mode (real implementation).
+//! - `mnem revert` exits non-zero for a malformed CID string.
+//! - `mnem revert` exits non-zero for a valid-format CID that is absent from
+//!   the repo.
+//! - `mnem revert` exits 0 when given the op CID of a real committed op.
 
 use std::path::Path;
 use std::process::Command;
@@ -55,19 +59,79 @@ fn deferred_verbs_surface_in_help() {
 // (LCA fast-forward, clean 3-way, conflict persistence, --continue /
 // --abort / --dry-run flows).
 
+// `mnem fsck`, `mnem gc`, and `mnem revert` are now real implementations.
+// The old monolithic `revert_fsck_gc_all_exit_78` test has been replaced
+// by the three targeted tests below.
+
 #[test]
-fn revert_fsck_gc_all_exit_78() {
+fn fsck_exits_zero_on_clean_repo() {
     let dir = TempDir::new().unwrap();
     mnem(dir.path(), &["init", dir.path().to_str().unwrap()])
         .assert()
         .success();
-    for args in [vec!["revert", "bafk"], vec!["fsck"], vec!["gc"]] {
-        let out = mnem(dir.path(), &args).assert().failure();
-        let code = out.get_output().status.code();
-        assert_eq!(
-            code,
-            Some(78),
-            "verb {args:?} must exit 78 (EX_CONFIG), got {code:?}"
-        );
-    }
+    mnem(dir.path(), &["fsck"]).assert().success();
+}
+
+#[test]
+fn gc_exits_zero_on_clean_repo() {
+    let dir = TempDir::new().unwrap();
+    mnem(dir.path(), &["init", dir.path().to_str().unwrap()])
+        .assert()
+        .success();
+    // dry-run (no --force): should always exit 0
+    mnem(dir.path(), &["gc"]).assert().success();
+}
+
+#[test]
+fn revert_bad_cid_exits_nonzero() {
+    let dir = TempDir::new().unwrap();
+    mnem(dir.path(), &["init", dir.path().to_str().unwrap()])
+        .assert()
+        .success();
+    // An obviously invalid CID must produce a non-zero exit.
+    mnem(dir.path(), &["revert", "badinput"]).assert().failure();
+}
+
+#[test]
+fn revert_missing_cid_exits_nonzero() {
+    let dir = TempDir::new().unwrap();
+    mnem(dir.path(), &["init", dir.path().to_str().unwrap()])
+        .assert()
+        .success();
+    // A syntactically valid CID that does not exist in this repo must also
+    // produce a non-zero exit.  We use a well-known example CID from the
+    // IPFS/CIDv1 spec; it will never appear in a freshly-initialised store.
+    mnem(
+        dir.path(),
+        &[
+            "revert",
+            "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+        ],
+    )
+    .assert()
+    .failure();
+}
+
+#[test]
+fn revert_real_op_exits_zero() {
+    let dir = TempDir::new().unwrap();
+    mnem(dir.path(), &["init", dir.path().to_str().unwrap()])
+        .assert()
+        .success();
+    // Create a real op by adding a node.
+    mnem(
+        dir.path(),
+        &["add", "node", "--summary", "revert-me", "--no-embed"],
+    )
+    .assert()
+    .success();
+    // Grab the op CID from `mnem log -n 1` (line: "op <cid>").
+    let log_out = mnem(dir.path(), &["log", "-n", "1"]).assert().success();
+    let stdout = String::from_utf8_lossy(&log_out.get_output().stdout).to_string();
+    let op_cid = stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("op ").map(str::trim).map(str::to_string))
+        .expect("mnem log -n 1 must emit an 'op <cid>' line");
+    // Reverting a real op that added a node must exit 0.
+    mnem(dir.path(), &["revert", &op_cid]).assert().success();
 }

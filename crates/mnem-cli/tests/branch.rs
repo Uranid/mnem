@@ -114,6 +114,54 @@ fn branch_create_list_delete_round_trip() {
     );
 }
 
+/// BUG-40: deleting the currently checked-out branch must fail with an
+/// actionable error message.
+#[test]
+fn branch_delete_active_branch_fails() {
+    let dir = TempDir::new().unwrap();
+    mnem(dir.path(), &["init", dir.path().to_str().unwrap()])
+        .assert()
+        .success();
+    // After init we are on `main`. Trying to delete it must fail.
+    let out = mnem(dir.path(), &["branch", "delete", "main"])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+    assert!(
+        stderr.contains("currently checked-out branch"),
+        "expected active-branch error, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("switch to another branch first"),
+        "expected hint in error, got: {stderr}"
+    );
+}
+
+/// BUG-40: deleting a different (non-active) branch while on `main` must
+/// still succeed.
+#[test]
+fn branch_delete_non_active_branch_succeeds() {
+    let dir = TempDir::new().unwrap();
+    mnem(dir.path(), &["init", dir.path().to_str().unwrap()])
+        .assert()
+        .success();
+    // Create a second branch.
+    mnem(dir.path(), &["branch", "create", "other"])
+        .assert()
+        .success();
+    // We are still on `main`; deleting `other` must succeed.
+    mnem(dir.path(), &["branch", "delete", "other"])
+        .assert()
+        .success();
+    // Verify `other` is gone.
+    let out = mnem(dir.path(), &["branch", "list"]).assert().success();
+    let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
+    assert!(
+        !stdout.contains("other"),
+        "deleted branch must be gone, got: {stdout}"
+    );
+}
+
 #[test]
 fn branch_delete_missing_fails() {
     let dir = TempDir::new().unwrap();

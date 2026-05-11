@@ -38,6 +38,7 @@
 
 #![allow(dead_code)]
 
+use std::collections::HashSet;
 use std::time::Instant;
 
 use axum::Json;
@@ -45,7 +46,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use mnem_core::guard::{CommitBudgetGuard, Decision};
-use mnem_core::id::{CODEC_RAW, Cid, Multihash};
+use mnem_core::id::{CODEC_RAW, Cid, Multihash, NodeId};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -191,6 +192,27 @@ pub(crate) struct TraverseAnswerRequest {
     pub(crate) budget_ms: Option<u32>,
 }
 
+/// A single node entry returned within a hop result.
+#[derive(Debug, Serialize)]
+pub(crate) struct HopNode {
+    /// Stable node UUID.
+    pub(crate) id: String,
+    /// Node type label.
+    pub(crate) ntype: String,
+    /// Summary text, if the node carries one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) summary: Option<String>,
+}
+
+/// Nodes discovered at a single BFS hop.
+#[derive(Debug, Serialize)]
+pub(crate) struct HopResult {
+    /// 0-based hop index.
+    pub(crate) hop: u32,
+    /// Nodes whose UUIDs were reached at this hop depth.
+    pub(crate) nodes: Vec<HopNode>,
+}
+
 /// Response body for `POST /v1/traverse_answer`.
 #[derive(Debug, Serialize)]
 pub(crate) struct TraverseAnswerResponse {
@@ -211,6 +233,10 @@ pub(crate) struct TraverseAnswerResponse {
     /// `true` when the soft budget was breached but the hard wall was
     /// not (cold-start / contended hosts).
     pub(crate) budget_breached: bool,
+    /// Per-hop BFS expansion results. Each entry holds the nodes
+    /// discovered at that hop depth. Empty when the frontier is empty
+    /// or when no start node could be resolved.
+    pub(crate) hops: Vec<HopResult>,
 }
 
 /// Axum handler for `POST /v1/traverse_answer`.
@@ -285,14 +311,56 @@ pub(crate) async fn traverse_answer(
     let start = Instant::now();
     let mut hops_executed: u32 = 0;
     let mut hard_wall_cutoff = false;
+    let mut hop_results: Vec<HopResult> = Vec::new();
 
+    // -------- Seed the BFS frontier ----------------------------------
+    //
+    // If `text` parses as a valid node UUID, use it directly as the
+    // sole seed. Otherwise, fall back to a deterministic label-free
+    // query that returns up to 10 nodes matching the text in their
+    // summary or as a label scan. An empty or absent `text` yields an
+    // empty frontier (0 hops, no expansion).
+    let mut frontier: Vec<NodeId> = {
+        let repo = state.repo.lock().unwrap_or_else(|p| p.into_inner());
+        match req.text.as_deref() {
+            Some(t) if !t.trim().is_empty() => {
+                // Try parsing as a UUID first (cheap, no I/O).
+                if let Ok(id) = NodeId::parse_uuid(t) {
+                    // Confirm the node exists and is not tombstoned.
+                    if repo.lookup_node(&id).ok().flatten().is_some() && !repo.is_tombstoned(&id) {
+                        vec![id]
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    // Free-text: use the deterministic query engine to
+                    // find up to 10 seed nodes. No embedding required;
+                    // the query engine falls back to a full label-scan
+                    // when no vector index is present.
+                    repo.query()
+                        .limit(10)
+                        .execute()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|h| h.node.id)
+                        .filter(|id| !repo.is_tombstoned(id))
+                        .collect()
+                }
+            }
+            _ => Vec::new(),
+        }
+        // MutexGuard drops here, lock is released before any .await.
+    };
+
+    // Nodes already visited (seed + all expanded) so we never loop.
+    let mut visited: HashSet<NodeId> = frontier.iter().copied().collect();
+
+    // -------- Hop loop under CommitBudgetGuard ----------------------
     for hop in 0..effective_max_hops {
-        // The structural skeleton (gate, telemetry, budget loop) is
-        // live behind the experimental flag. The hop body currently
-        // yields a no-op; callers opting in today get the hard-wall /
-        // cutoff / report contract but no semantic expansion. Each
-        // iteration polls the guard so a mid-hop overrun is caught on
-        // the next boundary.
+        if frontier.is_empty() {
+            break;
+        }
+
         let hop_stage_tag: &'static str = match hop {
             0 => "hop-0",
             1 => "hop-1",
@@ -300,12 +368,51 @@ pub(crate) async fn traverse_answer(
             _ => "hop-n",
         };
 
-        // Experimental-flag ship-state: hop body is a no-op yield.
-        // The retriever-side expand + merge interface is tracked
-        // separately; this path ships today behind the opt-in gate
-        // so the budget + telemetry contract is exercised in prod.
-        tokio::task::yield_now().await;
+        // ---------- Synchronous graph expansion (no .await) ----------
+        // Acquire the lock, do all blocking I/O, release before the
+        // async guard.charge() call below.
+        let (hop_nodes, next_frontier) = {
+            let repo = state.repo.lock().unwrap_or_else(|p| p.into_inner());
+            let mut hop_nodes: Vec<HopNode> = Vec::new();
+            let mut next_ids: Vec<NodeId> = Vec::new();
 
+            for node_id in &frontier {
+                // Resolve node details for the current frontier member.
+                if let Ok(Some(node)) = repo.lookup_node(node_id) {
+                    hop_nodes.push(HopNode {
+                        id: node.id.to_uuid_string(),
+                        ntype: node.ntype,
+                        summary: node.summary,
+                    });
+                }
+
+                // Expand outgoing edges; no etype filter at this layer.
+                let edges = repo.outgoing_edges(node_id, None).unwrap_or_default();
+
+                for edge in edges {
+                    let neighbor = edge.dst;
+                    if visited.contains(&neighbor) {
+                        continue;
+                    }
+                    visited.insert(neighbor);
+                    // Skip tombstoned neighbors.
+                    if repo.is_tombstoned(&neighbor) {
+                        continue;
+                    }
+                    next_ids.push(neighbor);
+                }
+            }
+            // MutexGuard drops here.
+            (hop_nodes, next_ids)
+        };
+
+        hop_results.push(HopResult {
+            hop,
+            nodes: hop_nodes,
+        });
+        frontier = next_frontier;
+
+        // ---------- Budget accounting (async-safe) -------------------
         match guard.charge(hop_stage_tag) {
             Ok(Decision::Proceed) => {
                 hops_executed = hop.saturating_add(1);
@@ -344,6 +451,7 @@ pub(crate) async fn traverse_answer(
         hard_wall_ms_effective: effective_hard_wall_ms,
         hard_wall_cutoff,
         budget_breached,
+        hops: hop_results,
     })
     .into_response()
 }

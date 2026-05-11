@@ -94,6 +94,7 @@ fn make_app_on(td: &TempDir) -> axum::Router {
         allow_labels: Some(true),
         in_memory: false,
         metrics_enabled: false,
+        push_token: None,
     };
     mnem_http::app_with_options(td.path(), opts).expect("build app")
 }

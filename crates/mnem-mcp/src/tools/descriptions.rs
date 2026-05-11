@@ -135,7 +135,7 @@ pub fn all_tools(allow_labels: bool) -> Vec<ToolDef> {
         },
         ToolDef {
             name: "mnem_schema",
-            description: "List every node label and edge label present in the current commit, \
+            description: "List every node label present in the current commit, \
                           along with the property names the IndexSet has built for each label. \
                           Agents use this to write well-scoped queries.",
             input_schema: json!({
@@ -178,6 +178,23 @@ pub fn all_tools(allow_labels: bool) -> Vec<ToolDef> {
                     "limit":       { "type": "integer", "minimum": 1, "maximum": 200, "default": 25 }
                 },
                 "required": ["start"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDef {
+            name: "mnem_incoming_edges",
+            description: "List all edges pointing TO a node (incoming/reverse edges). \
+                          Use to find what references a given entity. \
+                          Equivalent to `mnem blame` in the CLI.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "node":  { "type": "string", "description": "Destination node UUID (the node you want incoming edges for)." },
+                    "etype": { "type": "string", "description": "Optional edge-type filter (e.g. 'authored', 'cites'). When set, only edges with this etype are returned." },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 25, "description": "Max edges to return. Clamped to 200." },
+                    "json":  { "type": "boolean", "default": false, "description": "When true, return JSON instead of plain text." }
+                },
+                "required": ["node"],
                 "additionalProperties": false
             }),
         },
@@ -284,6 +301,20 @@ pub fn all_tools(allow_labels: bool) -> Vec<ToolDef> {
                     "message":   { "type": "string", "default": "mnem_mcp tombstone" }
                 },
                 "required": ["id", "agent_id"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDef {
+            name: "mnem_list_tags",
+            description: "List all tags in the current repository. Tags are named pointers to \
+                          op or commit CIDs stored under `refs/tags/*` in the View. Returns a \
+                          plain-text table by default (`name  ->  cid`); pass `{\"json\": true}` \
+                          to get the same `mnem.v1.tags` JSON shape as `GET /v1/tags`.",
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "json": { "type": "boolean", "description": "When true, return JSON instead of plain text.", "default": false }
+                },
                 "additionalProperties": false
             }),
         },
@@ -431,6 +462,27 @@ pub fn all_tools(allow_labels: bool) -> Vec<ToolDef> {
                     "agent_id":   { "type": "string", "description": "Commit author. Defaults to 'mnem mcp' when absent." },
                     "message":    { "type": "string", "default": "mnem_mcp global_ingest" }
                 },
+                "additionalProperties": false
+            }),
+        },
+        ToolDef {
+            name: "mnem_global_tombstone_node",
+            description: "Logically \"forget\" a node in the global graph (~/.mnemglobal/.mnem/) \
+                          without deleting its content. Parallel to mnem_tombstone_node but \
+                          always targets the global graph regardless of which repo the MCP \
+                          server is pointed at. Subsequent retrieves via mnem_global_retrieve \
+                          will filter the node out by default. Use this when a user says \
+                          \"forget X\" and the fact was stored globally. Errors if the node \
+                          does not exist in the global graph or has already been tombstoned.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id":        { "type": "string", "description": "Node UUID to tombstone (as returned by mnem_global_retrieve or mnem_global_add)." },
+                    "reason":    { "type": "string", "description": "Free-form reason recorded on the tombstone (e.g. the user's own phrasing)." },
+                    "agent_id":  { "type": "string", "description": "Required. Stored as the Commit author." },
+                    "message":   { "type": "string", "default": "mnem_mcp global tombstone" }
+                },
+                "required": ["id", "agent_id"],
                 "additionalProperties": false
             }),
         },

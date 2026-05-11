@@ -51,6 +51,14 @@ impl Error {
     pub(crate) fn locked() -> Self {
         Self::internal("server state lock poisoned")
     }
+
+    /// Build an error with an arbitrary HTTP status code.
+    pub(crate) fn status(status: StatusCode, msg: impl Into<String>) -> Self {
+        Self {
+            status,
+            message: msg.into(),
+        }
+    }
 }
 
 impl IntoResponse for Error {
@@ -219,7 +227,9 @@ impl RemoteError {
         match self {
             Self::BadRequest(m) | Self::NotFound(m) | Self::Internal(m) => m.clone(),
             Self::CasMismatch { current } => {
-                format!("ref moved under caller; current head is {current}")
+                format!(
+                    "remote tip has advanced; pull first (current head is {current})"
+                )
             }
         }
     }
@@ -234,10 +244,12 @@ impl IntoResponse for RemoteError {
             "status": status.as_u16(),
             "detail": self.detail(),
         });
-        // CAS mismatch carries the current head CID as an extension
-        // member so clients do not need a second `GET /refs` round
-        // trip to rebase.
+        // CAS mismatch carries two extension members: `error` is a
+        // machine-readable code (`"cas_mismatch"`) for programmatic
+        // branching, and `current` is the current head CID so the
+        // client can rebase without a second `GET /refs` round trip.
         if let Self::CasMismatch { current } = &self {
+            body["error"] = json!("cas_mismatch");
             body["current"] = json!(current.to_string());
         }
         (
@@ -269,6 +281,9 @@ impl From<mnem_core::Error> for Error {
             CoreError::Repo(RepoError::VectorDimMismatch { .. } | RepoError::RetrievalEmpty) => {
                 StatusCode::BAD_REQUEST
             }
+            // C8: edge references a node that does not exist in the current
+            // view. This is a client error (bad input), not a server fault.
+            CoreError::Repo(RepoError::DanglingEdge { .. }) => StatusCode::UNPROCESSABLE_ENTITY,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self {

@@ -88,9 +88,14 @@ pub trait RemoteClient: Send + Sync {
     /// `POST /remote/v1/advance-head` - atomic compare-and-swap on a
     /// named ref. Requires the bearer token. Returns
     /// [`ClientError::CasMismatch`] on 409.
+    ///
+    /// `old` is the CID the caller believes is the current remote head.
+    /// Pass `None` when pushing to a fresh remote with no existing head
+    /// (first push). The server accepts `null` for `old` only when its
+    /// own head set is empty; a non-empty remote will still 409.
     fn advance_head(
         &self,
-        old: Cid,
+        old: Option<Cid>,
         new: Cid,
         ref_name: String,
     ) -> BoxFuture<'_, Result<(), ClientError>>;
@@ -200,8 +205,22 @@ impl HttpRemoteClient {
         } else {
             CapabilitySet::with_caps(cfg.capabilities.iter().copied())
         };
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                let prev_host = attempt.previous()[0].host_str();
+                let next_host = attempt.url().host_str();
+                if prev_host != next_host {
+                    attempt.stop()
+                } else {
+                    attempt.follow()
+                }
+            }))
+            .build()
+            .expect("failed to build HTTP client");
         Self {
-            client: Client::new(),
+            client,
             base_url: cfg.url.trim_end_matches('/').to_owned(),
             token: cfg.token,
             capabilities,
@@ -379,7 +398,7 @@ impl HttpRemoteClient {
     /// [`ClientError::CasMismatch`].
     async fn advance_head_impl(
         &self,
-        old: Cid,
+        old: Option<Cid>,
         new: Cid,
         ref_name: String,
     ) -> Result<(), ClientError> {
@@ -387,8 +406,9 @@ impl HttpRemoteClient {
         let auth = self
             .bearer_header()
             .ok_or_else(|| ClientError::Auth("advance_head: no bearer token configured".into()))?;
+        // Serialize `old` as null when absent (first push to empty remote).
         let body = serde_json::json!({
-            "old": old.to_string(),
+            "old": old.as_ref().map(Cid::to_string),
             "new": new.to_string(),
             "ref": ref_name,
         });
@@ -410,8 +430,9 @@ impl HttpRemoteClient {
         if status == StatusCode::CONFLICT {
             // Server replies with `{current: <cid>}` on CAS
             // mismatch. If parsing fails we still surface a
-            // mismatch with the client's `old` echoed back, since
-            // that is what the caller needs to retry.
+            // mismatch. When `old` was None (first push) we use the
+            // new CID as a placeholder for the `expected` field since
+            // there was no prior tip on the client side.
             #[derive(Deserialize)]
             struct CurrentBody {
                 current: Option<String>,
@@ -421,12 +442,33 @@ impl HttpRemoteClient {
                 .ok()
                 .and_then(|c| c.current)
                 .and_then(|s| Cid::parse_str(&s).ok())
-                .unwrap_or_else(|| old.clone());
+                .unwrap_or_else(|| old.clone().unwrap_or_else(|| new.clone()));
             return Err(ClientError::CasMismatch {
                 ref_name,
-                expected: old,
+                expected: old.unwrap_or_else(|| new.clone()),
                 actual,
             });
+        }
+        if status == StatusCode::BAD_REQUEST {
+            // Try to extract the RFC 7807 `detail` field from the
+            // problem+json body so the user sees the server's
+            // explanation (e.g. "ref `feature/x` not supported; only
+            // `main` in B3.1") rather than the raw status code.
+            let bytes = resp.bytes().await.unwrap_or_default();
+            #[derive(Deserialize)]
+            struct ProblemBody {
+                detail: Option<String>,
+            }
+            let detail = serde_json::from_slice::<ProblemBody>(&bytes)
+                .ok()
+                .and_then(|b| b.detail);
+            let msg = match detail {
+                Some(d) => format!("push rejected (400): {d}"),
+                None => "push rejected (400): the server only accepts pushes to 'main'; \
+                     pushing to a different ref is not yet supported"
+                    .to_string(),
+            };
+            return Err(ClientError::Protocol(msg));
         }
         if !status.is_success() {
             return Err(ClientError::Protocol(format!(
@@ -457,7 +499,7 @@ impl RemoteClient for HttpRemoteClient {
 
     fn advance_head(
         &self,
-        old: Cid,
+        old: Option<Cid>,
         new: Cid,
         ref_name: String,
     ) -> BoxFuture<'_, Result<(), ClientError>> {

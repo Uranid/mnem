@@ -95,7 +95,16 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
             .list_refs()
             .await
             .with_context(|| format!("list_refs against {}", file.url))?;
-        let remote_tip: Option<Cid> = refs_resp.refs.get(&branch).cloned();
+        // Try branch-name key first (future multi-branch server mode),
+        // then fall back to the top-level `head` field. The B3.1 server
+        // only inserts the "HEAD" key into refs.refs, not branch names,
+        // so without this fallback `remote_tip` is always None and
+        // every push after the first would incorrectly send null old.
+        let remote_tip: Option<Cid> = refs_resp
+            .refs
+            .get(&branch)
+            .cloned()
+            .or_else(|| refs_resp.head.clone());
 
         if remote_tip.as_ref() == Some(&local_head) {
             println!("Everything up-to-date");
@@ -111,12 +120,13 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
             .push_blocks(bytes::Bytes::from(car))
             .await
             .map_err(map_client_err_push)?;
-        let _ = pushed;
 
         // advance-head CAS.
-        let old = remote_tip.clone().unwrap_or_else(|| local_head.clone());
+        // When `remote_tip` is None the remote has no head for this branch
+        // (fresh remote / first push). Pass None so the server treats it as
+        // an empty-head CAS rather than matching a non-existent CID.
         let cas = client
-            .advance_head(old.clone(), local_head.clone(), branch.clone())
+            .advance_head(remote_tip.clone(), local_head.clone(), branch.clone())
             .await;
         match cas {
             Ok(()) => {
@@ -124,12 +134,15 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
                 let tracking_key = format!("refs/remotes/{remote_name}/{branch}");
                 let prev = repo.view().refs.get(&tracking_key).cloned();
                 let cfg_local = config::load(&data_dir)?;
-                let _ = repo.update_ref(
+                if let Err(e) = repo.update_ref(
                     &tracking_key,
                     prev.as_ref(),
                     Some(RefTarget::normal(local_head.clone())),
                     &config::author_string(&cfg_local),
-                );
+                ) {
+                    eprintln!("warning: could not update tracking ref: {e}");
+                }
+                println!("pushed root `{}`", pushed.root);
                 println!("To {}", file.url);
                 let old_short = remote_tip
                     .as_ref()
@@ -150,6 +163,10 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
                     "Authentication required. Set MNEM_REMOTE_{upper}_TOKEN env var. ({msg})"
                 ))
             }
+            // Surface protocol-level rejections (e.g. non-main branch push)
+            // directly so the server's explanation reaches the user without
+            // a redundant "advance_head failed: protocol:" prefix.
+            Err(ClientError::Protocol(msg)) => Err(anyhow!("{msg}")),
             Err(e) => Err(anyhow!("advance_head failed: {e}")),
         }
     })

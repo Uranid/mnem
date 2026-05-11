@@ -1,0 +1,192 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 700" role="img" aria-label="mnem public benchmarks">
+  <title>mnem - Public Benchmarks</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0%" stop-color="#0d1320"/>
+      <stop offset="100%" stop-color="#06080e"/>
+    </linearGradient>
+    <pattern id="grid" x="0" y="0" width="60" height="60" patternUnits="userSpaceOnUse">
+      <path d="M 60 0 L 0 0 0 60" fill="none" stroke="rgba(255,255,255,0.025)" stroke-width="1"/>
+    </pattern>
+    <radialGradient id="glow" cx="0.85" cy="0.05" r="0.55">
+      <stop offset="0%" stop-color="#00c896" stop-opacity="0.09"/>
+      <stop offset="100%" stop-color="#00c896" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="700" fill="url(#bg)"/>
+  <rect width="960" height="700" fill="url(#grid)"/>
+  <rect width="960" height="700" fill="url(#glow)"/>
+
+  <!-- mnem column subtle highlight -->
+  <rect x="401" y="95" width="199" height="549" fill="rgba(0,200,150,0.03)"/>
+
+  <!-- Title -->
+  <text x="480" y="52" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="34" font-weight="800" fill="#f4f4f5" letter-spacing="-0.5">Public benchmarks</text>
+
+  <!-- Subtitle -->
+  <text x="480" y="77" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="13" font-weight="400" fill="#94a3b8">mnem vs. state-of-the-art knowledge-graph memory</text>
+
+  <!-- Top separator -->
+  <line x1="40" y1="95" x2="920" y2="95" stroke="rgba(148,163,184,0.18)" stroke-width="1"/>
+
+  <!-- Teal vertical separator - full height of data zone -->
+  <line x1="401" y1="95" x2="401" y2="644" stroke="#00c896" stroke-width="1.5" stroke-opacity="0.65"/>
+
+  <!-- Column headers -->
+  <text x="500" y="119" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="13" font-weight="700" fill="#00c896" letter-spacing="0.8">mnem</text>
+  <text x="690" y="119" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="13" font-weight="500" fill="#64748b" letter-spacing="0.3">mem0</text>
+  <text x="860" y="119" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="13" font-weight="500" fill="#64748b" letter-spacing="0.3">MemPalace</text>
+
+  <!-- Header bottom separator -->
+  <line x1="40" y1="132" x2="920" y2="132" stroke="rgba(148,163,184,0.13)" stroke-width="1"/>
+
+  <!-- ── ROW 1 - LongMemEval R@5 ── -->
+  <text x="52" y="154" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="15" font-weight="700" fill="#f4f4f5">LongMemEval R@5</text>
+  <text x="52" y="172" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="11" font-weight="400" fill="#64748b">extended-fact reasoning</text>
+  <text x="500" y="168" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="700" fill="#00c896">0.966</text>
+  <text x="690" y="168" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.946</text>
+  <text x="860" y="168" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.966</text>
+  <line x1="40" y1="196" x2="920" y2="196" stroke="rgba(148,163,184,0.08)" stroke-width="1"/>
+
+  <!-- ── ROW 2 - LongMemEval R@10 ── -->
+  <text x="52" y="218" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="15" font-weight="700" fill="#f4f4f5">LongMemEval R@10</text>
+  <text x="52" y="236" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="11" font-weight="400" fill="#64748b">extended-fact reasoning</text>
+  <text x="500" y="232" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="700" fill="#00c896">0.982</text>
+  <text x="690" y="232" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.962</text>
+  <text x="860" y="232" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.982</text>
+  <line x1="40" y1="260" x2="920" y2="260" stroke="rgba(148,163,184,0.08)" stroke-width="1"/>
+
+  <!-- ── ROW 3 - LoCoMo R@5 ── -->
+  <text x="52" y="282" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="15" font-weight="700" fill="#f4f4f5">LoCoMo R@5</text>
+  <text x="52" y="300" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="11" font-weight="400" fill="#64748b">long-context conversation</text>
+  <text x="500" y="296" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="700" fill="#00c896">0.726</text>
+  <text x="690" y="296" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.466</text>
+  <text x="860" y="296" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.508</text>
+  <line x1="40" y1="324" x2="920" y2="324" stroke="rgba(148,163,184,0.08)" stroke-width="1"/>
+
+  <!-- ── ROW 4 - LoCoMo R@10 ── -->
+  <text x="52" y="346" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="15" font-weight="700" fill="#f4f4f5">LoCoMo R@10</text>
+  <text x="52" y="364" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="11" font-weight="400" fill="#64748b">long-context conversation</text>
+  <text x="500" y="360" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="700" fill="#00c896">0.855</text>
+  <text x="690" y="360" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.676</text>
+  <text x="860" y="360" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.603</text>
+  <line x1="40" y1="388" x2="920" y2="388" stroke="rgba(148,163,184,0.08)" stroke-width="1"/>
+
+  <!-- ── ROW 5 - ConvoMem ── -->
+  <text x="52" y="410" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="15" font-weight="700" fill="#f4f4f5">ConvoMem</text>
+  <text x="52" y="428" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="11" font-weight="400" fill="#64748b">conversational memory recall</text>
+  <text x="500" y="424" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="700" fill="#00c896">0.976</text>
+  <text x="690" y="424" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.558</text>
+  <text x="860" y="424" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.929</text>
+  <line x1="40" y1="452" x2="920" y2="452" stroke="rgba(148,163,184,0.08)" stroke-width="1"/>
+
+  <!-- ── ROW 6 - MemBench roles ── -->
+  <text x="52" y="474" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="15" font-weight="700" fill="#f4f4f5">MemBench roles</text>
+  <text x="52" y="492" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="11" font-weight="400" fill="#64748b">role-play memory consistency</text>
+  <text x="500" y="488" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="700" fill="#00c896">0.960</text>
+  <text x="690" y="488" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.410</text>
+  <text x="860" y="488" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.840</text>
+  <line x1="40" y1="516" x2="920" y2="516" stroke="rgba(148,163,184,0.08)" stroke-width="1"/>
+
+  <!-- ── ROW 7 - MemBench movie ── -->
+  <text x="52" y="538" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="15" font-weight="700" fill="#f4f4f5">MemBench movie</text>
+  <text x="52" y="556" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="11" font-weight="400" fill="#64748b">narrative memory consistency</text>
+  <text x="500" y="552" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="700" fill="#00c896">1.000</text>
+  <text x="690" y="552" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.970</text>
+  <text x="860" y="552" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.950</text>
+  <line x1="40" y1="580" x2="920" y2="580" stroke="rgba(148,163,184,0.08)" stroke-width="1"/>
+
+  <!-- ── ROW 8 - FinanceBench ── -->
+  <text x="52" y="602" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="15" font-weight="700" fill="#f4f4f5">FinanceBench</text>
+  <text x="52" y="620" font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="11" font-weight="400" fill="#64748b">hit@5 · financial document retrieval</text>
+  <text x="500" y="616" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="700" fill="#00c896">0.973</text>
+  <text x="690" y="616" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.033</text>
+  <text x="860" y="616" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="22" font-weight="400" fill="#6e7681">0.767</text>
+
+  <!-- Bottom separator -->
+  <line x1="40" y1="644" x2="920" y2="644" stroke="rgba(148,163,184,0.18)" stroke-width="1"/>
+
+  <!-- Footer -->
+  <text x="480" y="663" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="11" font-weight="400" fill="#64748b">ran live benchmarks on all systems · ONNX MiniLM-L6-v2 · offline · ~40MB binary · Apache-2.0</text>
+  <text x="480" y="683" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Inter','Helvetica Neue',Arial,sans-serif"
+        font-size="11" font-weight="500" fill="#00c896">github.com/Uranid/mnem/tree/main/benchmarks</text>
+</svg>

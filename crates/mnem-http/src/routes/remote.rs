@@ -134,6 +134,10 @@ pub(crate) async fn get_refs(State(state): State<AppState>) -> Result<Response, 
     let mut refs: BTreeMap<String, String> = BTreeMap::new();
     if let Some(h) = head_str.as_ref() {
         refs.insert("HEAD".to_string(), h.clone());
+        // In B3.1 the only branch is DEFAULT_REF ("main"), so HEAD == main.
+        // Insert the branch name explicitly so clients can look up by branch
+        // without relying on the fallback through the top-level `head` field.
+        refs.insert(DEFAULT_REF.to_string(), h.clone());
     }
     let body = RefsResponse {
         head: head_str,
@@ -314,9 +318,14 @@ fn remote_error_from_transport(e: mnem_transport::TransportError) -> RemoteError
 /// Request body for `POST /remote/v1/advance-head`.
 #[derive(Debug, Deserialize)]
 pub(crate) struct AdvanceHeadRequest {
-    /// The CID the caller believes is the current head. The CAS
-    /// fails with 409 if the server-side head is anything else.
-    pub old: String,
+    /// The CID the caller believes is the current head, or `null` /
+    /// absent when the caller expects the remote to have an empty head
+    /// set (i.e. first push to a fresh remote). The CAS fails with 409
+    /// if the server-side head is anything other than what `old`
+    /// describes: a non-null `old` must be present in the current head
+    /// set; a null `old` requires the current head set to be empty.
+    #[serde(default)]
+    pub old: Option<String>,
     /// The CID the caller wants to become the new head.
     pub new: String,
     /// Named ref to advance. Defaults to `"main"`.
@@ -355,7 +364,12 @@ pub(crate) async fn post_advance_head(
             req.r#ref
         )));
     }
-    let old = Cid::parse_str(&req.old).map_err(|e| RemoteError::BadRequest(format!("old: {e}")))?;
+    let old: Option<Cid> = match req.old {
+        Some(ref s) => {
+            Some(Cid::parse_str(s).map_err(|e| RemoteError::BadRequest(format!("old: {e}")))?)
+        }
+        None => None,
+    };
     let new = Cid::parse_str(&req.new).map_err(|e| RemoteError::BadRequest(format!("new: {e}")))?;
 
     let inc_ok = |s: &AppState| {
@@ -381,28 +395,111 @@ pub(crate) async fn post_advance_head(
         .map_err(|_| RemoteError::Internal("server state lock poisoned".into()))?;
     let ohs = repo.op_heads_store();
 
-    // Snapshot current heads and CAS manually: `OpHeadsStore::update`
-    // is a blind write, so we must compare-and-reject above it. This
-    // is racy under concurrent writers, but B3.1 runs single-writer
-    // (axum serialises through the repo mutex above), so the window
-    // is closed.
+    // CAS INVARIANT - DO NOT RELAX WITHOUT AUDITING THIS BLOCK.
+    //
+    // `OpHeadsStore::update` is a blind write: it does not perform any
+    // compare-and-swap internally. The correctness of the CAS below
+    // therefore depends entirely on this handler being serialised
+    // through the repo mutex acquired above. As long as every call to
+    // `post_advance_head` holds the mutex for the full duration of the
+    // read-compare-write sequence, only one writer can be in this
+    // critical section at a time and the TOCTOU window is closed.
+    //
+    // DANGER: if the mutex is ever replaced with a finer-grained lock
+    // (per-ref, per-shard, or eliminated in favour of async tasks), the
+    // read-then-write sequence below becomes a race: two concurrent
+    // pushers can each read the same `current` head, both pass the CAS
+    // check, and both call `ohs.update` - the second write silently
+    // overwrites the first (BUG-57). At that point this function MUST
+    // be replaced with a true DB-level CAS (e.g. a conditional write
+    // that fails atomically if the row changed since the read).
     let current = ohs
         .current()
         .map_err(|e| RemoteError::Internal(format!("op-heads read: {e}")))?;
-    // "Match" = `old` is present in the current head set. On an
-    // empty store (no heads yet), `old == cid_of_nothing` is meant to
-    // succeed; we model that by accepting the empty-set case when the
-    // caller provides a sentinel zero-CID, but B3.1 keeps it simple:
-    // empty heads always mismatches unless the caller is willing to
-    // observe the empty state via `/refs` first.
-    if !current.iter().any(|c| c == &old) {
-        inc_mismatch(&state);
-        let current_head = current.into_iter().next();
-        return Err(RemoteError::CasMismatch {
-            current: current_head.unwrap_or_else(|| old.clone()),
-        });
+
+    // CAS check: when `old` is None the caller asserts the remote is
+    // empty (first push). When `old` is Some(cid) it must appear in
+    // the current head set.
+    match &old {
+        None => {
+            // First-push path: succeed only if the remote has no heads.
+            if !current.is_empty() {
+                inc_mismatch(&state);
+                let current_head = current.into_iter().next();
+                return Err(RemoteError::CasMismatch {
+                    current: current_head.expect("non-empty current has a first element"),
+                });
+            }
+            // Empty remote - proceed to blind write below.
+        }
+        Some(expected_old) => {
+            // Normal path: `old` must be present in the current head set.
+            if !current.iter().any(|c| c == expected_old) {
+                inc_mismatch(&state);
+                let current_head = current.into_iter().next();
+                return Err(RemoteError::CasMismatch {
+                    current: current_head.unwrap_or_else(|| expected_old.clone()),
+                });
+            }
+        }
     }
-    ohs.update(new.clone(), std::slice::from_ref(&old))
+
+    // Ancestry check: `new` must be a descendant of `old` (BUG-57).
+    //
+    // The CAS above only ensures that the claimed `old` is the current
+    // remote tip. It does NOT prevent a client from pushing a `new`
+    // commit that diverges from `old` (i.e. is not a descendant). Two
+    // clients can both read the same remote tip, both send a correct
+    // `old`, and both pass the CAS -- but the second push would overwrite
+    // the first with a divergent history. The ancestry check closes this
+    // gap: the server walks the `new` commit's parent chain and rejects
+    // the push unless `old` appears in that chain.
+    //
+    // The check is skipped when `old` cannot be decoded as a Commit block.
+    // This covers the "first real push after init" case where `old` is the
+    // server's initial root Op CID (not a Commit), so it can never appear
+    // in a commit's parent chain.
+    if let Some(ref expected_old) = old {
+        let bs = repo.blockstore().clone();
+        // Try decoding `old` as a Commit. If it isn't a Commit (e.g. it's
+        // a root Op CID from a freshly-initialised server), skip the ancestry
+        // check -- we can't walk an op DAG as a commit DAG.
+        let old_is_commit = bs
+            .get(expected_old)
+            .ok()
+            .flatten()
+            .and_then(|b| {
+                use mnem_core::codec::from_canonical_bytes;
+                use mnem_core::objects::Commit;
+                from_canonical_bytes::<Commit>(&b).ok()
+            })
+            .is_some();
+        if old_is_commit {
+            match is_ancestor_of(&*bs, expected_old, &new) {
+                Ok(true) => {}
+                Ok(false) => {
+                    inc_mismatch(&state);
+                    return Err(RemoteError::CasMismatch {
+                        current: expected_old.clone(),
+                    });
+                }
+                Err(_) => {
+                    // If we cannot decode commits (block not yet in store),
+                    // allow the push. push-blocks already imported the blocks so
+                    // this is a degenerate case; failing open avoids false rejections.
+                }
+            }
+        }
+    }
+
+    // `OpHeadsStore::update` removes the old tip(s) and inserts the
+    // new one. On first push there is no old tip to remove so we pass
+    // an empty slice.
+    let remove_tips: &[Cid] = match &old {
+        Some(o) => std::slice::from_ref(o),
+        None => &[],
+    };
+    ohs.update(new.clone(), remove_tips)
         .map_err(|e| RemoteError::Internal(format!("op-heads update: {e}")))?;
     inc_ok(&state);
 
@@ -411,6 +508,48 @@ pub(crate) async fn post_advance_head(
         head: new.to_string(),
     };
     Ok((StatusCode::OK, protocol_headers(), Json(body)).into_response())
+}
+
+/// Walk `tip`'s parent chain (BFS) looking for `needle`. Returns `true`
+/// when `needle` is found, `false` when the walk exhausts the DAG, `Err`
+/// on a blockstore error.
+///
+/// Used by `post_advance_head` to verify that the client's claimed `new`
+/// commit actually descends from the current remote tip (`old`). This
+/// closes the divergent-history gap in the CAS check (BUG-57).
+fn is_ancestor_of(
+    bs: &dyn mnem_core::store::Blockstore,
+    needle: &Cid,
+    tip: &Cid,
+) -> Result<bool, mnem_core::error::StoreError> {
+    use mnem_core::codec::from_canonical_bytes;
+    use mnem_core::objects::Commit;
+    use std::collections::{HashSet, VecDeque};
+
+    if needle == tip {
+        return Ok(true);
+    }
+    let mut seen: HashSet<Cid> = HashSet::new();
+    let mut q: VecDeque<Cid> = VecDeque::new();
+    q.push_back(tip.clone());
+    while let Some(cur) = q.pop_front() {
+        if !seen.insert(cur.clone()) {
+            continue;
+        }
+        if &cur == needle {
+            return Ok(true);
+        }
+        let Some(bytes) = bs.get(&cur)? else {
+            continue;
+        };
+        let Ok(commit) = from_canonical_bytes::<Commit>(&bytes) else {
+            continue;
+        };
+        for p in &commit.parents {
+            q.push_back(p.clone());
+        }
+    }
+    Ok(false)
 }
 
 #[cfg(test)]
@@ -474,6 +613,12 @@ mod tests {
             assert_eq!(
                 refs.get("HEAD").and_then(|s| s.as_str()),
                 v["head"].as_str()
+            );
+            // B3.1: DEFAULT_REF ("main") must also be present and equal HEAD.
+            assert_eq!(
+                refs.get("main").and_then(|s| s.as_str()),
+                refs.get("HEAD").and_then(|s| s.as_str()),
+                "refs[\"main\"] must equal refs[\"HEAD\"] in B3.1 single-branch mode"
             );
         } else {
             assert!(refs.is_empty());

@@ -86,6 +86,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         linearize: true,
         time_micros: None,
         change_id: None,
+        agent_id: None,
+        task_id: None,
     })?;
     println!("linearize happy path: commit succeeded at {}", r4.op_id());
 
@@ -107,6 +109,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         linearize: true,
         time_micros: None,
         change_id: None,
+        agent_id: None,
+        task_id: None,
     });
     match outcome {
         Err(Error::Repo(RepoError::Stale)) => {

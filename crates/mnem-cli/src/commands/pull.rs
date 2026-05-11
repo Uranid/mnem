@@ -14,11 +14,22 @@
 //! 3. Otherwise refuse with a message pointing at the B4 `merge`
 //!    verb.
 //!
+//! ## Empty-local fast-forward (BUG-56)
+//!
+//! `mnem init` seeds a deterministic anchor commit (fixed author,
+//! time, and change-id) so every fresh repo starts with the same
+//! anchor commit CID. When a publisher also ran `mnem init` before
+//! adding data, the subscriber's anchor commit IS an ancestor of the
+//! publisher's commit chain, and the ancestry check in step 2 passes
+//! naturally. If `view.heads` is empty (no commits at all), case (a)
+//! below handles it directly.
+//!
 //! Ancestry check is intentionally cheap: we walk the commit DAG
 //! from the remote tip looking for the local head CID. For the
 //! common case (empty local or strict fast-forward) the walk is
 //! short; a future revision can push this into mnem-core proper.
 
+use mnem_core::HEADS_PREFIX;
 use mnem_core::id::Cid;
 use mnem_core::objects::RefTarget;
 
@@ -64,7 +75,7 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
     };
 
     let local_head = repo.view().heads.first().cloned();
-    let local_branch_key = format!("refs/heads/{branch}");
+    let local_branch_key = format!("{HEADS_PREFIX}{branch}");
     let local_branch = repo.view().refs.get(&local_branch_key).cloned();
 
     // Fast-forward cases:
@@ -118,9 +129,14 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
 }
 
 /// Cheap ancestry check: walk commits from `tip`, following each
-/// commit's `parents`, return true if `needle` shows up. Bounded by
-/// blockstore size so a pathological local corruption cannot loop
-/// forever.
+/// commit's `parents`, return true if `needle` shows up.
+///
+/// No artificial hop cap is needed: the commit graph is a finite,
+/// acyclic DAG (cycles are impossible because each commit's CID is a
+/// content-addressed hash of its parents, so a cycle would require a
+/// hash pre-image). The `seen` set prevents revisiting nodes, and the
+/// blockstore is the natural termination bound - once every reachable
+/// block has been visited, the queue empties and the loop exits.
 fn is_ancestor(bs: &dyn mnem_core::store::Blockstore, needle: &Cid, tip: &Cid) -> Result<bool> {
     use mnem_core::codec::from_canonical_bytes;
     use std::collections::{HashSet, VecDeque};
@@ -142,12 +158,6 @@ fn is_ancestor(bs: &dyn mnem_core::store::Blockstore, needle: &Cid, tip: &Cid) -
         };
         for p in &commit.parents {
             q.push_back(p.clone());
-        }
-        // Bound the walk at 10_000 commits; beyond that we assume
-        // not an ancestor. Agents don't produce that much linear
-        // history in a single session.
-        if seen.len() > 10_000 {
-            break;
         }
     }
     Ok(false)
