@@ -63,31 +63,13 @@ Retrieval is **hybrid and transparent**: vector + keyword + graph traversal in o
 
 ONNX MiniLM-L6-v2 embedder, same bytes on every system. No LLM rerank. Reproduce: `bash benchmarks/harness/run_bench.sh`.
 
-| Benchmark | mem0 | MemPalace | **mnem** |
-|-----------|-----:|----------:|---------:|
-| LongMemEval 500 Q: R@5 | 0.946 | $\color{green}{\textbf{0.966}}$ | $\color{green}{\textbf{0.966}}$ |
-| LongMemEval 500 Q: R@10 | 0.962 | $\color{green}{\textbf{0.982}}$ | $\color{green}{\textbf{0.982}}$ |
-| LoCoMo 1986 Q: R@5 | 0.466 | 0.508 | $\color{green}{\textbf{0.726}}$ |
-| LoCoMo 1986 Q: R@10 | 0.676 | 0.603 | $\color{green}{\textbf{0.855}}$ |
-| ConvoMem 250 conv.: avg recall | 0.558 | 0.929 | $\color{green}{\textbf{0.976}}$ |
-| MemBench simple/roles 100: R@5 | 0.410 | 0.840 | $\color{green}{\textbf{0.960}}$ |
-| MemBench highlevel/movie 100: R@5 | 0.970 | 0.950 | $\color{green}{\textbf{1.000}}$ |
-| FinanceBench 150 Q: hit@5† | 0.033 | 0.767 | $\color{green}{\textbf{0.973}}$ |
+<div align="center"><img src="assets/benchmarks/benchmarks.svg" alt="mnem public benchmarks" /></div>
 
 <sup>mem0 columns: our reproduction under the same harness (mem0 doesn't publish R@K headlines on these datasets). MemPalace columns: public headline numbers cross-verified under our harness. Raw artefacts: [`benchmarks/results/v0.1.0/`](benchmarks/results/v0.1.0/). † FinanceBench uses Ollama bge-large (1024-dim) on all systems; MemPalace shown at best configuration (bge-large direct ChromaDB); mem0 applies LLM memory extraction before storage. Full methodology: [`benchmarks/results/analysis/financebench.md`](benchmarks/results/analysis/financebench.md).</sup>
 
 ### Query speed
 
-| Benchmark | mean retrieve |
-|-----------|-------------:|
-| LongMemEval 500 Q | 711 ms |
-| LoCoMo 1986 Q | 333 ms |
-| ConvoMem 250 conv. | 398 ms |
-| MemBench simple/roles 100 | 1874 ms (e2e) |
-| MemBench highlevel/movie 100 | 491 ms (e2e) |
-| FinanceBench 150 Q | 2087 ms (global) |
-
-<sup>(e2e) = end-to-end mean when the adapter doesn't expose phase timing. (global) = corpus-wide scan with no per-session label scope.</sup>
+<div align="center"><img src="assets/benchmarks/query-speed.svg" alt="mnem query speed" /></div>
 
 <details>
 <summary><b>Reproduce</b></summary>

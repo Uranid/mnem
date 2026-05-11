@@ -115,17 +115,16 @@
           fill="#f4f4f5">mnem</text>
   </g>
 
-  <!-- Tagline + accent bar -->
-  <g transform="translate(364,278)">
-    <line x1="0" y1="0" x2="44" y2="0" stroke="#00c896" stroke-width="3" stroke-linecap="round"/>
-    <text x="58" y="6"
+  <!-- Tagline -->
+  <g transform="translate(360,278)">
+    <text x="0" y="6"
           font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Arial, sans-serif"
           font-size="30"
           font-weight="700"
           letter-spacing="0.5"
           fill="#00c896">GIT FOR KNOWLEDGE GRAPHS</text>
   </g>
-  <g transform="translate(364,326)">
+  <g transform="translate(360,326)">
     <text x="0" y="0"
           font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Arial, sans-serif"
           font-size="22"
@@ -134,7 +133,7 @@
   </g>
 
   <!-- ── BOTTOM: curated 4-item feature row ───────────────────────── -->
-  <g transform="translate(364,376)" font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#64748b" letter-spacing="0.6">
+  <g transform="translate(360,376)" font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#64748b" letter-spacing="0.6">
     <text x="0" y="0">VERSIONED</text>
     <circle cx="118" cy="-4" r="2" fill="#475569"/>
     <text x="132" y="0">MULTI-HOP</text>

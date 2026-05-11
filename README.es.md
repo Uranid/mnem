@@ -66,31 +66,13 @@ La recuperación es **híbrida y transparente**: vector + palabras clave + recor
 
 Embedder ONNX MiniLM-L6-v2, mismos bytes en todos los sistemas. Sin reranking con LLM. Reproducir: `bash benchmarks/harness/run_bench.sh`.
 
-| Benchmark | mem0 | MemPalace | **mnem** |
-|-----------|-----:|----------:|---------:|
-| LongMemEval 500 Q: R@5 | 0.946 | $\color{green}{\textbf{0.966}}$ | $\color{green}{\textbf{0.966}}$ |
-| LongMemEval 500 Q: R@10 | 0.962 | $\color{green}{\textbf{0.982}}$ | $\color{green}{\textbf{0.982}}$ |
-| LoCoMo 1986 Q: R@5 | 0.466 | 0.508 | $\color{green}{\textbf{0.726}}$ |
-| LoCoMo 1986 Q: R@10 | 0.676 | 0.603 | $\color{green}{\textbf{0.855}}$ |
-| ConvoMem 250 conv.: avg recall | 0.558 | 0.929 | $\color{green}{\textbf{0.976}}$ |
-| MemBench simple/roles 100: R@5 | 0.410 | 0.840 | $\color{green}{\textbf{0.960}}$ |
-| MemBench highlevel/movie 100: R@5 | 0.970 | 0.950 | $\color{green}{\textbf{1.000}}$ |
-| FinanceBench 150 Q: hit@5† | 0.033 | 0.767 | $\color{green}{\textbf{0.973}}$ |
+<div align="center"><img src="assets/benchmarks/benchmarks.svg" alt="mnem public benchmarks" /></div>
 
 <sup>Columnas de mem0: nuestra reproducción bajo el mismo arnés (mem0 no publica titulares de R@K en estos conjuntos de datos). Columnas de MemPalace: números de titulares públicos verificados cruzadamente bajo nuestro arnés. Artefactos brutos: [`benchmarks/results/v0.1.0/`](benchmarks/results/v0.1.0/). † FinanceBench usa Ollama bge-large (1024 dimensiones) en todos los sistemas; MemPalace se muestra en la mejor configuración (bge-large con ChromaDB directo); mem0 aplica extracción de memoria con LLM antes del almacenamiento. Metodología completa: [`benchmarks/results/analysis/financebench.md`](benchmarks/results/analysis/financebench.md).</sup>
 
 ### Velocidad de consulta
 
-| Benchmark | recuperación media |
-|-----------|-------------:|
-| LongMemEval 500 Q | 711 ms |
-| LoCoMo 1986 Q | 333 ms |
-| ConvoMem 250 conv. | 398 ms |
-| MemBench simple/roles 100 | 1874 ms (e2e) |
-| MemBench highlevel/movie 100 | 491 ms (e2e) |
-| FinanceBench 150 Q | 2087 ms (global) |
-
-<sup>(e2e) = media de extremo a extremo cuando el adaptador no expone el tiempo por fase. (global) = escaneo de todo el corpus sin alcance de etiqueta por sesión.</sup>
+<div align="center"><img src="assets/benchmarks/query-speed.svg" alt="mnem query speed" /></div>
 
 <details>
 <summary><b>Reproducir</b></summary>
