@@ -52,7 +52,7 @@ ureq                = { version = "2", default-features = false, features = ["tl
 sha2                = { workspace = true }
 
 # utility
-directories         = "5"
+directories         = "6"
 hex                 = "0.4"
 bytes               = { workspace = true }
 ipld-core           = { workspace = true }
