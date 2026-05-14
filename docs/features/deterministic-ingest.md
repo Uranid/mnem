@@ -1,25 +1,36 @@
 # Deterministic Ingest
 
-mnem ingests documents without an LLM. The parse, chunk, and entity extraction pipeline is statistical - the same bytes always produce the same nodes, with the same CIDs, on any machine.
+mnem ingests documents without an LLM. The same bytes always produce the same nodes, on any machine.
 
 ```bash
 mnem ingest architecture.md        # parses into Doc + Chunk + Entity nodes
-mnem ingest --recursive docs/      # ingest a directory
+mnem ingest main.rs                # code: one chunk per function/struct
+mnem ingest --recursive src/       # walk a directory, auto-detect all types
 ```
 
-## Why no LLM at ingest
+## No LLM at ingest
 
-LLM-based extraction is non-deterministic: two runs on the same document may produce different entities, different summaries, different chunks. This breaks reproducibility and makes auditing hard.
+The pipeline is fully local and offline. No network calls, no API keys, no non-determinism. The `mnem:content_hash` on each Doc node lets callers skip files whose content has not changed.
 
-mnem's ingest pipeline is:
+## Supported input formats
 
-1. **Parse** - extract text from the file format (Markdown, PDF, plain text, etc.)
-2. **Chunk** - split into semantically coherent segments using configurable chunkers
-3. **Extract** - identify entities using statistical NER (no network call)
-4. **Embed** - compute dense vectors with the configured embedder (in-process by default)
-5. **Commit** - write the resulting nodes and edges as a single content-addressed commit
-
-Every step is deterministic. Run the same ingest twice and you get the same CIDs.
+| Format | Extensions | Chunking |
+|---|---|---|
+| Markdown | `.md`, `.markdown` | One chunk per heading section |
+| PDF | `.pdf` | Sentence-aware windows |
+| Plain text | `.txt` | Sentence-aware windows; auto-splits on document headings |
+| Conversation | `.json`, `.jsonl` | One chunk per conversation turn/session |
+| Rust | `.rs` | One chunk per function, struct, enum, trait |
+| Python | `.py`, `.pyi` | One chunk per def/class |
+| JavaScript | `.js`, `.mjs`, `.cjs` | One chunk per function/class |
+| TypeScript | `.ts`, `.tsx`, `.mts`, `.cts` | One chunk per function/class/interface/type alias |
+| Go | `.go` | One chunk per func/method/type declaration |
+| Java | `.java` | One chunk per method/class |
+| C | `.c`, `.h` | One chunk per function |
+| C++ | `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx` | One chunk per function |
+| Ruby | `.rb`, `.gemspec`, `.rake`, `.erb` | One chunk per method/class/module |
+| C# | `.cs`, `.csx` | One chunk per method/class/interface/struct |
+| Other code/config | `.sh`, `.yaml`, `.toml`, `.html`, `.xml`, `.csv`, `.sql`, `.php`, `.swift`, `.kt`, … | Sentence-aware windows |
 
 ## Optional keyphrase enrichment
 
@@ -33,9 +44,10 @@ KeyBERT uses a local model - no LLM call, no network required.
 
 ## Fuzz testing
 
-The ingest parsers (Markdown, PDF, plain text) are fuzz-harnessed. Malformed or adversarial input is handled safely without panics.
+The ingest parsers are fuzz-harnessed. Malformed or adversarial input is handled safely without panics.
 
 ## See also
 
-- [Ingest pipeline](../src/guides/ingest.md)
+- [Rich ingest pipeline](rich-ingest.md) - supported formats, content hash, chunker options
+- [Ingest pipeline guide](../src/guides/ingest.md)
 - [mnem ingest CLI reference](../src/cli.md)

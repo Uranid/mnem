@@ -48,10 +48,75 @@ pub struct Chunk {
     pub tokens_estimate: u32,
 }
 
-/// The kind of source being ingested.
+/// Programming language for [`SourceKind::Code`].
 ///
-/// Only `Markdown` and `Text` are handled in Phase-B5a; the other variants
-/// are declared here so public signatures remain stable across sub-waves.
+/// New languages can be added without breaking the public API because
+/// `source_kind_for_path` falls back to [`SourceKind::Text`] for any
+/// extension not listed here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CodeLanguage {
+    /// Rust source (`.rs`).
+    Rust,
+    /// Python source (`.py`, `.pyi`).
+    Python,
+    /// JavaScript source (`.js`, `.mjs`, `.cjs`).
+    JavaScript,
+    /// TypeScript source (`.ts`, `.tsx`, `.mts`, `.cts`).
+    TypeScript,
+    /// Go source (`.go`).
+    Go,
+    /// Java source (`.java`).
+    Java,
+    /// C source (`.c`, `.h`).
+    C,
+    /// C++ source (`.cpp`, `.cc`, `.cxx`, `.hpp`, `.hxx`).
+    Cpp,
+    /// Ruby source (`.rb`, `.gemspec`, `.rake`, `.erb`).
+    Ruby,
+    /// C# source (`.cs`, `.csx`).
+    CSharp,
+}
+
+impl CodeLanguage {
+    /// Map a lowercase file extension to a language variant, or `None` if
+    /// the extension is not a recognised code file.
+    #[must_use]
+    pub fn from_extension(ext: &str) -> Option<Self> {
+        match ext {
+            "rs" => Some(Self::Rust),
+            "py" | "pyi" => Some(Self::Python),
+            "js" | "mjs" | "cjs" => Some(Self::JavaScript),
+            "ts" | "tsx" | "mts" | "cts" => Some(Self::TypeScript),
+            "go" => Some(Self::Go),
+            "java" => Some(Self::Java),
+            "c" | "h" => Some(Self::C),
+            "cpp" | "cc" | "cxx" | "c++" | "hpp" | "hxx" => Some(Self::Cpp),
+            "rb" | "gemspec" | "rake" | "erb" => Some(Self::Ruby),
+            "cs" | "csx" => Some(Self::CSharp),
+            _ => None,
+        }
+    }
+
+    /// Short lowercase name used in `mnem:source_kind` props and diagnostics.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Rust => "rust",
+            Self::Python => "python",
+            Self::JavaScript => "javascript",
+            Self::TypeScript => "typescript",
+            Self::Go => "go",
+            Self::Java => "java",
+            Self::C => "c",
+            Self::Cpp => "cpp",
+            Self::Ruby => "ruby",
+            Self::CSharp => "csharp",
+        }
+    }
+}
+
+/// The kind of source being ingested.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SourceKind {
@@ -59,10 +124,12 @@ pub enum SourceKind {
     Markdown,
     /// UTF-8 plain text, no structure inferred.
     Text,
-    /// PDF (text-layer extraction). Handled in Phase-B5b.
+    /// PDF (text-layer extraction).
     Pdf,
-    /// Chat transcript (JSON/JSONL). Handled in Phase-B5b.
+    /// Chat transcript (JSON/JSONL).
     Conversation,
+    /// Source code file parsed with tree-sitter.
+    Code(CodeLanguage),
 }
 
 /// Which chunker strategy to use, and its parameters.

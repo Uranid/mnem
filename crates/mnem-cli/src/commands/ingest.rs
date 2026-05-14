@@ -29,8 +29,8 @@ use anyhow::{Context, Result, bail};
 use clap::Args as ClapArgs;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use mnem_ingest::{
-    ChunkerAuto, ChunkerKind, IngestConfig, IngestResult, Ingester, Section, SourceKind,
-    auto_chunker, chunk as chunk_sections,
+    ChunkerKind, IngestConfig, IngestResult, Ingester, Section, SourceKind,
+    chunk as chunk_sections, resolve_chunker,
 };
 use tracing::{info, info_span};
 
@@ -62,7 +62,8 @@ pub(crate) struct Args {
     pub ntype: String,
 
     /// Chunker strategy. `auto` picks per source kind (default).
-    /// Explicit choices: `session` | `paragraph` | `recursive`.
+    /// Explicit choices: `session` | `paragraph` | `recursive` |
+    /// `sentence_recursive` | `structural`.
     #[arg(long, default_value = "auto")]
     pub chunker: String,
 
@@ -111,18 +112,21 @@ const MAX_TOKENS_CAP: u32 = 8192;
 
 /// Extensions we recurse into when `--recursive` is set. Anything else
 /// is skipped silently.
-const SUPPORTED_EXTS: &[&str] = &["md", "markdown", "txt", "pdf", "json", "jsonl"];
-
-/// Strategy selector derived from `--chunker`. `Auto` defers the
-/// decision to per-source heuristics at ingest time; every other
-/// variant pins a fixed chunker across all files in the run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ChunkerChoice {
-    Auto,
-    Paragraph,
-    Recursive,
-    Session,
-}
+const SUPPORTED_EXTS: &[&str] = &[
+    // Documents and prose
+    "md", "markdown", "txt", "pdf", "json", "jsonl",
+    // Structured text / data (routed to Text; sentence-aware chunking)
+    "yaml", "yml", "toml", "xml", "html", "htm", "csv", "sql",
+    // Code: tree-sitter parsed (function-level chunks)
+    "rs", "py", "js", "ts", "tsx", "mts", "cts", "go", "java", "c", "cpp", "cc", "cxx", "h", "hpp", "hxx",
+    "rb", "gemspec", "rake", "erb", "cs", "csx",
+    // Code: no tree-sitter grammar, routed to Text
+    "sh", "bash", "zsh", "fish",
+    "php", "swift", "kt", "kts", "scala", "lua",
+    "ex", "exs", "hs", "lhs", "r", "zig",
+    // Config / script formats also routed to Text
+    "ini", "conf", "env",
+];
 
 /// Run `mnem ingest`.
 ///
@@ -182,20 +186,15 @@ pub(crate) fn run(override_path: Option<&Path>, a: Args) -> Result<()> {
         );
     }
 
-    let choice = parse_chunker(&a.chunker)?;
-
-    // Warn when the caller passes --max-tokens with a chunker that does not
-    // honour it. 512 is the declared default; any deviation means the flag
-    // was intentionally set. Emit to stderr so it is visible even when
-    // stdout is redirected.
-    //
-    // `auto` is intentionally excluded: it maps Text and Pdf sources to
-    // `ChunkerKind::Recursive { max_tokens, ... }`, so the flag has a real
-    // effect for those source types. Only `paragraph` and `session` genuinely
-    // ignore `max_tokens` regardless of source kind.
+    // Warn when the caller passes --max-tokens with a chunker that ignores it.
+    // `auto` is excluded: it maps Text/Pdf to SentenceRecursive, so the flag
+    // has a real effect. Only `paragraph` and `session` genuinely ignore it.
     const DEFAULT_MAX_TOKENS: u32 = 512;
     if a.max_tokens != DEFAULT_MAX_TOKENS
-        && matches!(choice, ChunkerChoice::Paragraph | ChunkerChoice::Session)
+        && matches!(
+            a.chunker.to_ascii_lowercase().as_str(),
+            "paragraph" | "session"
+        )
     {
         eprintln!(
             "warning: --max-tokens has no effect with --chunker {}; \
@@ -261,7 +260,8 @@ pub(crate) fn run(override_path: Option<&Path>, a: Args) -> Result<()> {
     if let Some(bytes) = text_bytes {
         // Inline text: treat as a single plain-text source named "<inline>".
         let kind = SourceKind::Text;
-        let chunker = resolve_chunker(choice, kind, a.max_tokens, a.overlap);
+        let chunker =
+            resolve_chunker(&a.chunker, kind, a.max_tokens, a.overlap).context("--chunker")?;
         let chunk_count = count_chunks_for(&bytes, kind, &chunker).unwrap_or(0);
         pre.push(PreReadFile {
             path: PathBuf::from("<inline>"),
@@ -275,7 +275,8 @@ pub(crate) fn run(override_path: Option<&Path>, a: Args) -> Result<()> {
             let kind = Ingester::source_kind_for_path(file);
             let bytes =
                 std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
-            let chunker = resolve_chunker(choice, kind, a.max_tokens, a.overlap);
+            let chunker =
+                resolve_chunker(&a.chunker, kind, a.max_tokens, a.overlap).context("--chunker")?;
             // count_chunks_for is best-effort; on parse failure we fall
             // back to a per-file bar (chunk_count = 0 marks "unknown").
             let chunk_count = count_chunks_for(&bytes, kind, &chunker).unwrap_or(0);
@@ -450,43 +451,6 @@ impl Totals {
     }
 }
 
-fn parse_chunker(s: &str) -> Result<ChunkerChoice> {
-    Ok(match s.to_ascii_lowercase().as_str() {
-        "auto" => ChunkerChoice::Auto,
-        "session" => ChunkerChoice::Session,
-        "paragraph" => ChunkerChoice::Paragraph,
-        "recursive" => ChunkerChoice::Recursive,
-        other => bail!("--chunker must be one of auto|session|paragraph|recursive; got `{other}`"),
-    })
-}
-
-/// Materialise a [`ChunkerKind`] from the CLI `--chunker` choice plus
-/// numeric knobs. `auto` dispatches through `mnem_ingest::auto_chunker`
-/// with `max_tokens` / `overlap` forwarded as overrides; everything
-/// else constructs a fixed variant.
-fn resolve_chunker(
-    choice: ChunkerChoice,
-    kind: SourceKind,
-    max_tokens: u32,
-    overlap: u32,
-) -> ChunkerKind {
-    match choice {
-        ChunkerChoice::Auto => auto_chunker(
-            kind,
-            ChunkerAuto {
-                max_tokens: Some(max_tokens),
-                overlap: Some(overlap),
-                max_messages: None,
-            },
-        ),
-        ChunkerChoice::Paragraph => ChunkerKind::Paragraph,
-        ChunkerChoice::Recursive => ChunkerKind::Recursive {
-            max_tokens,
-            overlap,
-        },
-        ChunkerChoice::Session => ChunkerKind::Session { max_messages: 10 },
-    }
-}
 
 /// Best-effort estimate of the chunk count the ingest pipeline will
 /// produce for a given source file. Used by the CLI's progress bar to
@@ -508,6 +472,10 @@ fn count_chunks_for(bytes: &[u8], kind: SourceKind, chunker: &ChunkerKind) -> Re
         }
         SourceKind::Conversation => mnem_ingest::conversation::parse_conversation(bytes)
             .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+        SourceKind::Code(lang) => {
+            let s = std::str::from_utf8(bytes).with_context(|| "non-utf8 code source")?;
+            mnem_ingest::code::parse_code(s, lang).map_err(|e| anyhow::anyhow!(e.to_string()))?
+        }
     };
     Ok(u64::try_from(chunk_sections(&sections, chunker).len()).unwrap_or(u64::MAX))
 }

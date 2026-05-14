@@ -321,6 +321,7 @@ Etiquetas: <img src="assets/legend/unique.svg" width="14" height="14" alt="uniqu
 ### Señales de confianza
 
 - <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> &nbsp; **Los mismos bytes de entrada siempre producen los mismos CIDs de salida.** Ingestión determinista: sin LLM durante la ingestión; el análisis, fragmentación y extracción son estadísticos (KeyBERT opcional). Apto para auditorías, probado con fuzzing, byte a byte idéntico entre máquinas. → [Pipeline de ingestión](docs/src/guides/ingest.md)
+- <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> &nbsp; **Ingesta código como chunks a nivel de función; divide la prosa en límites de oración.** Archivos fuente (10 lenguajes vía tree-sitter) producen un chunk por función, clase o struct. Texto y PDF se dividen en límites de oración Unicode, nunca a mitad de una oración. Markdown, texto legal, conversaciones, YAML, shell y más de 30 formatos detectados automáticamente. → [Pipeline de ingestión enriquecida](docs/features/rich-ingest.md)
 - <img src="assets/legend/rare.svg" width="14" height="14" alt="rare"> &nbsp; **Probado con propiedades y fuzzing a nivel de infraestructura de base de datos.** Los parsers se prueban por propiedades y se someten a fuzzing; el viaje de ida y vuelta CAR y los merge-commits son byte a byte idénticos. Una señal de confianza que normalmente solo se ve en bases de datos fundacionales.
 
 ### Cuándo mnem es la opción adecuada

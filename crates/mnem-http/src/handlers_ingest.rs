@@ -27,9 +27,7 @@ use std::time::Instant;
 
 use axum::Json;
 use axum::extract::{Multipart, State};
-use mnem_ingest::{
-    ChunkerAuto, ChunkerKind, IngestConfig, Ingester, NerConfig, SourceKind, auto_chunker,
-};
+use mnem_ingest::{CodeLanguage, IngestConfig, Ingester, NerConfig, SourceKind, resolve_chunker};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -64,8 +62,10 @@ pub(crate) struct IngestJsonBody {
     /// UTF-8 text of the source. Interpreted as `SourceKind::Text`
     /// unless `kind` is set.
     pub text: String,
-    /// Optional explicit source kind (`"markdown" | "text" | "pdf" |
-    /// "conversation"`). Defaults to `text`.
+    /// Optional explicit source kind. Accepts `"markdown"`, `"text"`,
+    /// `"pdf"`, `"conversation"`, or a code-language extension
+    /// (`"rs"`, `"py"`, `"js"`, `"ts"`, `"go"`, `"java"`, `"c"`,
+    /// `"cpp"`, `"rb"`, `"cs"`, …). Defaults to `"text"`.
     #[serde(default)]
     pub kind: Option<String>,
     /// Override the Doc root `ntype`. Defaults to `"Doc"`.
@@ -191,7 +191,11 @@ async fn ingest_multipart(state: AppState, mut multipart: Multipart) -> Result<J
                             if buf.len() + chunk.len() > max_bytes_usize {
                                 return Err(Error::status(
                                     axum::http::StatusCode::PAYLOAD_TOO_LARGE,
-                                    "upload too large (max 33 MiB)".to_string(),
+                                    format!(
+                                        "upload too large (max {} bytes; \
+                                         raise MNEM_HTTP_INGEST_MAX_BYTES if legitimate)",
+                                        max_bytes_usize
+                                    ),
                                 ));
                             }
                             buf.extend_from_slice(&chunk);
@@ -281,10 +285,15 @@ async fn ingest_json(state: AppState, body: IngestJsonBody) -> Result<Json<Value
         Some("pdf") => SourceKind::Pdf,
         Some("conversation" | "json" | "jsonl") => SourceKind::Conversation,
         Some("text" | "txt") | None => SourceKind::Text,
-        Some(other) => {
-            return Err(Error::bad_request(format!(
-                "unknown `kind`: {other}; want one of markdown|text|pdf|conversation"
-            )));
+        Some(ext) => {
+            if let Some(lang) = CodeLanguage::from_extension(ext) {
+                SourceKind::Code(lang)
+            } else {
+                return Err(Error::bad_request(format!(
+                    "unknown `kind`: {ext}; want markdown|text|pdf|conversation \
+                     or a code extension (rs|py|js|ts|go|java|c|cpp|rb|cs|...)"
+                )));
+            }
         }
     };
     let bytes = body.text.into_bytes();
@@ -328,6 +337,11 @@ fn run_ingest(
     kind: SourceKind,
     mut params: IngestParams,
 ) -> Result<Json<Value>, Error> {
+    if bytes.is_empty() {
+        return Err(Error::bad_request(
+            "source is empty; nothing to ingest",
+        ));
+    }
     if params.max_tokens > MAX_INGEST_TOKENS {
         return Err(Error::bad_request(format!(
             "max_tokens {} exceeds the {MAX_INGEST_TOKENS} cap",
@@ -353,7 +367,8 @@ fn run_ingest(
         }
     };
 
-    let chunker = resolve_chunker(&params.chunker, kind, params.max_tokens, params.overlap)?;
+    let chunker = resolve_chunker(&params.chunker, kind, params.max_tokens, params.overlap)
+        .map_err(|e| Error::bad_request(e.to_string()))?;
     let config = IngestConfig {
         chunker,
         ntype: params.ntype,
@@ -429,35 +444,6 @@ fn run_ingest(
         "relation_count": result.relation_count,
         "elapsed_ms":     result.elapsed_ms,
     })))
-}
-
-fn resolve_chunker(
-    choice: &str,
-    kind: SourceKind,
-    max_tokens: u32,
-    overlap: u32,
-) -> Result<ChunkerKind, Error> {
-    Ok(match choice.to_ascii_lowercase().as_str() {
-        "auto" => auto_chunker(
-            kind,
-            ChunkerAuto {
-                max_tokens: Some(max_tokens),
-                overlap: Some(overlap),
-                max_messages: None,
-            },
-        ),
-        "paragraph" => ChunkerKind::Paragraph,
-        "recursive" => ChunkerKind::Recursive {
-            max_tokens,
-            overlap,
-        },
-        "session" => ChunkerKind::Session { max_messages: 10 },
-        other => {
-            return Err(Error::bad_request(format!(
-                "chunker must be one of auto|paragraph|recursive|session; got `{other}`"
-            )));
-        }
-    })
 }
 
 /// Drain a multipart text field to a UTF-8 String. The multipart crate

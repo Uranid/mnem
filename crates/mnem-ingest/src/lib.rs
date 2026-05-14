@@ -63,6 +63,7 @@
 #![forbid(unsafe_code)]
 
 pub mod chunk;
+pub mod code;
 pub mod conversation;
 pub mod error;
 pub mod extract;
@@ -78,7 +79,7 @@ pub mod sidecar;
 pub mod text;
 pub mod types;
 
-pub use chunk::{ChunkerKind, auto_chunker, chunk};
+pub use chunk::{ChunkerKind, UnknownChunker, auto_chunker, chunk, resolve_chunker};
 pub use error::Error;
 pub use extract::{EntitySpan, Extractor, RelationSpan, RuleExtractor};
 #[cfg(feature = "keybert")]
@@ -90,8 +91,8 @@ pub use extract_llm::{
 };
 pub use pipeline::{EmbedText, EmbedderArc, Ingester};
 pub use types::{
-    Chunk, ChunkerAuto, ConversationFormat, ExtractorConfig, IngestConfig, IngestResult, Message,
-    Section, SourceKind,
+    Chunk, ChunkerAuto, CodeLanguage, ConversationFormat, ExtractorConfig, IngestConfig,
+    IngestResult, Message, Section, SourceKind,
 };
 // Re-export NerConfig so downstream crates (mnem-cli, mnem-mcp, mnem-http)
 // can refer to `mnem_ingest::NerConfig` without a direct dep on

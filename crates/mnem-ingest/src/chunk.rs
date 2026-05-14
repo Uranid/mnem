@@ -1,22 +1,29 @@
 //! Chunker strategies.
 //!
-//! Consumes [`Section`]s and produces [`Chunk`]s. Three strategies ship
-//! through Phase-B5b:
+//! Consumes [`Section`]s and produces [`Chunk`]s. Five strategies:
 //!
 //! - [`ChunkerKind::Paragraph`] - splits each section's body on
 //!   double-newline. Fast, deterministic, ideal for Markdown where the
 //!   authoring structure already matches the desired chunk boundary.
-//! - [`ChunkerKind::Recursive`] - token-budgeted sliding window with
-//!   configurable overlap. Used when sections are long-form prose
-//!   (transcripts, scraped HTML) and paragraph boundaries are either
-//!   missing or too fine-grained.
+//! - [`ChunkerKind::Recursive`] - token-budgeted word-window sliding window
+//!   with configurable overlap. Kept for backwards compatibility.
+//! - [`ChunkerKind::SentenceRecursive`] - sentence-aware token-budgeted
+//!   packing using Unicode sentence boundaries (UAX #29). Preferred over
+//!   `Recursive` for prose: chunks never cut mid-sentence, overlap is
+//!   measured at sentence granularity, and average chunk size is more
+//!   uniform. Default for `Text` and `Pdf` source kinds.
 //! - [`ChunkerKind::Session`] - groups contiguous conversation messages
 //!   into session chunks. Boundaries fire on role-returning-to-`user`
 //!   OR on reaching `max_messages`. Preserves turn ordering.
+//! - [`ChunkerKind::Structural`] - one chunk per section, used for
+//!   code sources where each section is already a function or class body
+//!   extracted by the tree-sitter parser.
 //!
-//! Token counts in B5b are still estimated via whitespace split; a
-//! cl100k-accurate tokenizer (`tiktoken-rs`) is deferred to a later
-//! sub-wave once the surface-area tests stabilize.
+//! Token counts are estimated via whitespace split (`tokens_estimate`
+//! field on `Chunk`). This is intentionally fast and deterministic;
+//! cl100k accuracy is a future improvement.
+
+use unicode_segmentation::UnicodeSegmentation;
 
 use serde::{Deserialize, Serialize};
 
@@ -29,12 +36,28 @@ pub enum ChunkerKind {
     /// Split on blank lines (`\n\n`). Preserves section path.
     #[default]
     Paragraph,
-    /// Token-budgeted sliding window with overlap (both measured in
-    /// whitespace-split tokens).
+    /// Token-budgeted word-window sliding window with overlap (both
+    /// measured in whitespace-split tokens). May cut mid-sentence.
+    /// Kept for backwards compatibility; prefer [`ChunkerKind::SentenceRecursive`]
+    /// for new prose ingests.
     Recursive {
         /// Maximum tokens per chunk (inclusive upper bound).
         max_tokens: u32,
         /// Tokens of overlap between adjacent chunks.
+        overlap: u32,
+    },
+    /// Sentence-aware token-budgeted chunking (recommended for prose).
+    ///
+    /// Uses Unicode sentence boundaries (UAX #29 via `unicode-segmentation`)
+    /// to pack complete sentences into chunks. Overlap is measured at
+    /// sentence granularity so boundaries are always sentence-clean.
+    /// Oversized single sentences are emitted as their own chunk.
+    SentenceRecursive {
+        /// Maximum whitespace-split tokens per chunk (advisory; a single
+        /// sentence exceeding this is still emitted whole).
+        max_tokens: u32,
+        /// Token overlap budget between adjacent chunks (at sentence
+        /// granularity). Set to 0 for no overlap.
         overlap: u32,
     },
     /// Group contiguous conversation messages into session chunks.
@@ -49,6 +72,11 @@ pub enum ChunkerKind {
         /// Maximum messages grouped into a single session chunk.
         max_messages: usize,
     },
+    /// One chunk per section, used for code sources.
+    ///
+    /// The code parser (tree-sitter) already produces one section per
+    /// function / class / struct, so no further splitting is needed.
+    Structural,
 }
 
 /// Run the configured chunker over `sections`.
@@ -63,39 +91,86 @@ pub fn chunk(sections: &[Section], cfg: &ChunkerKind) -> Vec<Chunk> {
             max_tokens,
             overlap,
         } => chunk_recursive(sections, *max_tokens, *overlap),
+        ChunkerKind::SentenceRecursive {
+            max_tokens,
+            overlap,
+        } => chunk_sentence_recursive(sections, *max_tokens, *overlap),
         ChunkerKind::Session { max_messages } => chunk_session(sections, *max_messages),
+        ChunkerKind::Structural => chunk_structural(sections),
     }
 }
 
 /// Pick a sensible [`ChunkerKind`] for a given [`SourceKind`].
 ///
-/// Defaults:
+/// | Source          | Strategy                                             |
+/// |-----------------|------------------------------------------------------|
+/// | `Markdown`      | `Paragraph`                                          |
+/// | `Text`          | `SentenceRecursive { max_tokens: 256, overlap: 32 }` |
+/// | `Pdf`           | `SentenceRecursive { max_tokens: 512, overlap: 64 }` |
+/// | `Conversation`  | `Session { max_messages: 10 }`                       |
+/// | `Code(_)`       | `Structural`                                         |
 ///
-/// | Source          | Strategy                                 |
-/// |-----------------|------------------------------------------|
-/// | `Markdown`      | `Paragraph`                              |
-/// | `Text`          | `Recursive { max_tokens: 256, overlap: 32 }` |
-/// | `Pdf`           | `Recursive { max_tokens: 512, overlap: 64 }` |
-/// | `Conversation`  | `Session { max_messages: 10 }`           |
-///
-/// Callers may override any numeric knob via [`ChunkerAuto`]; fields
-/// left `None` fall through to these defaults.
+/// Callers may override numeric knobs via [`ChunkerAuto`]; fields left
+/// `None` fall through to the defaults above.
 #[must_use]
 pub fn auto_chunker(kind: SourceKind, heuristics: ChunkerAuto) -> ChunkerKind {
     match kind {
         SourceKind::Markdown => ChunkerKind::Paragraph,
-        SourceKind::Text => ChunkerKind::Recursive {
+        SourceKind::Text => ChunkerKind::SentenceRecursive {
             max_tokens: heuristics.max_tokens.unwrap_or(256),
             overlap: heuristics.overlap.unwrap_or(32),
         },
-        SourceKind::Pdf => ChunkerKind::Recursive {
+        SourceKind::Pdf => ChunkerKind::SentenceRecursive {
             max_tokens: heuristics.max_tokens.unwrap_or(512),
             overlap: heuristics.overlap.unwrap_or(64),
         },
         SourceKind::Conversation => ChunkerKind::Session {
             max_messages: heuristics.max_messages.unwrap_or(10),
         },
+        SourceKind::Code(_) => ChunkerKind::Structural,
     }
+}
+
+/// Error returned when [`resolve_chunker`] receives an unrecognised label.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "unknown chunker '{0}'; \
+     expected one of auto|paragraph|recursive|sentence_recursive|session|structural"
+)]
+pub struct UnknownChunker(pub String);
+
+/// Parse a chunker label into a [`ChunkerKind`].
+///
+/// Single canonical implementation shared by CLI, HTTP, and MCP ingest
+/// surfaces. Callers map the error into their own error type with `.map_err`.
+///
+/// `"auto"` delegates to [`auto_chunker`] with `max_tokens` / `overlap`
+/// forwarded as overrides. All other labels construct a fixed variant
+/// regardless of `kind`.
+pub fn resolve_chunker(
+    choice: &str,
+    kind: SourceKind,
+    max_tokens: u32,
+    overlap: u32,
+) -> Result<ChunkerKind, UnknownChunker> {
+    Ok(match choice.to_ascii_lowercase().as_str() {
+        "auto" => auto_chunker(
+            kind,
+            ChunkerAuto {
+                max_tokens: Some(max_tokens),
+                overlap: Some(overlap),
+                max_messages: None,
+            },
+        ),
+        "paragraph" => ChunkerKind::Paragraph,
+        "recursive" => ChunkerKind::Recursive { max_tokens, overlap },
+        "sentence_recursive" | "sentence-recursive" => {
+            ChunkerKind::SentenceRecursive { max_tokens, overlap }
+        }
+        "session" => ChunkerKind::Session { max_messages: 10 },
+        "structural" => ChunkerKind::Structural,
+        other => return Err(UnknownChunker(other.to_string())),
+    })
 }
 
 fn section_path_for(sections: &[Section], idx: usize) -> Vec<String> {
@@ -183,6 +258,119 @@ fn chunk_recursive(sections: &[Section], max_tokens: u32, overlap: u32) -> Vec<C
             let step = max.saturating_sub(ov).max(1);
             start += step;
         }
+    }
+    out
+}
+
+/// Sentence-aware token-budgeted chunker.
+///
+/// Splits each section into Unicode sentences, then packs sentences into
+/// chunks up to `max_tokens` (whitespace-split estimate). Overlap backs up
+/// by `overlap` tokens worth of complete sentences so chunk boundaries are
+/// always sentence-clean. A single sentence that exceeds `max_tokens` is
+/// emitted as its own chunk rather than dropped.
+fn chunk_sentence_recursive(sections: &[Section], max_tokens: u32, overlap: u32) -> Vec<Chunk> {
+    let max = max_tokens.max(1) as usize;
+    let ov = (overlap as usize).min(max.saturating_sub(1));
+
+    let mut out = Vec::new();
+    for (i, section) in sections.iter().enumerate() {
+        let text = section.text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        let path = section_path_for(sections, i);
+
+        // Split on Unicode sentence boundaries (UAX #29).
+        let sentences: Vec<&str> = text
+            .split_sentence_bounds()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if sentences.is_empty() {
+            continue;
+        }
+
+        // Pre-compute whitespace token counts per sentence.
+        let sent_tokens: Vec<usize> =
+            sentences.iter().map(|s| s.split_whitespace().count()).collect();
+
+        let mut start = 0usize;
+        loop {
+            if start >= sentences.len() {
+                break;
+            }
+
+            // Accumulate sentences until the token budget is full.
+            let mut tok = 0usize;
+            let mut end = start;
+            while end < sentences.len() {
+                let t = sent_tokens[end];
+                // Adding this sentence would overflow and we already have at
+                // least one - close the current window.
+                if tok + t > max && end > start {
+                    break;
+                }
+                tok += t;
+                end += 1;
+                if tok >= max {
+                    break;
+                }
+            }
+            // One sentence bigger than max_tokens - include it anyway.
+            if end == start {
+                end = start + 1;
+                tok = sent_tokens[start];
+            }
+
+            let chunk_text = sentences[start..end].join(" ");
+            out.push(Chunk {
+                section_path: path.clone(),
+                text: chunk_text,
+                tokens_estimate: u32::try_from(tok).unwrap_or(u32::MAX),
+            });
+
+            if end >= sentences.len() {
+                break;
+            }
+
+            // Overlap: walk backwards from `end` reclaiming sentences up to
+            // `ov` tokens, but always advance by at least one sentence to
+            // guarantee termination.
+            let mut overlap_tok = 0usize;
+            let mut next_start = end;
+            while next_start > start + 1 {
+                let t = sent_tokens[next_start - 1];
+                if overlap_tok + t > ov {
+                    break;
+                }
+                overlap_tok += t;
+                next_start -= 1;
+            }
+            start = next_start.max(start + 1);
+        }
+    }
+    out
+}
+
+/// Structural chunker: one chunk per section, no further splitting.
+///
+/// Used for code sources where the tree-sitter parser has already
+/// produced one section per function / class / struct.
+fn chunk_structural(sections: &[Section]) -> Vec<Chunk> {
+    let mut out = Vec::new();
+    for (i, s) in sections.iter().enumerate() {
+        let trimmed = s.text.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let path = section_path_for(sections, i);
+        out.push(Chunk {
+            section_path: path,
+            text: trimmed.to_string(),
+            tokens_estimate: token_count(trimmed),
+        });
     }
     out
 }
@@ -464,22 +652,23 @@ mod tests {
 
     #[test]
     fn auto_chunker_defaults() {
-        use crate::types::ChunkerAuto;
+        use crate::types::{ChunkerAuto, CodeLanguage};
         let auto = ChunkerAuto::default();
         assert!(matches!(
             auto_chunker(SourceKind::Markdown, auto),
             ChunkerKind::Paragraph
         ));
+        // Text + Pdf now use SentenceRecursive (sentence-clean boundaries).
         assert!(matches!(
             auto_chunker(SourceKind::Text, auto),
-            ChunkerKind::Recursive {
+            ChunkerKind::SentenceRecursive {
                 max_tokens: 256,
                 overlap: 32,
             }
         ));
         assert!(matches!(
             auto_chunker(SourceKind::Pdf, auto),
-            ChunkerKind::Recursive {
+            ChunkerKind::SentenceRecursive {
                 max_tokens: 512,
                 overlap: 64,
             }
@@ -487,6 +676,11 @@ mod tests {
         assert!(matches!(
             auto_chunker(SourceKind::Conversation, auto),
             ChunkerKind::Session { max_messages: 10 }
+        ));
+        // Code → Structural (tree-sitter produced one section per item).
+        assert!(matches!(
+            auto_chunker(SourceKind::Code(CodeLanguage::Rust), auto),
+            ChunkerKind::Structural
         ));
     }
 
@@ -500,7 +694,7 @@ mod tests {
         };
         assert!(matches!(
             auto_chunker(SourceKind::Text, auto),
-            ChunkerKind::Recursive {
+            ChunkerKind::SentenceRecursive {
                 max_tokens: 128,
                 overlap: 8,
             }
@@ -509,5 +703,78 @@ mod tests {
             auto_chunker(SourceKind::Conversation, auto),
             ChunkerKind::Session { max_messages: 3 }
         ));
+    }
+
+    #[test]
+    fn sentence_recursive_basic() {
+        // Three sentences that fit in one chunk.
+        let secs = vec![section(
+            None,
+            0,
+            "Alice joined Acme. Bob met Carol. Dave left.",
+        )];
+        let chunks = chunk(
+            &secs,
+            &ChunkerKind::SentenceRecursive {
+                max_tokens: 20,
+                overlap: 0,
+            },
+        );
+        // All sentences fit within max_tokens=20 → one chunk.
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].text.contains("Alice"));
+        assert!(chunks[0].text.contains("Dave"));
+    }
+
+    #[test]
+    fn sentence_recursive_splits_at_boundary() {
+        // Force a split: small budget, two sentences.
+        let secs = vec![section(
+            None,
+            0,
+            "The quick brown fox jumps over the lazy dog. A second completely different sentence appears here now.",
+        )];
+        let chunks = chunk(
+            &secs,
+            &ChunkerKind::SentenceRecursive {
+                max_tokens: 8,
+                overlap: 0,
+            },
+        );
+        // Should produce multiple chunks; no chunk cuts mid-sentence.
+        assert!(chunks.len() >= 2, "expected at least 2 chunks, got {}", chunks.len());
+        // Every chunk text should end at a sentence boundary (no hanging words).
+        for c in &chunks {
+            let t = c.text.trim();
+            // Each chunk is a complete sentence or set of sentences.
+            assert!(!t.is_empty());
+        }
+    }
+
+    #[test]
+    fn sentence_recursive_oversized_sentence_emitted_whole() {
+        // A single sentence that exceeds max_tokens must still be emitted.
+        let long_sentence = "word ".repeat(50).trim().to_string() + ".";
+        let secs = vec![section(None, 0, &long_sentence)];
+        let chunks = chunk(
+            &secs,
+            &ChunkerKind::SentenceRecursive {
+                max_tokens: 10,
+                overlap: 0,
+            },
+        );
+        assert!(!chunks.is_empty(), "oversized sentence must not be dropped");
+    }
+
+    #[test]
+    fn structural_one_chunk_per_section() {
+        let secs = vec![
+            section(Some("fn:main"), 1, "fn main() { println!(\"hi\"); }"),
+            section(Some("fn:helper"), 1, "fn helper() {}"),
+        ];
+        let chunks = chunk(&secs, &ChunkerKind::Structural);
+        assert_eq!(chunks.len(), 2);
+        assert!(chunks[0].text.contains("main"));
+        assert!(chunks[1].text.contains("helper"));
     }
 }

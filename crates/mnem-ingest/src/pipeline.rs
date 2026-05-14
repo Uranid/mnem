@@ -45,10 +45,12 @@ use mnem_core::objects::{Edge, Node};
 use mnem_core::repo::Transaction;
 use tracing::{debug, info_span};
 
+use sha2::{Digest, Sha256};
+
 use crate::chunk::{ChunkerKind, chunk as run_chunker};
 use crate::error::Error;
 use crate::extract::{EntitySpan, Extractor, RuleExtractor};
-use crate::types::{Chunk, IngestConfig, IngestResult, Section, SourceKind};
+use crate::types::{Chunk, CodeLanguage, IngestConfig, IngestResult, Section, SourceKind};
 
 /// Heap-allocated, thread-safe handle to an embedder.
 ///
@@ -173,20 +175,29 @@ impl Ingester {
 
     /// Detect source kind from a filesystem extension.
     ///
-    /// Falls back to [`SourceKind::Text`] when the extension is absent
-    /// or unrecognised - matching the default-safe behaviour of every
-    /// other parser in this crate.
+    /// Resolution order:
+    /// 1. Markdown (`.md`, `.markdown`)
+    /// 2. PDF (`.pdf`)
+    /// 3. Conversation export (`.json`, `.jsonl`)
+    /// 4. Source code (`.rs`, `.py`, `.js`, `.ts`, `.go`, `.java`, `.c`, `.cpp`, …)
+    /// 5. Plain text (all other extensions, or no extension)
     #[must_use]
     pub fn source_kind_for_path(path: &std::path::Path) -> SourceKind {
-        match path
+        let ext = path
             .extension()
             .and_then(|s| s.to_str())
-            .map(str::to_ascii_lowercase)
-        {
-            Some(ext) if ext == "md" || ext == "markdown" => SourceKind::Markdown,
-            Some(ext) if ext == "pdf" => SourceKind::Pdf,
-            Some(ext) if ext == "json" || ext == "jsonl" => SourceKind::Conversation,
-            _ => SourceKind::Text,
+            .map(str::to_ascii_lowercase);
+        match ext.as_deref() {
+            Some("md") | Some("markdown") => SourceKind::Markdown,
+            Some("pdf") => SourceKind::Pdf,
+            Some("json") | Some("jsonl") => SourceKind::Conversation,
+            Some(e) => {
+                if let Some(lang) = CodeLanguage::from_extension(e) {
+                    return SourceKind::Code(lang);
+                }
+                SourceKind::Text
+            }
+            None => SourceKind::Text,
         }
     }
 
@@ -245,6 +256,12 @@ impl Ingester {
         doc.props.insert(
             "mnem:source_kind".into(),
             Ipld::String(source_kind_str.to_string()),
+        );
+        // SHA-256 of source bytes so callers can detect unchanged files and
+        // skip re-ingest. Stored as a lowercase hex string for portability.
+        doc.props.insert(
+            "mnem:content_hash".into(),
+            Ipld::String(content_hash_hex(bytes)),
         );
         tx.add_node(&doc).map_err(Error::commit)?;
         let mut node_count: u64 = 1;
@@ -394,6 +411,13 @@ fn parse(bytes: &[u8], kind: SourceKind) -> Result<Vec<Section>, Error> {
         }
         SourceKind::Pdf => crate::pdf::parse_pdf(bytes),
         SourceKind::Conversation => crate::conversation::parse_conversation(bytes),
+        SourceKind::Code(lang) => {
+            let s = std::str::from_utf8(bytes).map_err(|e| Error::ParseFailed {
+                what: format!("code:{}", lang.as_str()),
+                detail: e.to_string(),
+            })?;
+            crate::code::parse_code(s, lang)
+        }
     }
 }
 
@@ -434,13 +458,25 @@ fn canonical(s: &str) -> String {
     s.trim().to_lowercase()
 }
 
-const fn source_kind_str(kind: SourceKind) -> &'static str {
+fn source_kind_str(kind: SourceKind) -> &'static str {
     match kind {
         SourceKind::Markdown => "markdown",
         SourceKind::Text => "text",
         SourceKind::Pdf => "pdf",
         SourceKind::Conversation => "conversation",
+        SourceKind::Code(lang) => lang.as_str(),
     }
+}
+
+/// SHA-256 of `bytes` as a lowercase hex string (64 hex chars).
+fn content_hash_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .fold(String::with_capacity(64), |mut s, b| {
+            use std::fmt::Write;
+            let _ = write!(s, "{b:02x}");
+            s
+        })
 }
 
 fn now_micros() -> i64 {
@@ -544,6 +580,27 @@ mod tests {
         assert_eq!(
             Ingester::source_kind_for_path(Path::new("noext")),
             SourceKind::Text
+        );
+        // Code extensions.
+        assert_eq!(
+            Ingester::source_kind_for_path(Path::new("main.rs")),
+            SourceKind::Code(crate::types::CodeLanguage::Rust)
+        );
+        assert_eq!(
+            Ingester::source_kind_for_path(Path::new("app.py")),
+            SourceKind::Code(crate::types::CodeLanguage::Python)
+        );
+        assert_eq!(
+            Ingester::source_kind_for_path(Path::new("index.ts")),
+            SourceKind::Code(crate::types::CodeLanguage::TypeScript)
+        );
+        assert_eq!(
+            Ingester::source_kind_for_path(Path::new("main.go")),
+            SourceKind::Code(crate::types::CodeLanguage::Go)
+        );
+        assert_eq!(
+            Ingester::source_kind_for_path(Path::new("util.cpp")),
+            SourceKind::Code(crate::types::CodeLanguage::Cpp)
         );
     }
 

@@ -7,7 +7,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Ingest pipeline for mnem: source parsing (Markdown/text), chunking, and extraction into content-addressed memory graphs."
+description = "Ingest pipeline for mnem: source parsing (Markdown/text/code), chunking, and extraction into content-addressed memory graphs."
 readme = "README.md"
 documentation = "https://docs.rs/mnem-ingest"
 categories = ["database", "text-processing"]
@@ -51,6 +51,25 @@ mnem-core            = { workspace = true }
 # Always present (zero-dep crate); the ner field on IngestConfig selects
 # which provider runs at pipeline construction time.
 mnem-ner-providers   = { workspace = true }
+# SHA-256 content hashing for Doc node content-skip (workspace dep).
+sha2                 = { workspace = true }
+# Tree-sitter code parsing - always on, ships 8 language grammars.
+# Grammar crates may lag the main crate by a minor version; each still
+# exports the LANGUAGE constant (introduced in 0.22) which tree-sitter 0.24
+# accepts via `Into<Language>`.
+# tree-sitter 0.24: QueryMatches implements StreamingIterator (not Iterator).
+streaming-iterator   = "0.1"
+tree-sitter          = "0.24"
+tree-sitter-rust     = "0.23"
+tree-sitter-python   = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-go       = "0.23"
+tree-sitter-java     = "0.23"
+tree-sitter-c        = "0.23"
+tree-sitter-cpp      = "0.23"
+tree-sitter-ruby     = "0.23"
+tree-sitter-c-sharp  = "0.23"
 # Optional KeyBERT extractor adapter dep (E3). Off by default so the
 # default binary footprint is unchanged from Phase-B5c.
 mnem-extract         = { workspace = true, optional = true }

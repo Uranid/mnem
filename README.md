@@ -109,17 +109,18 @@ Methodology, raw artifacts, per-bench breakdowns: [`benchmarks/`](benchmarks/) a
 
 | | | |
 |:---:|:---|:---|
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Instantly build a knowledge graph from any file or codebase. Zero LLM.** Drop in source code, PDFs, Markdown docs, or conversation exports - mnem handles the rest. One command. 30+ formats. `Doc → Chunk → Entity` graph ready to query. | [READ MORE](docs/features/rich-ingest.md) |
 | <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Branch, diff, and merge knowledge like git.** Every write is a versioned commit. Experiment on a branch, merge when ready - your knowledge graph has the same primitives as your codebase. | [READ MORE](docs/features/versioned-memory.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Same input, same output, any machine.** No two systems can diverge from the same data. Deterministic, replayable, and audit-friendly by design. | [READ MORE](docs/features/content-addressing.md) |
 | <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Replace flat agent files with a versioned, queryable graph.** `.cursorrules` and `AGENTS.md` can't be diffed or merged. mnem can - export yours, import a teammate's, merge the parts you want. | [READ MORE](docs/features/skills-graph.md) |
 | <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **See exactly what retrieval found, skipped, and cost.** Every query returns `tokens_used`, `candidates_seen`, and `dropped`. No silent truncation at your token budget. | [READ MORE](docs/features/token-transparency.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Same input, same output, any machine.** No two systems can diverge from the same data. Deterministic, replayable, and audit-friendly by design. | [READ MORE](docs/features/content-addressing.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Runs in a browser tab.** Works in Chrome, Cloudflare Workers, and Lambda cold-start. No Python, no external database, no server. | [READ MORE](docs/features/wasm-edge.md) |
 | <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **Best or tied recall on every public benchmark.** Beats open-source peers on LoCoMo, MemBench, and ConvoMem. All numbers reproducible with the shipped harness. | [READ MORE](docs/features/benchmarks.md) |
-| | **Vector, keyword, and graph search in one pass.** Hybrid retrieval fused via RRF. Turn on multi-hop graph traversal when queries span documents; leave it off for fast single-doc lookup. | [READ MORE](docs/features/hybrid-retrieval.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Runs in a browser tab.** The same retrieval core compiles to WASM unchanged - Chrome, Cloudflare Workers, Lambda cold-start. No Python, no external database. | [READ MORE](docs/features/wasm-edge.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **One ~40 MB binary. Nothing else required.** No daemon, no cloud, no account. Runs fully offline. Same binary powers the CLI and the HTTP server. | [READ MORE](docs/features/single-binary.md) |
 | <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **Zero-config start, any provider after.** Bundled ONNX MiniLM-L6-v2 runs in-process out of the box. Switch to Ollama, OpenAI, or Cohere with one line in `config.toml`. | [READ MORE](docs/features/providers.md) |
 | <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **CLI, HTTP, MCP, and Python - one engine.** `mnem integrate` wires the MCP server into Claude Code, Cursor, Gemini CLI, and anything else speaking MCP. | [READ MORE](docs/features/integrations.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **API-free, deterministic ingestion.** No LLM call needed to index your documents - the pipeline is local, offline, and reproducible. Same file always produces identical nodes. Works alongside any LLM you already use. | [READ MORE](docs/features/deterministic-ingest.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **One ~40 MB binary. Nothing else required.** No daemon, no cloud, no account. Runs fully offline. Same binary powers the CLI and the HTTP server. | [READ MORE](docs/features/single-binary.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **API-free, deterministic ingestion.** No LLM call at index time. Same file always produces identical nodes - fully reproducible and audit-friendly. Re-ingest an unchanged file and get zero new nodes. | [READ MORE](docs/features/deterministic-ingest.md) |
+| | **Vector, keyword, and graph search in one pass.** Enable multi-hop traversal for queries that span documents; skip it for fast single-doc lookup. | [READ MORE](docs/features/hybrid-retrieval.md) |
 
 <hr>
 
@@ -847,7 +848,7 @@ Full reference: [`docs/src/mcp.md`](docs/src/mcp.md).
 | `mnem_commit` | Add nodes and/or edges as a single commit. Returns the new op-id, commit CID, and created node UUIDs. |
 | `mnem_commit_relation` | Compound write: resolve-or-create a subject node, resolve-or-create an object node, and connect them with a typed edge - all in one call. Prevents the duplicate-entity problem (see example below). |
 | `mnem_resolve_or_create` | Find-or-create a node by a primary-key property. If a matching `(label, anchor-property) == value` exists, its UUID is returned; otherwise a new node is committed. |
-| `mnem_ingest` | Ingest a file path or inline text as a `Doc + Chunk + Entity` subgraph. Accepts `{path: "notes.md"}` or `{text: "...", source: "label"}`. Chunker options: `auto`, `paragraph`, `recursive`, `session`. |
+| `mnem_ingest` | Ingest a file path or inline text as a `Doc + Chunk + Entity` subgraph. Accepts `{path: "notes.md"}` or `{text: "...", source: "label"}`. Chunker options: `auto`, `paragraph`, `recursive`, `sentence_recursive`, `session`, `structural`. |
 | `mnem_global_ingest` | Same as `mnem_ingest` but writes to the global graph. Use for documents that should be queryable across all sessions and projects. |
 | `mnem_global_add` | Write nodes and/or edges directly to the global graph. Use for shared entities (people, orgs, conventions) that appear across multiple projects. |
 

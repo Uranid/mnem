@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use mnem_core::repo::ReadonlyRepo;
-use mnem_ingest::{ChunkerAuto, ChunkerKind, IngestConfig, Ingester, SourceKind, auto_chunker};
+use mnem_ingest::{IngestConfig, Ingester, SourceKind, resolve_chunker};
 use serde_json::Value;
 
 use crate::server::Server;
@@ -287,27 +287,3 @@ fn embed_ingest_nodes(
     count
 }
 
-fn resolve_chunker(
-    choice: &str,
-    kind: SourceKind,
-    max_tokens: u32,
-    overlap: u32,
-) -> Result<ChunkerKind> {
-    Ok(match choice.to_ascii_lowercase().as_str() {
-        "auto" => auto_chunker(
-            kind,
-            ChunkerAuto {
-                max_tokens: Some(max_tokens),
-                overlap: Some(overlap),
-                max_messages: None,
-            },
-        ),
-        "paragraph" => ChunkerKind::Paragraph,
-        "recursive" => ChunkerKind::Recursive {
-            max_tokens,
-            overlap,
-        },
-        "session" => ChunkerKind::Session { max_messages: 10 },
-        other => bail!("'chunker' must be one of auto|session|paragraph|recursive; got '{other}'"),
-    })
-}
