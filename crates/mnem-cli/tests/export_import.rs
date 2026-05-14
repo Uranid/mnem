@@ -16,6 +16,7 @@ use mnem_core::id::NodeId;
 use mnem_core::objects::Node;
 use mnem_core::objects::node::{Dtype, Embedding};
 use mnem_core::repo::ReadonlyRepo;
+use mnem_core::sparse::SparseEmbed;
 use mnem_core::store::{Blockstore, OpHeadsStore};
 use tempfile::TempDir;
 
@@ -245,5 +246,224 @@ fn sidecar_blocks_round_trip_through_car() {
     assert_eq!(
         got_emb.vector, emb.vector,
         "vector bytes must be byte-identical after round-trip"
+    );
+}
+
+/// Prove that sparse-embedding sidecar blocks (G17) survive a full
+/// CAR export / import round-trip.
+///
+/// Analogous to `sidecar_blocks_round_trip_through_car` for the dense
+/// (G16) embedding sidecar: seeds a source repo with two nodes, each
+/// with two sparse embeddings under different vocab_ids, exports to a
+/// CAR, imports into a fresh repo, then verifies:
+///
+/// - exported block count == imported block count (sparse Prolly-tree
+///   blocks are present in the CAR, not silently dropped)
+/// - `Commit.sparse` is `Some` in the destination (sidecar root CID
+///   survived the import)
+/// - all four sparse embeddings survive individually (`sparse_for`)
+/// - `sparse_vocabs_for` lists exactly the two seeded vocab_ids per node
+/// - an unseeded vocab_id returns `None` (lookup isolation)
+/// - all indices and values are bit-identical after round-trip
+///
+/// A CAR that silently dropped sparse Prolly-tree blocks would let the
+/// import succeed but return `None` on `sparse_for` lookup.
+#[test]
+fn sparse_sidecar_blocks_round_trip_through_car() {
+    // ---- source repo: init via CLI ----
+    let src = TempDir::new().unwrap();
+    mnem(src.path(), &["init", src.path().to_str().unwrap()])
+        .assert()
+        .success();
+
+    // Two vocab_ids to verify multi-entry SparseBucket serialization
+    // survives the CAR boundary.
+    let vocab_a = "test:splade-sparse";
+    let vocab_b = "test:bge-m3-sparse";
+
+    let se_a1 = SparseEmbed::new(
+        vec![10, 20, 30, 100],
+        vec![0.9, 0.5, 0.1, 0.3],
+        vocab_a,
+    )
+    .expect("valid SparseEmbed node1 vocab_a");
+    let se_b1 = SparseEmbed::new(
+        vec![5, 15, 42],
+        vec![0.8, 0.4, 0.2],
+        vocab_b,
+    )
+    .expect("valid SparseEmbed node1 vocab_b");
+    let se_a2 = SparseEmbed::new(
+        vec![3, 7, 11, 200],
+        vec![0.6, 0.3, 0.7, 0.1],
+        vocab_a,
+    )
+    .expect("valid SparseEmbed node2 vocab_a");
+    let se_b2 = SparseEmbed::new(
+        vec![1, 50, 99],
+        vec![0.5, 0.9, 0.4],
+        vocab_b,
+    )
+    .expect("valid SparseEmbed node2 vocab_b");
+
+    // Two nodes give the sparse Prolly tree multiple entries, exercising
+    // the multi-bucket serialization path through the CAR boundary.
+    let (node1_cid, node2_cid) = {
+        let db_path = src.path().join(".mnem").join("repo.redb");
+        let (bs, ohs, _db) = open_or_init(&db_path).expect("open src redb");
+        let bs_arc: Arc<dyn Blockstore> = bs;
+        let ohs_arc: Arc<dyn OpHeadsStore> = ohs;
+        let repo = ReadonlyRepo::open(bs_arc, ohs_arc).expect("open src repo");
+
+        let n1 = Node::new(NodeId::new_v7(), "TestDoc")
+            .with_summary("sparse sidecar round-trip node 1");
+        let n2 = Node::new(NodeId::new_v7(), "TestDoc")
+            .with_summary("sparse sidecar round-trip node 2");
+        let mut tx = repo.start_transaction();
+        let cid1 = tx.add_node(&n1).expect("add node1");
+        let cid2 = tx.add_node(&n2).expect("add node2");
+        tx.set_sparse_embedding(cid1.clone(), vocab_a.to_string(), se_a1.clone())
+            .expect("set node1 vocab_a");
+        tx.set_sparse_embedding(cid1.clone(), vocab_b.to_string(), se_b1.clone())
+            .expect("set node1 vocab_b");
+        tx.set_sparse_embedding(cid2.clone(), vocab_a.to_string(), se_a2.clone())
+            .expect("set node2 vocab_a");
+        tx.set_sparse_embedding(cid2.clone(), vocab_b.to_string(), se_b2.clone())
+            .expect("set node2 vocab_b");
+        tx.commit("test-author", "add two nodes with sparse sidecar")
+            .expect("commit");
+        (cid1, cid2)
+    };
+
+    // ---- export src to CAR and capture block count ----
+    let car = src.path().join("sparse-sidecar.car");
+    let export_out = mnem(
+        src.path(),
+        &["export", car.to_str().unwrap(), "--from", "HEAD"],
+    )
+    .assert()
+    .success();
+    let export_stdout = String::from_utf8_lossy(&export_out.get_output().stdout).to_string();
+    let exported_n = export_stdout
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or_else(|| panic!("could not parse block count from: {export_stdout}"));
+    assert!(
+        car.exists(),
+        "CAR file must exist after export"
+    );
+    assert!(
+        exported_n > 4,
+        "sparse sidecar must add Prolly-tree blocks beyond the base commit graph; \
+         got {exported_n} blocks"
+    );
+
+    // ---- destination repo: import into fresh directory (no prior init) ----
+    //
+    // Skipping `mnem init` so the import is the sole op-head writer.
+    // A prior `mnem init` would leave two disconnected op-heads,
+    // causing ReadonlyRepo::open to fail with NoCommonAncestor.
+    let dst = TempDir::new().unwrap();
+    let import_out = mnem(dst.path(), &["import", car.to_str().unwrap()])
+        .assert()
+        .success();
+    let import_stdout = String::from_utf8_lossy(&import_out.get_output().stdout).to_string();
+    let imported_n = import_stdout
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or_else(|| panic!("could not parse block count from: {import_stdout}"));
+
+    // Block count must match exactly: every block the exporter walked
+    // (including sparse Prolly-tree blocks) must arrive at the destination.
+    assert_eq!(
+        exported_n, imported_n,
+        "all CAR blocks exported ({exported_n}) must be imported ({imported_n}); \
+         a mismatch means sparse Prolly-tree blocks were silently dropped by the exporter"
+    );
+
+    // ---- verify sparse sidecar survived the round-trip ----
+    let db_path = dst.path().join(".mnem").join("repo.redb");
+    let (bs, ohs, _db) = open_or_init(&db_path).expect("open dst redb");
+    let bs_arc: Arc<dyn Blockstore> = bs;
+    let ohs_arc: Arc<dyn OpHeadsStore> = ohs;
+    let heads = ohs_arc.current().expect("get op heads");
+    assert!(
+        !heads.is_empty(),
+        "dst op-heads must be non-empty after import"
+    );
+    let latest_op = heads.into_iter().last().unwrap();
+    let repo = ReadonlyRepo::load_at(bs_arc, ohs_arc, latest_op).expect("load dst repo");
+
+    // Commit.sparse must be Some — the sidecar root CID pointer survived.
+    let commit = repo.head_commit().expect("dst must have a head commit");
+    assert!(
+        commit.sparse.is_some(),
+        "Commit.sparse must be Some after CAR round-trip; \
+         the sidecar root CID was likely dropped during export or import"
+    );
+
+    // All four sparse embeddings (two nodes × two vocab_ids) must survive
+    // byte-identically.
+    let cases: &[(&mnem_core::id::Cid, &str, &SparseEmbed)] = &[
+        (&node1_cid, vocab_a, &se_a1),
+        (&node1_cid, vocab_b, &se_b1),
+        (&node2_cid, vocab_a, &se_a2),
+        (&node2_cid, vocab_b, &se_b2),
+    ];
+    for (node_cid, vocab_id, se) in cases {
+        let got = repo
+            .sparse_for(node_cid, vocab_id)
+            .expect("sparse_for must not error");
+        assert!(
+            got.is_some(),
+            "sparse sidecar block must survive CAR export/import \
+             for node_cid={node_cid} vocab_id={vocab_id}; \
+             got None — sparse Prolly-tree blocks are likely missing from the CAR"
+        );
+        let got_se = got.unwrap();
+        assert_eq!(got_se.vocab_id, *vocab_id, "vocab_id field must match");
+        assert_eq!(
+            got_se.indices, se.indices,
+            "indices must be identical after round-trip (vocab_id={vocab_id})"
+        );
+        assert_eq!(
+            got_se.values.len(),
+            se.values.len(),
+            "values length must match (vocab_id={vocab_id})"
+        );
+        for (i, (got_v, exp_v)) in got_se.values.iter().zip(se.values.iter()).enumerate() {
+            assert_eq!(
+                got_v.to_bits(),
+                exp_v.to_bits(),
+                "values[{i}] must be bit-identical after round-trip \
+                 (vocab_id={vocab_id}): got {got_v}, expected {exp_v}"
+            );
+        }
+    }
+
+    // sparse_vocabs_for must list exactly the two seeded vocab_ids per node.
+    for node_cid in [&node1_cid, &node2_cid] {
+        let mut vocabs = repo
+            .sparse_vocabs_for(node_cid)
+            .expect("sparse_vocabs_for must not error");
+        vocabs.sort();
+        let mut expected = vec![vocab_a.to_string(), vocab_b.to_string()];
+        expected.sort();
+        assert_eq!(
+            vocabs, expected,
+            "sparse_vocabs_for must return exactly the two seeded vocab_ids \
+             after round-trip (node_cid={node_cid})"
+        );
+    }
+
+    // An unseeded vocab_id must return None (lookup isolation).
+    let absent = repo
+        .sparse_for(&node1_cid, "test:never-seeded")
+        .expect("sparse_for for absent vocab must not error");
+    assert!(
+        absent.is_none(),
+        "sparse_for for an unseeded vocab_id must return None after round-trip"
     );
 }

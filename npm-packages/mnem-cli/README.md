@@ -1,6 +1,6 @@
 # mnem-cli
 
-**Git for AI memory.** A persistent, versioned memory layer for AI systems.
+**Git for AI Agent Knowledge.** A persistent, versioned knowledge layer for AI agents.
 
 ## Install
 
@@ -24,7 +24,7 @@ mnem init
 mnem add node --label Person --summary "Alice works at Acme"
 
 # Query your memory
-mnem retrieve --text "who works at Acme"
+mnem retrieve "who works at Acme"
 ```
 
 ## MCP Server

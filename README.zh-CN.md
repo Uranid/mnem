@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo/mnem-banner.svg" alt="mnem: Git for AI Memory" />
+<img src="assets/logo/mnem-banner.svg" alt="mnem: Git for AI Agent Knowledge" />
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/Uranid/mnem/ci.yml?style=for-the-badge&label=CI)](https://github.com/Uranid/mnem/actions/workflows/ci.yml)
@@ -482,6 +482,7 @@ mnem query --where status=active \
 
 mnem blame <node-uuid>                           # list all incoming edges to a node
 mnem blame <node-uuid> --etype authored          # filter to one edge type
+mnem blame <node-uuid> --first-writer            # show oldest ancestor commit per edge (BFS)
 ```
 
 ### 命名引用
@@ -641,6 +642,7 @@ mnem 内置了 GraphRAG。每个阶段一个开关，按需启用，从不强制
 | **KeyBERT 抽取** | `mnem ingest --extractor keybert` | 摄入时进行关键词短语增强。强化稀疏信号与社区信号。在摄入时传入，而非检索时。 |
 | **摘要生成** | `--summarize` | 对 top-K 结果进行质心 + MMR 摘要，兼顾多样性。 |
 | **交叉编码器重排序** | `--rerank <provider:model>` | 融合后重新排序。支持 `cohere:rerank-english-v3.0`、`voyage:rerank-1` 及本地模型。 |
+| **通道分数** | `--explain` | 在 stdout 中逐条打印各通道分数（`vector`、`sparse`、`graph_expand`、`rerank`）。 |
 
 ### 快速示例
 

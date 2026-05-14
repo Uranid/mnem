@@ -14,7 +14,7 @@ name = "mnem-py"
 # Kept in sync with [workspace.package].version in ../../Cargo.toml.
 # Bump both together; the release workflow asserts they match.
 version = "0.1.6"
-description = "Python bindings for mnem: Git for AI memory. A persistent, versioned memory layer for AI systems."
+description = "Python bindings for mnem: Git for AI Agent Knowledge. A persistent, versioned knowledge layer for AI agents."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Apache-2.0" }

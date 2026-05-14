@@ -128,8 +128,8 @@ const fn banner() -> &'static str {
     // Keep the ASCII minimal: terminals without a good font render
     // fancy blocks as tofu, which is worse than plain text.
     "\
-mnem - Git for AI Memory
-------------------------"
+mnem - Git for AI Agent Knowledge
+----------------------------------"
 }
 
 // ---------- Step 1: init ----------

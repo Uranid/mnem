@@ -35,4 +35,4 @@ pip install mnem-py
 
 ---
 
-Part of the [mnem](https://github.com/Uranid/mnem) project - Git for AI memory.
+Part of the [mnem](https://github.com/Uranid/mnem) project - Git for AI Agent Knowledge.

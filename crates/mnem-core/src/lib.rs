@@ -72,7 +72,6 @@ pub mod ppr;
 pub mod prolly;
 pub mod repo;
 pub mod rerank;
-pub mod resolve;
 pub mod retrieve;
 pub mod sign;
 pub mod sparse;

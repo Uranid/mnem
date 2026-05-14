@@ -1,6 +1,6 @@
 [package]
 name = "mnem-cli"
-description = "Command-line interface for mnem - Git for AI memory."
+description = "Command-line interface for mnem - Git for AI Agent Knowledge."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

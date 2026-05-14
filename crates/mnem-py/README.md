@@ -1,6 +1,6 @@
 # mnem (Python)
 
-Python bindings for [mnem](https://github.com/Uranid/mnem) - Git for AI memory. A persistent, versioned memory layer for AI systems.
+Python bindings for [mnem](https://github.com/Uranid/mnem) - Git for AI Agent Knowledge. A persistent, versioned knowledge layer for AI agents.
 
 ```bash
 pip install mnem-py

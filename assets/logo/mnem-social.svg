@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img"
-     aria-label="mnem - Git for AI Memory">
+     aria-label="mnem - Git for AI Agent Knowledge">
   <title>mnem social preview</title>
   <desc>Social / OpenGraph preview card. 1280x640. Warm cream background, slate diamond logo with rust corner joints and a faint teal accent stroke, wordmark, tagline, three-line description, four feature pills, rust accent bar, and repo URL. Padding 80px on all sides.</desc>
 
@@ -48,10 +48,10 @@
     <text x="640" y="195" font-size="160" font-weight="800" fill="#1f2a36" letter-spacing="-7">mnem</text>
 
     <!-- Tagline -->
-    <text x="640" y="261" font-size="44" font-weight="700" fill="#1f2a36" letter-spacing="-0.5">Git for AI Memory.</text>
+    <text x="640" y="261" font-size="36" font-weight="700" fill="#1f2a36" letter-spacing="-0.5">Git for AI Agent Knowledge.</text>
 
     <!-- Subtitle: two lines matching banner -->
-    <text x="640" y="316" font-size="24" font-weight="400" fill="#556070">A persistent versioned memory layer for AI systems</text>
+    <text x="640" y="316" font-size="24" font-weight="400" fill="#556070">A persistent versioned knowledge layer for AI agents</text>
     <text x="640" y="348" font-size="24" font-weight="400" fill="#7a8a9a">Hybrid GraphRAG retrieval · Runs entirely offline</text>
 
     <!-- Feature pills: rust outline, slate text. -->

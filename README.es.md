@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo/mnem-banner.svg" alt="mnem: Git for AI Memory" />
+<img src="assets/logo/mnem-banner.svg" alt="mnem: Git for AI Agent Knowledge" />
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/Uranid/mnem/ci.yml?style=for-the-badge&label=CI)](https://github.com/Uranid/mnem/actions/workflows/ci.yml)
@@ -482,6 +482,7 @@ mnem query --where status=active \
 
 mnem blame <node-uuid>                           # list all incoming edges to a node
 mnem blame <node-uuid> --etype authored          # filter to one edge type
+mnem blame <node-uuid> --first-writer            # show oldest ancestor commit per edge (BFS)
 ```
 
 ### Referencias con nombre
@@ -641,6 +642,7 @@ mnem incluye GraphRAG integrado. Un parámetro por etapa, activación opcional p
 | **Extracción KeyBERT** | `mnem ingest --extractor keybert` | Enriquecimiento de frases clave en el momento de la ingesta. Refuerza las señales dispersas y de comunidad. Se aplica en la ingesta, no en la recuperación. |
 | **Resumen** | `--summarize` | Resumen de centroide + MMR del top-K, con diversidad. |
 | **Reordenación con codificador cruzado** | `--rerank <provider:model>` | Reordenación posterior a la fusión. Compatible con `cohere:rerank-english-v3.0`, `voyage:rerank-1`, local. |
+| **Puntuaciones por canal** | `--explain` | Imprime puntuaciones por canal (`vector`, `sparse`, `graph_expand`, `rerank`) por elemento en stdout. |
 
 ### Ejemplos rápidos
 

@@ -6,10 +6,15 @@
 //!
 //! ## Supported sources
 //!
-//! - `.md` / `.markdown` - `CommonMark` + GFM.
+//! - `.md` / `.markdown` - CommonMark + GFM, paragraph-chunked.
 //! - `.txt` - plain text, one section.
 //! - `.pdf` - pure-Rust text-layer extraction.
-//! - `.json` / `.jsonl` - chat-conversation exports (`ChatGPT` / Claude / generic).
+//! - `.json` / `.jsonl` - chat-conversation exports (ChatGPT / Claude / generic).
+//! - `.rs`, `.py`, `.js`, `.ts`, `.go`, `.java`, `.c`, `.cpp`, `.rb`, `.cs` and more -
+//!   code files parsed by tree-sitter into function/class-level chunks (`SourceKind::Code`).
+//! - `.yaml`, `.toml`, `.sql`, `.html`, `.sh`, `.php`, `.swift`, `.kt`, `.lua`, `.zig`
+//!   and other structured, script, and code-like formats without a tree-sitter grammar -
+//!   routed to `SourceKind::Text` for sentence-aware chunking.
 //!
 //! Unknown extensions fall back to `SourceKind::Text` so `README`
 //! without an extension still ingests cleanly.
@@ -112,6 +117,11 @@ const MAX_TOKENS_CAP: u32 = 8192;
 
 /// Extensions we recurse into when `--recursive` is set. Anything else
 /// is skipped silently.
+// NOTE: The following extensions are recognised by `CodeLanguage::from_extension`
+// (and therefore ingestible via single-file `mnem ingest <file>`) but are NOT listed
+// here, so `--recursive` walks silently skip them. Add them here if recursive support
+// is needed: .pyi (Python stubs), .mjs/.cjs (ESM/CJS), .c++ (alt C++ extension).
+// See also: mnem-ingest/src/types.rs CodeLanguage::from_extension.
 const SUPPORTED_EXTS: &[&str] = &[
     // Documents and prose
     "md", "markdown", "txt", "pdf", "json", "jsonl",

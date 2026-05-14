@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 420" role="img" aria-label="mnem banner">
-  <title>mnem, Git for AI Memory</title>
+  <title>mnem, Git for AI Agent Knowledge</title>
 
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -122,14 +122,14 @@
           font-size="30"
           font-weight="700"
           letter-spacing="0.5"
-          fill="#00c896">Git for AI Memory</text>
+          fill="#00c896">Git for AI Agent Knowledge</text>
   </g>
   <g transform="translate(360,304)">
     <text x="0" y="0"
           font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Arial, sans-serif"
           font-size="20"
           font-weight="400"
-          fill="#94a3b8">A persistent versioned memory layer for AI systems</text>
+          fill="#94a3b8">A persistent versioned knowledge layer for AI agents</text>
   </g>
   <g transform="translate(360,328)">
     <text x="0" y="0"

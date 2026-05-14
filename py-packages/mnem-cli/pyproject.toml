@@ -7,7 +7,7 @@ name = "mnem-cli"
 # Kept in sync with [workspace.package].version in ../../Cargo.toml.
 # The release workflow updates this via sed before publishing.
 version = "0.1.6"
-description = "Git for AI memory - pip installer for the mnem CLI binary."
+description = "Git for AI Agent Knowledge - pip installer for the mnem CLI binary."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Apache-2.0" }

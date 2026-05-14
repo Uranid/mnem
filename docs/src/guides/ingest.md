@@ -9,23 +9,57 @@ parse -> chunk -> extract -> embed -> commit
 ## Sources
 
 - file path (`mnem ingest README.md`)
-- glob (`mnem ingest 'docs/**/*.md'`)
-- stdin (`cat data.txt | mnem ingest -`)
-- structured JSON (`mnem ingest data.json --json`)
+- structured JSON (`mnem ingest data.json`) — JSON/JSONL detected by extension
+- code files (`mnem ingest src/lib.rs`)
+- directory (`mnem ingest src/ --recursive`)
+- inline text (`mnem ingest --text "The quick brown fox"`)
+
+## Code file ingest
+
+mnem uses Tree-sitter to parse source files into function- and class-level
+chunks. These extensions are fully supported including in `--recursive` mode:
+
+| Language | Extensions |
+|----------|------------|
+| Rust | `.rs` |
+| Python | `.py` |
+| JavaScript | `.js` |
+| TypeScript | `.ts` |
+| Go | `.go` |
+| Java | `.java` |
+| C | `.c` |
+| C++ | `.cpp` |
+| Ruby | `.rb` |
+| C# | `.cs` |
+
+Config files (`.yaml`, `.toml`, `.sql`, `.html`, `.sh`, `.php`, `.swift`,
+`.kt`, `.lua`, `.zig`) are also supported and use sentence-aware chunking
+instead of Tree-sitter.
+
+```bash
+mnem ingest src/lib.rs                    # single Rust file
+mnem ingest src/ --recursive              # all supported files under src/
+mnem ingest . --recursive                 # whole project
+```
+
+> **Note:** `.pyi`, `.mjs`, `.cjs`, and `.c++` files can be ingested
+> individually but are not picked up by `--recursive`.
 
 ## Chunking
 
-Default: ~1k-token chunks with sentence-boundary alignment. Override via
-config:
+The `auto` chunker (default) picks a strategy by file type: paragraph splits
+for Markdown, Tree-sitter for code, sentence-recursive for plain text and PDFs,
+and session chunking for JSON/JSONL conversation exports. The `--max-tokens`
+flag (default: 512) and `--overlap` flag (default: 32) apply when the recursive
+or sentence-recursive strategy is active. Override both flags explicitly:
 
-```toml
-[ingest]
-chunk_size_tokens = 512
-chunk_overlap_tokens = 50
+```bash
+mnem ingest notes.md --max-tokens 256 --overlap 50
 ```
 
-Document-aware chunkers exist for code (Tree-sitter) and for Markdown
-(heading-aware). Auto-detected by file extension.
+Use `--chunker` to force a specific strategy regardless of file type. Valid
+values: `auto`, `paragraph`, `recursive`, `sentence_recursive`, `session`,
+`structural`.
 
 ## Extractors
 
@@ -44,13 +78,11 @@ mnem ingest README.md --extractor keybert
 
 ## Labels
 
-Pass `--label <str>` to scope the ingested nodes:
+Pass `--ntype <str>` to tag ingested nodes with a custom type:
 
 ```bash
-mnem ingest user-42-chat.json --label user-42 --json
+mnem ingest user-42-chat.json --ntype user-42
 ```
-
-Subsequent `retrieve` calls with `--label user-42` will see only this scope.
 
 ## Idempotency
 

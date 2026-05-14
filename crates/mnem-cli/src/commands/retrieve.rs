@@ -54,10 +54,13 @@ pub(crate) struct Args {
     /// Override the configured embedding model for this call only.
     #[arg(long)]
     pub embed_model: Option<String>,
-    /// Print an extra stderr line showing retrieval decisions (e.g.
-    /// multi-query variant list, HyDE completion preview). Off by
-    /// default so scripts see clean output; turn on when
-    /// debugging why a result appeared.
+    /// Print diagnostic information about retrieval. Each retrieved item
+    /// gets a `lanes: <name>=<score> ...` line on stdout showing which
+    /// ranker lanes contributed and their native scores. Retrieval
+    /// decisions (multi-query variants, HyDE preview, community-filter
+    /// status) are printed to stderr. Off by default so scripts see
+    /// clean output; turn on when debugging why a result appeared or
+    /// did not appear.
     #[arg(long = "explain")]
     pub explain: bool,
     /// Cross-encoder reranker to apply after fusion (tier 3; see
@@ -275,7 +278,18 @@ pub(crate) fn run(override_path: Option<&Path>, mut args: Args) -> Result<()> {
     {
         match run_multi_query(&r, &cfg, &args, q, n_variants, &lc, &pc) {
             Ok(Some(result)) => {
-                // Render + exit. Share print path with the normal branch.
+                // Per-lane scores are not propagated through RRF fusion:
+                // each sub-retrieval produces Vector lane scores but the
+                // fused list is built from node-ID rank order, discarding
+                // the sub-query native scores. Items therefore have empty
+                // `lane_scores` and `print_retrieval_result` will not
+                // print a `lanes:` line for them.
+                if args.explain {
+                    eprintln!(
+                        "(multi-query: per-lane scores not propagated \
+                         through RRF fusion; use plain retrieve for lane diagnostics)"
+                    );
+                }
                 let result = filter_by_label(result, &args.labels);
                 print_retrieval_result(&result, &args, &cfg);
                 return Ok(());
@@ -675,6 +689,14 @@ fn print_retrieval_result(
             item.node.id.to_uuid_string(),
             item.node.ntype,
         );
+        if args.explain && !item.lane_scores.is_empty() {
+            let lanes: Vec<String> = item
+                .lane_scores
+                .iter()
+                .map(|(lane, score)| format!("{}={:.4}", lane_name(*lane), score))
+                .collect();
+            println!("  lanes: {}", lanes.join(" "));
+        }
         for line in item.rendered.lines() {
             println!("  {line}");
         }
@@ -877,6 +899,25 @@ fn filter_by_label(
     // Recalculate token count to reflect the filtered set
     result.tokens_used = result.items.iter().map(|i| i.tokens).sum();
     result
+}
+
+/// Maps a [`Lane`][mnem_core::retrieve::Lane] variant to its stable lowercase
+/// string label as it appears in `--explain` output.
+fn lane_name(lane: mnem_core::retrieve::Lane) -> &'static str {
+    use mnem_core::retrieve::Lane;
+    match lane {
+        Lane::Vector => "vector",
+        Lane::Sparse => "sparse",
+        Lane::GraphExpand => "graph_expand",
+        Lane::Rerank => "rerank",
+        // Lane is #[non_exhaustive]; new variants fall here until an explicit
+        // arm is added above. The debug_assert fires in dev/test builds so
+        // the gap is caught immediately without changing release behaviour.
+        _ => {
+            debug_assert!(false, "unhandled Lane variant: add a new arm to lane_name()");
+            "unknown"
+        }
+    }
 }
 
 /// Per-call model override: swap the `model` field on whichever

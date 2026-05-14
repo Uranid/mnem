@@ -1,6 +1,6 @@
 [package]
 name = "mnem-py"
-description = "Python bindings for mnem - Git for AI memory. A persistent, versioned memory layer for AI systems."
+description = "Python bindings for mnem - Git for AI Agent Knowledge. A persistent, versioned knowledge layer for AI agents."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

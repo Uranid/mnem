@@ -29,7 +29,7 @@ mod wizard;
 #[command(
     name = "mnem",
     version,
-    about = "Git for AI memory. A persistent, versioned memory layer for AI systems.",
+    about = "Git for AI Agent Knowledge. A persistent, versioned knowledge layer for AI agents.",
     long_about = None,
     propagate_version = true
 )]

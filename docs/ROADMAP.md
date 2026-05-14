@@ -7,7 +7,7 @@ and labelled by phase. The rough arc:
 
 - Core object model (Node, Edge, Commit, Operation, View)
 - Prolly tree storage with content-addressed CIDs
-- SQLite backend (`mnem-backend-sqlite`)
+- redb backend (`mnem-backend-redb`) - embedded key-value storage
 - HNSW vector retrieval (three-lane fan-out: vector + graph + sparse)
 - CLI (`mnem commit`, `mnem retrieve`, `mnem log`, `mnem ingest`, …)
 - MCP server for agent integration
