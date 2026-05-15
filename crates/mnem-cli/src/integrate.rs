@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 
 // ---------- Integration registry ----------
 
@@ -80,6 +81,13 @@ fn global_dir() -> std::path::PathBuf {
     crate::global::default_dir()
 }
 
+fn hermes_home_dir() -> PathBuf {
+    std::env::var_os("HERMES_HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".hermes")))
+        .unwrap_or_else(|| PathBuf::from(".hermes"))
+}
+
 /// Record a successful integration into `~/.mnemglobal/integrations.toml`.
 fn record_integration(host: Host, components: Vec<String>) {
     let mut reg = IntegrationRegistry::load();
@@ -116,6 +124,10 @@ pub(crate) enum Host {
     Cursor,
     Continue_,
     Zed,
+    /// Hermes Agent CLI. Native MCP client entries live in the active
+    /// Hermes profile's `config.yaml` under `mcp_servers`. A companion
+    /// Hermes skill is written so the agent knows when and how to use mnem.
+    Hermes,
     /// Audit fix G7 (2026-04-25): Claude Code CLI. MCP entries live in
     /// `~/.claude.json` under the top-level `mcpServers` map. Hooks live
     /// separately in `~/.claude/settings.json` (see [`Self::hooks_path`]).
@@ -132,6 +144,7 @@ impl Host {
             Host::Cursor,
             Host::Continue_,
             Host::Zed,
+            Host::Hermes,
             Host::ClaudeCode,
             Host::GeminiCli,
         ]
@@ -143,6 +156,7 @@ impl Host {
             Host::Cursor => "cursor",
             Host::Continue_ => "continue",
             Host::Zed => "zed",
+            Host::Hermes => "hermes",
             Host::ClaudeCode => "claude-code",
             Host::GeminiCli => "gemini-cli",
         }
@@ -154,6 +168,7 @@ impl Host {
             Host::Cursor => "Cursor",
             Host::Continue_ => "Continue",
             Host::Zed => "Zed",
+            Host::Hermes => "Hermes Agent",
             Host::ClaudeCode => "Claude Code",
             Host::GeminiCli => "Gemini CLI",
         }
@@ -165,6 +180,7 @@ impl Host {
             "cursor" => Some(Host::Cursor),
             "continue" => Some(Host::Continue_),
             "zed" => Some(Host::Zed),
+            "hermes" | "hermes-agent" | "hermes_agent" => Some(Host::Hermes),
             "claude-code" | "claude_code" | "claude" => Some(Host::ClaudeCode),
             "gemini-cli" | "gemini_cli" | "gemini" => Some(Host::GeminiCli),
             _ => None,
@@ -174,6 +190,14 @@ impl Host {
     /// The config-file path for this host on this OS, or `None` if we
     /// have no rule for this (OS, host) combination.
     pub(crate) fn config_path(self) -> Option<PathBuf> {
+        if self == Host::Hermes {
+            // Hermes Agent stores native MCP client config under the active
+            // Hermes home. Respect HERMES_HOME so `mnem integrate hermes`
+            // targets the same profile the user runs Hermes with; otherwise
+            // fall back to the default ~/.hermes profile.
+            return Some(hermes_home_dir().join("config.yaml"));
+        }
+
         let home = dirs::home_dir()?;
         match self {
             Host::ClaudeDesktop => {
@@ -209,6 +233,7 @@ impl Host {
                     Some(home.join(".config").join("zed").join("settings.json"))
                 }
             }
+            Host::Hermes => unreachable!("handled above"),
             // Claude Code keeps its global config at ~/.claude.json across
             // all platforms (the modern CLI's behaviour). Project-scoped
             // .mcp.json is also supported by Claude Code itself but is
@@ -244,8 +269,18 @@ impl Host {
     /// - Zed         → settings.json (`assistant.system_prompt` JSON field)
     /// - ClaudeDesktop → `None` (UI-only custom-instructions panel)
     pub(crate) fn system_prompt_path(self) -> Option<PathBuf> {
+        if self == Host::Hermes {
+            return Some(
+                hermes_home_dir()
+                    .join("skills")
+                    .join("mnem")
+                    .join("SKILL.md"),
+            );
+        }
+
         let home = dirs::home_dir()?;
         match self {
+            Host::Hermes => unreachable!("handled above"),
             Host::ClaudeCode => Some(home.join(".claude").join("CLAUDE.md")),
             Host::GeminiCli => Some(home.join(".gemini").join("GEMINI.md")),
             Host::Cursor => Some(home.join(".cursor").join("rules").join("mnem.mdc")),
@@ -271,6 +306,7 @@ impl Host {
         match self {
             Host::Continue_ => SystemPromptKind::JsonField("systemMessage"),
             Host::Zed => SystemPromptKind::JsonNestedField("assistant", "system_prompt"),
+            Host::Hermes => SystemPromptKind::HermesSkill,
             _ => SystemPromptKind::MarkdownMarker,
         }
     }
@@ -282,6 +318,7 @@ impl Host {
     pub(crate) fn system_prompt_content(self) -> &'static str {
         match self {
             Host::ClaudeCode => SYSTEM_PROMPT,
+            Host::Hermes => HERMES_SKILL,
             Host::Cursor => SYSTEM_PROMPT_CURSOR,
             _ => SYSTEM_PROMPT_NO_HOOKS,
         }
@@ -293,6 +330,8 @@ impl Host {
 enum Schema {
     /// Top-level `mcpServers.<name>` map.
     McpServersTopLevel,
+    /// Hermes Agent's YAML config uses top-level `mcp_servers.<name>`.
+    HermesYaml,
     /// Nested under `experimental.context_servers.<name>`.
     ZedNested,
 }
@@ -304,6 +343,7 @@ const fn schema_of(h: Host) -> Schema {
         | Host::Continue_
         | Host::ClaudeCode
         | Host::GeminiCli => Schema::McpServersTopLevel,
+        Host::Hermes => Schema::HermesYaml,
         Host::Zed => Schema::ZedNested,
     }
 }
@@ -320,6 +360,8 @@ pub(crate) enum SystemPromptKind {
     /// Inject into a nested JSON string field (parent → child).
     /// e.g. `assistant.system_prompt` in Zed's settings.json.
     JsonNestedField(&'static str, &'static str),
+    /// Hermes skill file under `~/.hermes/skills/mnem/SKILL.md`.
+    HermesSkill,
 }
 
 // ---------- CLI surface ----------
@@ -717,6 +759,58 @@ edge from the old node to the new. The old fact stops surfacing automatically.
 Pure computation results, tool-call traces, generated drafts or code the user
 has not accepted, re-reads within the same turn."#;
 
+/// Hermes Agent skill bundle written to `~/.hermes/skills/mnem/SKILL.md`.
+/// Hermes discovers skills from this directory and injects skill content when
+/// a task matches the description, so this is the native way to teach Hermes
+/// how to use the mnem MCP tools without editing global prompt text.
+const HERMES_SKILL: &str = r#"---
+name: mnem
+description: Use mnem as a persistent knowledge graph via MCP tools for memory retrieval, memory writes, entity resolution, relations, and forgetting.
+version: 1.0.0
+metadata:
+  hermes:
+    tags: [memory, mcp, knowledge-graph]
+---
+
+# mnem persistent knowledge graph
+
+Use this skill when the user asks about remembered facts, preferences, prior project context, or when they state/correct a durable fact worth storing.
+
+## Reading memory
+
+- Prefer MCP tools prefixed `mnem_` when they are available.
+- Start with `mnem_retrieve` using the user's current message as the focused query.
+- If local retrieval errors or returns no relevant result, call `mnem_global_retrieve`.
+- Use retrieved facts silently and naturally. Do not announce memory lookups unless the user asks.
+
+## Writing memory
+
+Write only durable facts the user stated, corrected, or explicitly accepted. Do not store tool traces, model reasoning, temporary calculations, or rejected drafts.
+
+- Use local tools (`mnem_commit`, `mnem_resolve_or_create`, `mnem_commit_relation`) by default.
+- Use global tools only when the user asks for global memory or local memory is unavailable.
+- Store one fact per node.
+- Make each summary a complete standalone sentence with no leading pronouns.
+- Use `mnem_resolve_or_create` for named people, organizations, places, and projects.
+- Use typed relation edges such as `works_at`, `has_preference`, `part_of`, `relates_to`, `revoked_by`, or a clear snake_case predicate.
+- Set `agent_id` to `hermes` on write calls.
+
+## Forgetting and supersession
+
+- If the user says to forget something, retrieve the matching node and call `mnem_tombstone_node` with the user's wording as the reason.
+- If the user updates an older fact, add the new fact and connect the old node to it with `revoked_by` so the audit trail remains intact.
+
+## CLI fallback
+
+If MCP tools are unavailable, use the CLI:
+
+```bash
+mnem retrieve "query text"
+mnem global retrieve "query text"
+mnem commit --summary "Complete standalone fact."
+```
+"#;
+
 /// Text markers used when injecting into a JSON string field
 /// (Continue `systemMessage`, Zed `assistant.system_prompt`).
 /// Plain-text delimiters that survive JSON serialisation unescaped.
@@ -957,6 +1051,10 @@ fn do_wire(host: Host, target: &Path, stamp: &str, dry_run: bool) -> Result<Wire
         .config_path()
         .ok_or_else(|| anyhow!("unsupported on this OS"))?;
 
+    if matches!(schema_of(host), Schema::HermesYaml) {
+        return do_wire_hermes_yaml(&path, target, stamp, dry_run);
+    }
+
     // Read existing or start from empty object.
     let mut root = if path.exists() {
         let s = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -973,6 +1071,7 @@ fn do_wire(host: Host, target: &Path, stamp: &str, dry_run: bool) -> Result<Wire
     let changed = match schema_of(host) {
         Schema::McpServersTopLevel => set_top_level(&mut root, target),
         Schema::ZedNested => set_zed_nested(&mut root, target),
+        Schema::HermesYaml => unreachable!("handled above"),
     };
 
     if !changed {
@@ -1022,6 +1121,7 @@ fn do_wire_system_prompt(host: Host, stamp: &str, dry_run: bool) -> Result<WireO
         SystemPromptKind::JsonNestedField(parent, child) => {
             do_wire_sp_json(host, &path, &[parent, child], stamp, dry_run)
         }
+        SystemPromptKind::HermesSkill => do_wire_sp_hermes_skill(host, &path, stamp, dry_run),
     }
 }
 
@@ -1059,6 +1159,47 @@ fn do_wire_sp_markdown(host: Host, path: &Path, stamp: &str, dry_run: bool) -> R
         fs::copy(path, &bak).with_context(|| format!("backing up to {}", bak.display()))?;
     }
     atomic_write(path, &new_content)?;
+    Ok(WireOutcome::Wrote)
+}
+
+/// Hermes skill path. This file is mnem-owned, so integration writes the full
+/// SKILL.md instead of injecting a marker block that would break YAML
+/// frontmatter placement.
+fn do_wire_sp_hermes_skill(
+    host: Host,
+    path: &Path,
+    stamp: &str,
+    dry_run: bool,
+) -> Result<WireOutcome> {
+    let existing = if path.exists() {
+        fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?
+    } else {
+        String::new()
+    };
+    let new_content = host.system_prompt_content();
+    if existing == new_content {
+        return Ok(WireOutcome::AlreadyWired);
+    }
+
+    if dry_run {
+        return Ok(WireOutcome::DryRun(format!(
+            "     (writing Hermes skill to {} - {} bytes)",
+            path.display(),
+            new_content.len()
+        )));
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    }
+    if path.exists() {
+        let bak = path.with_extension(format!(
+            "{}.bak-{stamp}",
+            path.extension().and_then(|s| s.to_str()).unwrap_or("md")
+        ));
+        fs::copy(path, &bak).with_context(|| format!("backing up to {}", bak.display()))?;
+    }
+    atomic_write(path, new_content)?;
     Ok(WireOutcome::Wrote)
 }
 
@@ -1244,6 +1385,27 @@ fn undo_json_prompt(host: Host, path: &Path, field_path: &[&str], dry_run: bool)
     let new_text = serde_json::to_string_pretty(&root).context("serialising config")?;
     atomic_write(path, &new_text)?;
     println!("  ok {}  removed mnem system-prompt block", host.display());
+    Ok(true)
+}
+
+fn undo_hermes_skill(host: Host, path: &Path, dry_run: bool) -> Result<bool> {
+    let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let looks_mnem_owned = text.contains("name: mnem") && text.contains("mnem_retrieve");
+    if !looks_mnem_owned {
+        return Ok(false);
+    }
+
+    if dry_run {
+        println!(
+            "  -- {} system prompt (dry-run)\n     (would remove Hermes skill {})",
+            host.display(),
+            path.display()
+        );
+        return Ok(true);
+    }
+
+    fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
+    println!("  ok {}  removed Hermes mnem skill", host.display());
     Ok(true)
 }
 
@@ -1487,31 +1649,37 @@ pub(crate) fn do_undo(host: Host, dry_run: bool) -> Result<()> {
         }
     };
     let mcp_changed = if path.exists() {
-        let s = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let mut root: Value = if s.trim().is_empty() {
-            Value::Object(Map::new())
+        if matches!(schema_of(host), Schema::HermesYaml) {
+            undo_hermes_yaml(&path, dry_run, host)?
         } else {
-            serde_json::from_str(&s).with_context(|| format!("parsing {}", path.display()))?
-        };
-
-        let changed = match schema_of(host) {
-            Schema::McpServersTopLevel => remove_top_level(&mut root),
-            Schema::ZedNested => remove_zed_nested(&mut root),
-        };
-        if changed {
-            let new_text = serde_json::to_string_pretty(&root).context("serialising config")?;
-            if dry_run {
-                println!(
-                    "  -- {} (dry-run)\n{}",
-                    host.display(),
-                    indent(&new_text, "     ")
-                );
+            let s =
+                fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            let mut root: Value = if s.trim().is_empty() {
+                Value::Object(Map::new())
             } else {
-                atomic_write(&path, &new_text)?;
-                println!("  ok {}  removed mnem entry", host.display());
+                serde_json::from_str(&s).with_context(|| format!("parsing {}", path.display()))?
+            };
+
+            let changed = match schema_of(host) {
+                Schema::McpServersTopLevel => remove_top_level(&mut root),
+                Schema::ZedNested => remove_zed_nested(&mut root),
+                Schema::HermesYaml => unreachable!("handled above"),
+            };
+            if changed {
+                let new_text = serde_json::to_string_pretty(&root).context("serialising config")?;
+                if dry_run {
+                    println!(
+                        "  -- {} (dry-run)\n{}",
+                        host.display(),
+                        indent(&new_text, "     ")
+                    );
+                } else {
+                    atomic_write(&path, &new_text)?;
+                    println!("  ok {}  removed mnem entry", host.display());
+                }
             }
+            changed
         }
-        changed
     } else {
         false
     };
@@ -1558,6 +1726,7 @@ pub(crate) fn do_undo(host: Host, dry_run: bool) -> Result<()> {
             SystemPromptKind::JsonNestedField(parent, child) => {
                 undo_json_prompt(host, &pp, &[parent, child], dry_run)?
             }
+            SystemPromptKind::HermesSkill => undo_hermes_skill(host, &pp, dry_run)?,
         }
     } else {
         false
@@ -1622,14 +1791,27 @@ fn do_check() -> Result<()> {
             }
             Some(path) => {
                 let s = fs::read_to_string(&path)?;
-                let root: Value = if s.trim().is_empty() {
-                    Value::Null
-                } else {
-                    serde_json::from_str(&s).unwrap_or(Value::Null)
-                };
                 let wired = match schema_of(*host) {
-                    Schema::McpServersTopLevel => has_top_level(&root),
-                    Schema::ZedNested => has_zed_nested(&root),
+                    Schema::HermesYaml => {
+                        let root: YamlValue = if s.trim().is_empty() {
+                            YamlValue::Null
+                        } else {
+                            serde_yaml::from_str(&s).unwrap_or(YamlValue::Null)
+                        };
+                        has_hermes_yaml(&root)
+                    }
+                    Schema::McpServersTopLevel | Schema::ZedNested => {
+                        let root: Value = if s.trim().is_empty() {
+                            Value::Null
+                        } else {
+                            serde_json::from_str(&s).unwrap_or(Value::Null)
+                        };
+                        match schema_of(*host) {
+                            Schema::McpServersTopLevel => has_top_level(&root),
+                            Schema::ZedNested => has_zed_nested(&root),
+                            Schema::HermesYaml => unreachable!("handled above"),
+                        }
+                    }
                 };
                 if wired {
                     format!("  ok {:<18} wired ({})", host.display(), path.display())
@@ -1823,6 +2005,123 @@ fn mnem_server_value(target: &Path) -> Value {
     v
 }
 
+fn hermes_server_value(target: &Path) -> YamlValue {
+    serde_yaml::to_value(mnem_server_value(target)).expect("mnem server value serialises to YAML")
+}
+
+fn yaml_key(key: &str) -> YamlValue {
+    YamlValue::String(key.to_string())
+}
+
+fn ensure_yaml_mapping(v: &mut YamlValue) {
+    if !matches!(v, YamlValue::Mapping(_)) {
+        *v = YamlValue::Mapping(YamlMapping::new());
+    }
+}
+
+/// Set `root.mcp_servers.mnem = v` for Hermes Agent's YAML config.
+fn set_hermes_yaml(root: &mut YamlValue, target: &Path) -> bool {
+    ensure_yaml_mapping(root);
+    let root_map = root.as_mapping_mut().expect("ensured mapping");
+    let servers_key = yaml_key("mcp_servers");
+    let servers = root_map
+        .entry(servers_key)
+        .or_insert_with(|| YamlValue::Mapping(YamlMapping::new()));
+    ensure_yaml_mapping(servers);
+    let servers_map = servers.as_mapping_mut().expect("ensured mapping");
+    let new_val = hermes_server_value(target);
+    let mnem_key = yaml_key("mnem");
+    if servers_map.get(&mnem_key) == Some(&new_val) {
+        return false;
+    }
+    servers_map.insert(mnem_key, new_val);
+    true
+}
+
+fn remove_hermes_yaml(root: &mut YamlValue) -> bool {
+    let Some(root_map) = root.as_mapping_mut() else {
+        return false;
+    };
+    let Some(servers) = root_map.get_mut(&yaml_key("mcp_servers")) else {
+        return false;
+    };
+    let Some(servers_map) = servers.as_mapping_mut() else {
+        return false;
+    };
+    servers_map.remove(&yaml_key("mnem")).is_some()
+}
+
+fn has_hermes_yaml(root: &YamlValue) -> bool {
+    root.get("mcp_servers")
+        .and_then(YamlValue::as_mapping)
+        .is_some_and(|m| m.contains_key(&yaml_key("mnem")))
+}
+
+fn do_wire_hermes_yaml(
+    path: &Path,
+    target: &Path,
+    stamp: &str,
+    dry_run: bool,
+) -> Result<WireOutcome> {
+    let mut root = if path.exists() {
+        let s = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        if s.trim().is_empty() {
+            YamlValue::Mapping(YamlMapping::new())
+        } else {
+            serde_yaml::from_str::<YamlValue>(&s)
+                .with_context(|| format!("parsing {}", path.display()))?
+        }
+    } else {
+        YamlValue::Mapping(YamlMapping::new())
+    };
+
+    if !set_hermes_yaml(&mut root, target) {
+        return Ok(WireOutcome::AlreadyWired);
+    }
+
+    let new_text = serde_yaml::to_string(&root).context("serialising Hermes config")?;
+    if dry_run {
+        return Ok(WireOutcome::DryRun(indent(&new_text, "     ")));
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    }
+    if path.exists() {
+        let bak = path.with_extension(format!(
+            "{}.bak-{stamp}",
+            path.extension().and_then(|s| s.to_str()).unwrap_or("yaml")
+        ));
+        fs::copy(path, &bak).with_context(|| format!("backing up to {}", bak.display()))?;
+    }
+    atomic_write(path, &new_text)?;
+    Ok(WireOutcome::Wrote)
+}
+
+fn undo_hermes_yaml(path: &Path, dry_run: bool, host: Host) -> Result<bool> {
+    let s = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let mut root: YamlValue = if s.trim().is_empty() {
+        YamlValue::Mapping(YamlMapping::new())
+    } else {
+        serde_yaml::from_str(&s).with_context(|| format!("parsing {}", path.display()))?
+    };
+    let changed = remove_hermes_yaml(&mut root);
+    if changed {
+        let new_text = serde_yaml::to_string(&root).context("serialising Hermes config")?;
+        if dry_run {
+            println!(
+                "  -- {} (dry-run)\n{}",
+                host.display(),
+                indent(&new_text, "     ")
+            );
+        } else {
+            atomic_write(path, &new_text)?;
+            println!("  ok {}  removed mnem entry", host.display());
+        }
+    }
+    Ok(changed)
+}
+
 fn zed_server_value(target: &Path) -> Value {
     json!({
         "command": {
@@ -1927,13 +2226,22 @@ fn ensure_object(v: &mut Value) {
 // ---------- Snippet for --show ----------
 
 fn snippet_for(host: Host, target: &Path) -> String {
-    let v = match schema_of(host) {
-        Schema::McpServersTopLevel => json!({"mcpServers": {"mnem": mnem_server_value(target)}}),
-        Schema::ZedNested => {
-            json!({"experimental": {"context_servers": {"mnem": zed_server_value(target)}}})
+    match schema_of(host) {
+        Schema::HermesYaml => {
+            let mut root = YamlValue::Mapping(YamlMapping::new());
+            set_hermes_yaml(&mut root, target);
+            serde_yaml::to_string(&root).unwrap_or_else(|_| "<encode failure>".into())
         }
-    };
-    serde_json::to_string_pretty(&v).unwrap_or_else(|_| "<encode failure>".into())
+        Schema::McpServersTopLevel => {
+            let v = json!({"mcpServers": {"mnem": mnem_server_value(target)}});
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "<encode failure>".into())
+        }
+        Schema::ZedNested => {
+            let v =
+                json!({"experimental": {"context_servers": {"mnem": zed_server_value(target)}}});
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "<encode failure>".into())
+        }
+    }
 }
 
 // ---------- Filesystem + util ----------
@@ -2010,15 +2318,26 @@ pub(crate) fn wired_status() -> Vec<(Host, Option<PathBuf>, bool)> {
             let wired = path
                 .as_ref()
                 .and_then(|p| fs::read_to_string(p).ok())
-                .is_some_and(|s| {
-                    let root: Value = if s.trim().is_empty() {
-                        Value::Null
-                    } else {
-                        serde_json::from_str(&s).unwrap_or(Value::Null)
-                    };
-                    match schema_of(*h) {
-                        Schema::McpServersTopLevel => has_top_level(&root),
-                        Schema::ZedNested => has_zed_nested(&root),
+                .is_some_and(|s| match schema_of(*h) {
+                    Schema::HermesYaml => {
+                        let root: YamlValue = if s.trim().is_empty() {
+                            YamlValue::Null
+                        } else {
+                            serde_yaml::from_str(&s).unwrap_or(YamlValue::Null)
+                        };
+                        has_hermes_yaml(&root)
+                    }
+                    Schema::McpServersTopLevel | Schema::ZedNested => {
+                        let root: Value = if s.trim().is_empty() {
+                            Value::Null
+                        } else {
+                            serde_json::from_str(&s).unwrap_or(Value::Null)
+                        };
+                        match schema_of(*h) {
+                            Schema::McpServersTopLevel => has_top_level(&root),
+                            Schema::ZedNested => has_zed_nested(&root),
+                            Schema::HermesYaml => unreachable!("handled above"),
+                        }
                     }
                 });
             (*h, path, wired)
@@ -2050,6 +2369,39 @@ mod tests {
         assert_eq!(Host::Cursor.slug(), "cursor");
         assert_eq!(Host::Continue_.slug(), "continue");
         assert_eq!(Host::Zed.slug(), "zed");
+        assert_eq!(Host::Hermes.slug(), "hermes");
+    }
+
+    #[test]
+    fn hermes_yaml_round_trip_preserves_other_servers() {
+        let mut v: YamlValue = serde_yaml::from_str(
+            r#"
+model: gpt-5
+mcp_servers:
+  other:
+    command: other-mcp
+"#,
+        )
+        .unwrap();
+        assert!(set_hermes_yaml(&mut v, Path::new("/r")));
+        assert!(has_hermes_yaml(&v));
+        assert_eq!(
+            v.get("mcp_servers")
+                .and_then(YamlValue::as_mapping)
+                .and_then(|m| m.get(&yaml_key("other")))
+                .and_then(|s| s.get("command"))
+                .and_then(YamlValue::as_str),
+            Some("other-mcp")
+        );
+        assert!(remove_hermes_yaml(&mut v));
+        assert!(!has_hermes_yaml(&v));
+    }
+
+    #[test]
+    fn hermes_yaml_is_idempotent_when_already_wired() {
+        let mut v = YamlValue::Mapping(YamlMapping::new());
+        assert!(set_hermes_yaml(&mut v, Path::new("/r")));
+        assert!(!set_hermes_yaml(&mut v, Path::new("/r")));
     }
 
     #[test]
@@ -2062,6 +2414,8 @@ mod tests {
         // must use the full slug. Verified separately in
         // `parse_accepts_new_host_aliases`.
         assert_eq!(Host::parse("CURSOR"), Some(Host::Cursor));
+        assert_eq!(Host::parse("hermes"), Some(Host::Hermes));
+        assert_eq!(Host::parse("hermes-agent"), Some(Host::Hermes));
         assert_eq!(Host::parse("garbage"), None);
     }
 
@@ -2204,6 +2558,7 @@ mod tests {
         let slugs: Vec<_> = Host::all().iter().map(|h| h.slug()).collect();
         assert!(slugs.contains(&"claude-code"));
         assert!(slugs.contains(&"gemini-cli"));
+        assert!(slugs.contains(&"hermes"));
         // Pre-existing slugs survive.
         assert!(slugs.contains(&"claude-desktop"));
         assert!(slugs.contains(&"cursor"));
@@ -2228,6 +2583,7 @@ mod tests {
         assert!(Host::Cursor.hooks_path().is_none());
         assert!(Host::ClaudeDesktop.hooks_path().is_none());
         assert!(Host::GeminiCli.hooks_path().is_none());
+        assert!(Host::Hermes.hooks_path().is_none());
     }
 
     #[test]
@@ -2235,6 +2591,23 @@ mod tests {
         let s = snippet_for(Host::ClaudeCode, Path::new("/r"));
         let v: Value = serde_json::from_str(&s).expect("valid json");
         assert_is_mnem_mcp_command(&v["mcpServers"]["mnem"]["command"]);
+    }
+
+    #[test]
+    fn snippet_for_hermes_emits_yaml_mcp_servers_shape() {
+        let s = snippet_for(Host::Hermes, Path::new("/r"));
+        let v: YamlValue = serde_yaml::from_str(&s).expect("valid yaml");
+        assert!(has_hermes_yaml(&v));
+        let servers = v
+            .get("mcp_servers")
+            .and_then(YamlValue::as_mapping)
+            .expect("mcp_servers mapping");
+        let command = servers
+            .get(&yaml_key("mnem"))
+            .and_then(|m| m.get("command"))
+            .and_then(YamlValue::as_str)
+            .expect("command string");
+        assert!(command == "mnem" || command.ends_with("/mnem") || command.ends_with("\\mnem"));
     }
 
     #[test]
@@ -2407,6 +2780,7 @@ mod tests {
         assert!(Host::Cursor.system_prompt_path().is_some());
         assert!(Host::Continue_.system_prompt_path().is_some());
         assert!(Host::Zed.system_prompt_path().is_some());
+        assert!(Host::Hermes.system_prompt_path().is_some());
         // Claude Desktop has UI-only custom instructions - no file path.
         assert!(Host::ClaudeDesktop.system_prompt_path().is_none());
         // Cursor gets a dedicated .mdc file, not the shared config.

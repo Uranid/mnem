@@ -11,7 +11,7 @@ mnem integrate                  # auto-detect and configure all installed hosts
 mnem integrate claude-code      # wire a specific host
 ```
 
-Supported hosts: Claude Code, Claude Desktop, Cursor, Continue, Zed, Gemini CLI. Any other MCP-aware host works via a manual `mcpServers` entry.
+Supported hosts: Claude Code, Claude Desktop, Cursor, Continue, Zed, Hermes Agent, Gemini CLI. Any other MCP-aware host works via a manual `mcpServers` entry (or `mcp_servers` for Hermes-style YAML clients).
 
 The MCP server exposes 22 native tools prefixed `mnem_` - retrieve, commit, ingest, traverse, tombstone, global graph access, and more. Full reference: [`docs/src/mcp.md`](../src/mcp.md).
 

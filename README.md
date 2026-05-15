@@ -305,6 +305,7 @@ mnem integrate --all                     # wire every detected host without prom
 mnem integrate --check                   # report wired state for all hosts; nothing changes
 mnem integrate --dry-run                 # preview what would be written without changing anything
 mnem integrate --show claude-code        # print the MCP JSON block for manual copy-paste
+mnem integrate --show hermes             # print Hermes' YAML `mcp_servers` block
 
 mnem integrate --no-hooks                # skip UserPromptSubmit hook wiring
 mnem integrate --no-system-prompt        # skip system prompt wiring
@@ -312,9 +313,9 @@ mnem integrate --target-repo ~/notes     # point the MCP server at a specific gr
 ```
 
 **What gets wired:**
-- **MCP server** (`mcpServers.mnem`) - the agent gets full mnem tool access via `mnem mcp --repo <graph>`; defaults to the global graph (`~/.mnemglobal/.mnem`)
+- **MCP server** (`mcpServers.mnem`; Hermes uses `mcp_servers.mnem`) - the agent gets full mnem tool access via `mnem mcp --repo <graph>`; defaults to the global graph (`~/.mnemglobal/.mnem`)
 - **UserPromptSubmit hook** (Claude Code only) - runs `mnem retrieve` before each message, auto-injecting relevant memory into context
-- **System prompt** - mnem usage instructions injected into the host's project-rules file
+- **System prompt / skill** - mnem usage instructions injected into the host's project-rules file; Hermes receives a native skill at `~/.hermes/skills/mnem/SKILL.md`
 
 The hook always queries your project's `.mnem/` first (walking up from the current directory), then falls back to `mnem global retrieve` automatically. The hook and system prompt behave the same regardless of which default knowledge graph you choose during setup. Use `--target-repo` only if you want the MCP server to point somewhere other than the global graph.
 
@@ -324,6 +325,7 @@ Auto-detects and configures:
 - Cursor
 - Continue
 - Zed
+- Hermes Agent
 - Gemini CLI
 
 Any other MCP-aware host works via a hand-edited `mcpServers` entry pointing at `mnem mcp --repo <path>` - see [`docs/src/mcp.md`](docs/src/mcp.md).

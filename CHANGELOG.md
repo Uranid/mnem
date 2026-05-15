@@ -40,7 +40,7 @@ graph for AI agent memory. Local-first, Apache-2.0.
 ### Integrations
 
 - `mnem integrate` interactive wizard auto-detects and configures:
-  Claude Desktop, Claude Code, Cursor, Continue, Zed, Codex, Gemini CLI.
+  Claude Desktop, Claude Code, Cursor, Continue, Zed, Hermes Agent, Codex, Gemini CLI.
 
 ### Distribution
 
