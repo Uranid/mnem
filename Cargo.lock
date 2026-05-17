@@ -2151,6 +2151,7 @@ dependencies = [
  "criterion",
  "ed25519-dalek",
  "ipld-core",
+ "js-sys",
  "multihash",
  "multihash-codetable",
  "proptest",
@@ -2395,6 +2396,18 @@ dependencies = [
  "toml",
  "tracing",
  "unsigned-varint",
+]
+
+[[package]]
+name = "mnem-wasm"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "getrandom 0.2.17",
+ "js-sys",
+ "mnem-core",
+ "uuid",
+ "wasm-bindgen",
 ]
 
 [[package]]

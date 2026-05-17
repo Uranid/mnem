@@ -8,6 +8,7 @@
 //! [`Transaction`]: crate::repo::transaction::Transaction
 
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ipld_core::ipld::Ipld;
@@ -28,10 +29,18 @@ use super::transaction::Transaction;
 /// Current microseconds since Unix epoch. Used throughout the repo
 /// layer for timestamps on new Operations.
 pub(crate) fn now_micros() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_micros() as u64
+    #[cfg(target_arch = "wasm32")]
+    {
+        // SystemTime is not available in the browser; use JS Date.now() (ms → µs).
+        (js_sys::Date::now() * 1_000.0) as u64
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_micros() as u64
+    }
 }
 
 /// A view of the repository pinned to a single `OperationId`.
