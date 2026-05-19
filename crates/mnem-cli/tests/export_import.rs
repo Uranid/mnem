@@ -396,7 +396,7 @@ fn sparse_sidecar_blocks_round_trip_through_car() {
     let latest_op = heads.into_iter().last().unwrap();
     let repo = ReadonlyRepo::load_at(bs_arc, ohs_arc, latest_op).expect("load dst repo");
 
-    // Commit.sparse must be Some — the sidecar root CID pointer survived.
+    // Commit.sparse must be Some - the sidecar root CID pointer survived.
     let commit = repo.head_commit().expect("dst must have a head commit");
     assert!(
         commit.sparse.is_some(),
@@ -420,7 +420,7 @@ fn sparse_sidecar_blocks_round_trip_through_car() {
             got.is_some(),
             "sparse sidecar block must survive CAR export/import \
              for node_cid={node_cid} vocab_id={vocab_id}; \
-             got None — sparse Prolly-tree blocks are likely missing from the CAR"
+             got None - sparse Prolly-tree blocks are likely missing from the CAR"
         );
         let got_se = got.unwrap();
         assert_eq!(got_se.vocab_id, *vocab_id, "vocab_id field must match");

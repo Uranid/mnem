@@ -102,7 +102,7 @@ fn switch_to_existing_branch_moves_head() {
     let main_advanced = head_cid(p);
     assert_ne!(main_head, main_advanced, "main must have advanced");
 
-    // Switch to feature — HEAD should go back to where feature points.
+    // Switch to feature - HEAD should go back to where feature points.
     let out = mnem(p, &["switch", "feature"]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(
@@ -204,7 +204,7 @@ fn switch_updates_active_branch_field() {
     // Now switching to `other` is a real move (different commit CID).
     add_node(p, "main-only commit");
 
-    // Switch to other — must invoke switch_branch and update active_branch.
+    // Switch to other - must invoke switch_branch and update active_branch.
     mnem(p, &["switch", "other"]).assert().success();
     let active = active_branch_from_list(p);
     assert_eq!(
@@ -289,7 +289,7 @@ fn switch_back_and_forth() {
 // ---------------------------------------------------------------------------
 //
 // Gap 3 fix: after the refused switch, assert HEAD CID and active_branch
-// are unchanged — not just that stderr is correct.
+// are unchanged - not just that stderr is correct.
 
 #[test]
 fn switch_refused_during_merge_in_progress() {
@@ -338,7 +338,7 @@ fn switch_refused_during_merge_in_progress() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 7: two branches with diverged history — switch moves HEAD correctly
+// Test 7: two branches with diverged history - switch moves HEAD correctly
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -405,7 +405,7 @@ fn checkout_alias_works_like_switch() {
     mnem(p, &["branch", "create", "side"]).assert().success();
     add_node(p, "main extra commit after side creation");
 
-    // Use `checkout` spelling — must do a real HEAD move.
+    // Use `checkout` spelling - must do a real HEAD move.
     let out = mnem(p, &["checkout", "side"]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(
@@ -451,7 +451,7 @@ fn switch_accepts_fully_qualified_ref() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 10: BUG-38 guard — same-CID branches (Gap 1)
+// Test 10: BUG-38 guard - same-CID branches (Gap 1)
 // ---------------------------------------------------------------------------
 //
 // When two branches share the same commit CID, the legacy CID-based fallback
@@ -490,7 +490,7 @@ fn switch_bug38_guard_same_cid_branches() {
     // active_branch.  The fixed code checks active_branch too and proceeds.
     let out = mnem(p, &["switch", "b"]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
-    // Must say "switched to branch 'b'" — NOT "Already on 'b'".
+    // Must say "switched to branch 'b'" - NOT "Already on 'b'".
     assert!(
         stdout.contains("switched to branch 'b'"),
         "switch to same-CID branch must report a real switch, got: {stdout}"
@@ -568,7 +568,7 @@ fn switch_subsequent_commit_advances_correct_branch() {
     let main_line = stdout
         .lines()
         .find(|l| {
-            // Skip lines that are the star prefix — match the word "main" in the name column.
+            // Skip lines that are the star prefix - match the word "main" in the name column.
             let stripped = l.trim_start_matches("* ").trim_start_matches("  ");
             stripped.starts_with("main")
         })
@@ -581,7 +581,7 @@ fn switch_subsequent_commit_advances_correct_branch() {
 
 // ---------------------------------------------------------------------------
 // Test 12: switch to a nonexistent branch on a fresh (init-only) repo
-//          errors cleanly — no panic (Gap 4)
+//          errors cleanly - no panic (Gap 4)
 // ---------------------------------------------------------------------------
 //
 // A freshly-init'd repo has only the seed-anchor commit and `refs/heads/main`.
@@ -594,7 +594,7 @@ fn switch_empty_repo_errors_cleanly() {
     let dir = TempDir::new().unwrap();
     let p = dir.path();
 
-    // Init only — no user-created commits, no user-created branches.
+    // Init only - no user-created commits, no user-created branches.
     init(p);
 
     // `mnem switch nonexistent-branch` must fail with a clear error.

@@ -230,7 +230,7 @@ fn cat_file_commit_object_raw_returns_cbor_map() {
 
 /// Raw path must NOT append a trailing newline; `--json` path MUST.
 ///
-/// The raw path writes the exact blockstore bytes to stdout — binary-safe,
+/// The raw path writes the exact blockstore bytes to stdout - binary-safe,
 /// no decoration.  The `--json` path adds `\n` so shell prompts don't
 /// collide with the closing brace (see cat_file.rs line 74-76).
 ///

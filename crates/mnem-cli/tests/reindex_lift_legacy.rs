@@ -270,7 +270,7 @@ fn seed_legacy_sparse_node(dir: &Path) -> (Cid, String) {
 
     let node_cid = tx.add_node(&node).expect("add node");
 
-    // Commit WITHOUT calling set_sparse_embedding — the embedding is only in extra.
+    // Commit WITHOUT calling set_sparse_embedding - the embedding is only in extra.
     let r2 = tx
         .commit("test author", "seed legacy sparse node")
         .expect("commit");
@@ -413,7 +413,7 @@ fn lift_legacy_sparse_no_op_on_clean_repo() {
 #[test]
 fn lift_legacy_sparse_no_repo_fails() {
     let dir = TempDir::new().unwrap();
-    // Deliberately do NOT call init — no .mnem directory exists.
+    // Deliberately do NOT call init - no .mnem directory exists.
     mnem(dir.path(), &["reindex", "--lift-legacy-sparse"])
         .assert()
         .failure();

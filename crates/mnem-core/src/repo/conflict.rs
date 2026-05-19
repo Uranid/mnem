@@ -1169,7 +1169,7 @@ mod tests {
 
     /// Verify that `detect_conflicts_with_policy` (the commit-only path)
     /// now surfaces TombstoneVsModify when one side tombstones a node
-    /// that the other side modified — previously the stub always returned
+    /// that the other side modified - previously the stub always returned
     /// an empty set, silencing this category.
     #[test]
     fn detect_conflicts_with_policy_surfaces_tombstone_vs_modify_via_op_lookup() {

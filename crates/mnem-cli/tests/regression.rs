@@ -69,7 +69,7 @@ fn current_op_cid(dir: &Path) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// A5 — doctor exits 1 outside a repo
+// A5 - doctor exits 1 outside a repo
 // ---------------------------------------------------------------------------
 
 /// `mnem doctor` run from a directory with no `.mnem` must exit 1 and
@@ -77,7 +77,7 @@ fn current_op_cid(dir: &Path) -> String {
 #[test]
 fn a5_doctor_exits_1_outside_repo() {
     let dir = TempDir::new().unwrap();
-    // We intentionally do NOT call init here — the directory has no .mnem.
+    // We intentionally do NOT call init here - the directory has no .mnem.
     let out = mnem(dir.path(), &["doctor"]).assert().failure();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(
@@ -89,7 +89,7 @@ fn a5_doctor_exits_1_outside_repo() {
 }
 
 // ---------------------------------------------------------------------------
-// K8 — delete nonexistent node exits 1 with no spurious commit
+// K8 - delete nonexistent node exits 1 with no spurious commit
 // ---------------------------------------------------------------------------
 
 /// Deleting a UUID that was never added must exit 1 and must NOT write a new
@@ -114,7 +114,7 @@ fn k8_delete_nonexistent_node_exits_1_no_spurious_commit() {
 }
 
 // ---------------------------------------------------------------------------
-// C8 — add edge to nonexistent dst exits 1
+// C8 - add edge to nonexistent dst exits 1
 // ---------------------------------------------------------------------------
 
 /// Adding an edge whose `--to` target does not exist must exit 1 and the
@@ -150,7 +150,7 @@ fn c8_add_edge_nonexistent_dst_exits_1() {
 }
 
 // ---------------------------------------------------------------------------
-// G6 — invalid branch names rejected
+// G6 - invalid branch names rejected
 // ---------------------------------------------------------------------------
 
 /// Branch names that violate git check-ref-format rules must be rejected with
@@ -186,7 +186,7 @@ fn g6_invalid_branch_names_rejected() {
 }
 
 // ---------------------------------------------------------------------------
-// G_BUG — branch create --from op-CID rejected
+// G_BUG - branch create --from op-CID rejected
 // ---------------------------------------------------------------------------
 
 /// `mnem branch create <name> --from <op-cid>` must exit 1 with a message
@@ -217,7 +217,7 @@ fn g_bug_branch_create_from_op_cid_rejected() {
 }
 
 // ---------------------------------------------------------------------------
-// A3 — add edge --from nonexistent exits 1
+// A3 - add edge --from nonexistent exits 1
 // ---------------------------------------------------------------------------
 
 /// Adding an edge whose `--from` source does not exist must exit 1 and the

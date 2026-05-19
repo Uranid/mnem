@@ -137,14 +137,14 @@ fn gc_dry_run_reports_unreachable_blocks_without_deleting() {
     let orphan_cid = inject_orphaned_block(p, b"orphan-payload-1");
 
     // Dry-run must report exactly 1 unreachable block (pinned count, not just
-    // "some block" string — a stale output like "0 unreachable" must fail here).
+    // "some block" string - a stale output like "0 unreachable" must fail here).
     let stdout = gc_dry_run(p);
     assert!(
         stdout.contains("gc: 1 unreachable block(s) found"),
         "dry-run must report exactly 'gc: 1 unreachable block(s) found', got: {stdout}"
     );
 
-    // Running gc dry-run a second time must report the SAME count — idempotency at
+    // Running gc dry-run a second time must report the SAME count - idempotency at
     // the block level, not just "some blocks are unreachable".
     let stdout2 = gc_dry_run(p);
     assert!(
@@ -543,7 +543,7 @@ fn gc_force_does_not_delete_blocks_from_deleted_node() {
     let node_uuid = add_node(p, "node-to-be-deleted");
 
     // Step 2: Hard-delete the node via CLI.
-    // This creates a new commit (remove_node op) but does NOT orphan any blocks —
+    // This creates a new commit (remove_node op) but does NOT orphan any blocks -
     // the original node's blocks are still reachable via the parent commit.
     mnem(p, &["delete", &node_uuid]).assert().success();
 
@@ -565,7 +565,7 @@ fn gc_force_does_not_delete_blocks_from_deleted_node() {
     // Step 4: Inject exactly 1 genuinely orphaned block (not reachable from any ref).
     let orphan_cid = inject_orphaned_block(p, b"orphan-after-delete");
 
-    // Step 5: Run gc --force — must report exactly 1 block removed (the injected orphan).
+    // Step 5: Run gc --force - must report exactly 1 block removed (the injected orphan).
     let stdout = gc_force(p);
     assert!(
         stdout.contains("gc: removed 1 block(s)"),
@@ -584,7 +584,7 @@ fn gc_force_does_not_delete_blocks_from_deleted_node() {
 
         // Step 7: Verify ALL blocks that existed after the delete commit are still present.
         // cids_after_delete includes the original add_node blocks AND the delete-op's
-        // own blocks — all are reachable from HEAD and must survive gc.
+        // own blocks - all are reachable from HEAD and must survive gc.
         // The orphan_cid is NOT in cids_after_delete (it was injected after step 3),
         // so no exclusion guard is needed here.
         for cid in &cids_after_delete {
@@ -612,7 +612,7 @@ fn gc_force_does_not_delete_blocks_from_deleted_node() {
 /// between before and after is exactly 1.
 ///
 /// The `assert!(total_before >= 5, ...)` guard below ensures the "multiple
-/// blocks from one commit" invariant holds — if it ever fails, the block
+/// blocks from one commit" invariant holds - if it ever fails, the block
 /// layout changed and this test needs updating.
 ///
 /// Important: the blockstore Arc must be dropped before the CLI command runs,

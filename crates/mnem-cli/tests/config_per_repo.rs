@@ -293,7 +293,7 @@ fn config_retrieve_limit_persists_to_file() {
         "expected '[retrieve]' section in config.toml, got: {contents}"
     );
     // Use .lines() for cross-platform line matching: distinguishes `20` from `200`
-    // and from string `"20"` — both of which `contains("limit = 20")` would accept.
+    // and from string `"20"` - both of which `contains("limit = 20")` would accept.
     assert!(
         contents.lines().any(|l| l.trim() == "limit = 20"),
         "expected line 'limit = 20' (integer, not 200 or \"20\") in [retrieve] section; \
@@ -517,8 +517,8 @@ fn config_legacy_positional_set_and_get() {
 ///
 /// Two sub-cases prove the key-name branch fires on the key alone, not on the
 /// value prefix:
-///   a. `embed.api_key sk-secret`       — value-prefix branch would also fire
-///   b. `embed.api_key plaintext-value` — only the key-name branch can fire
+///   a. `embed.api_key sk-secret`       - value-prefix branch would also fire
+///   b. `embed.api_key plaintext-value` - only the key-name branch can fire
 ///
 /// If (b) passes without rejection the key-name branch is missing; if only (a)
 /// rejects, the rejection is from value-prefix alone and branch 1 is untested.
@@ -527,7 +527,7 @@ fn config_api_key_guardrail_rejects_raw_secret() {
     let repo = TempDir::new().unwrap();
     init(repo.path());
 
-    // (a) sk- value — both branches would fire; confirms rejection.
+    // (a) sk- value - both branches would fire; confirms rejection.
     let out = mnem(
         repo.path(),
         &["config", "set", "embed.api_key", "sk-secret"],
@@ -540,7 +540,7 @@ fn config_api_key_guardrail_rejects_raw_secret() {
         "embed.api_key with sk- value must be rejected; got: {stderr}"
     );
 
-    // (b) non-sk- value — only the key-name branch can fire here.
+    // (b) non-sk- value - only the key-name branch can fire here.
     // This isolates branch 1: rejection must happen on key name alone.
     let out2 = mnem(
         repo.path(),
@@ -564,7 +564,7 @@ fn config_api_key_guardrail_rejects_raw_secret() {
 /// `"sk-"` and the key is in the `embed.*` namespace (but is NOT `embed.api_key`
 /// itself), the guardrail fires on the value prefix alone.
 ///
-/// We use `embed.model` — a known valid config key whose name does not match
+/// We use `embed.model` - a known valid config key whose name does not match
 /// the key-name branch (`embed.api_key`). This proves the value-prefix check
 /// fires independently of the key-name check.
 #[test]
@@ -616,14 +616,14 @@ fn config_api_key_guardrail_rejects_sk_prefix_value() {
 ///
 /// Symmetric to test 10 which covers `embed.api_key`; two sub-cases prove
 /// the key-name branch fires on the key name alone, not on the value prefix:
-///   a. `rerank.api_key sk-secret`       — both branches would fire
-///   b. `rerank.api_key plaintext-value` — only key-name branch fires
+///   a. `rerank.api_key sk-secret`       - both branches would fire
+///   b. `rerank.api_key plaintext-value` - only key-name branch fires
 #[test]
 fn config_api_key_guardrail_rejects_rerank_api_key() {
     let repo = TempDir::new().unwrap();
     init(repo.path());
 
-    // (a) sk- value — both branches fire; confirms rejection.
+    // (a) sk- value - both branches fire; confirms rejection.
     let out = mnem(
         repo.path(),
         &["config", "set", "rerank.api_key", "sk-secret"],
@@ -636,7 +636,7 @@ fn config_api_key_guardrail_rejects_rerank_api_key() {
         "rerank.api_key with sk- value must be rejected; got: {stderr}"
     );
 
-    // (b) non-sk- value — only the key-name branch fires.
+    // (b) non-sk- value - only the key-name branch fires.
     // Proves the rerank.api_key key-name branch rejects regardless of value prefix,
     // symmetric to the embed.api_key isolation in test 10b.
     let out2 = mnem(
@@ -702,7 +702,7 @@ fn config_set_overwrites_existing_value() {
 // ---------------------------------------------------------------------------
 
 /// `mnem config unset` on a key that was never set must succeed (exit 0) and
-/// print `"unset <key>"` — the same output as a successful unset.
+/// print `"unset <key>"` - the same output as a successful unset.
 ///
 /// This pins the no-op behaviour: unset is idempotent and safe to call in
 /// order-independent scripts without checking whether the key exists first.
@@ -711,7 +711,7 @@ fn config_unset_never_set_key_exits_zero() {
     let repo = TempDir::new().unwrap();
     init(repo.path());
 
-    // user.name is not set in this fresh repo — unset must still succeed.
+    // user.name is not set in this fresh repo - unset must still succeed.
     let out = mnem(repo.path(), &["config", "unset", "user.name"])
         .assert()
         .success();
@@ -775,7 +775,7 @@ fn config_rerank_namespace_round_trips() {
     let repo = TempDir::new().unwrap();
     init(repo.path());
 
-    // Set the provider first — required before any other rerank.* key.
+    // Set the provider first - required before any other rerank.* key.
     // "cohere" is a known valid provider; seeds model = "rerank-v3.5".
     mnem(
         repo.path(),
@@ -846,7 +846,7 @@ fn config_rerank_namespace_round_trips() {
 ///
 /// The guardrail in `set_dotted` bails before calling `config::save`, so
 /// the file must never be written. This test captures the file contents
-/// before the rejected attempt and asserts exact equality afterwards —
+/// before the rejected attempt and asserts exact equality afterwards -
 /// ruling out partial writes or any modification of the on-disk state.
 #[test]
 fn config_guardrail_rejection_does_not_modify_toml() {
@@ -858,7 +858,7 @@ fn config_guardrail_rejection_does_not_modify_toml() {
     let contents_before = std::fs::read_to_string(&cfg_path)
         .expect("init must create config.toml");
 
-    // Attempt to set embed.api_key — must be rejected by the key-name guardrail.
+    // Attempt to set embed.api_key - must be rejected by the key-name guardrail.
     mnem(
         repo.path(),
         &["config", "set", "embed.api_key", "sk-secret"],
@@ -946,7 +946,7 @@ fn config_list_after_unset_key_absent() {
 /// rather than silently creating an orphaned config outside a valid repo.
 #[test]
 fn config_set_in_uninitialised_repo_fails() {
-    // A directory that has never had `mnem init` run — no .mnem/ present.
+    // A directory that has never had `mnem init` run - no .mnem/ present.
     let dir = TempDir::new().unwrap();
     // Do NOT call init(dir.path()); .mnem/ is intentionally absent.
 

@@ -59,7 +59,7 @@ pub(crate) struct Args {
     pub etype: Option<String>,
     /// For each incoming edge, walk the operation ancestry chain and
     /// show the commit CID of the oldest ancestor that first introduced
-    /// that edge (BUG-55). O(depth × edges) — suitable for debugging.
+    /// that edge (BUG-55). O(depth × edges) - suitable for debugging.
     #[arg(long)]
     pub first_writer: bool,
 }

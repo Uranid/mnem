@@ -142,13 +142,13 @@ fn revert_output_format() {
         "stdout must contain node-change summary, got:\n{stdout}"
     );
 
-    // Summary line for edge changes (0 for this node-only op) — always printed.
+    // Summary line for edge changes (0 for this node-only op) - always printed.
     assert!(
         stdout.contains("  edges: 0 added, 0 removed, 0 changed by the original op"),
         "stdout must contain edge-change summary, got:\n{stdout}"
     );
 
-    // Summary line for tombstone changes (0 for this op) — always printed.
+    // Summary line for tombstone changes (0 for this op) - always printed.
     assert!(
         stdout.contains("  tombstones: 0 added by the original op (will be removed)"),
         "stdout must contain tombstone-change summary, got:\n{stdout}"
@@ -297,7 +297,7 @@ fn revert_already_reverted_prints_nothing_to_commit() {
         "second revert must print '      nothing to commit.' (six spaces, period), got:\n{stdout}"
     );
 
-    // No new op must be created — op count must be unchanged.
+    // No new op must be created - op count must be unchanged.
     let after_out = mnem(dir.path(), &["log"]).assert().success();
     let after_count = String::from_utf8_lossy(&after_out.get_output().stdout)
         .lines()
@@ -439,7 +439,7 @@ fn revert_undoes_edge_add() {
         .assert()
         .success();
 
-    // Edge must be gone — traverse must report no outgoing edges.
+    // Edge must be gone - traverse must report no outgoing edges.
     let after = mnem(dir.path(), &["traverse", &src_uuid])
         .assert()
         .success();
@@ -547,7 +547,7 @@ fn revert_undoes_edge_removal() {
 }
 
 /// Reverting an op that removed an edge fails if the edge's endpoint was
-/// subsequently tombstoned (BUG-4 pre-flight check — tombstoned branch).
+/// subsequently tombstoned (BUG-4 pre-flight check - tombstoned branch).
 /// Complements `revert_bug4_preflight_rejects_when_edge_endpoint_deleted`
 /// which exercises the hard-delete (!exists) branch; this one exercises
 /// the soft-delete (tombstoned) branch of the same guard.
@@ -578,7 +578,7 @@ fn revert_bug4_preflight_rejects_when_edge_endpoint_tombstoned() {
 
     let remove_edge_op_cid = latest_op_cid(dir.path());
 
-    // Soft-delete (tombstone) the dst endpoint — node still exists in the
+    // Soft-delete (tombstone) the dst endpoint - node still exists in the
     // store but is marked as deleted, which BUG-4 must also reject.
     mnem(dir.path(), &["tombstone", &dst_uuid])
         .assert()
@@ -592,7 +592,7 @@ fn revert_bug4_preflight_rejects_when_edge_endpoint_tombstoned() {
 }
 
 /// Reverting an op that removed an edge fails when the edge's SOURCE endpoint
-/// was hard-deleted (BUG-4 pre-flight — src endpoint branch).
+/// was hard-deleted (BUG-4 pre-flight - src endpoint branch).
 /// The pre-flight iterates both src and dst endpoints; this test exercises
 /// the src side which the dst-only tests leave uncovered.
 #[test]
@@ -635,7 +635,7 @@ fn revert_bug4_preflight_rejects_when_edge_src_deleted() {
 }
 
 /// Reverting an op that removed an edge fails when the edge's SOURCE endpoint
-/// was tombstoned (BUG-4 pre-flight — src tombstoned branch).
+/// was tombstoned (BUG-4 pre-flight - src tombstoned branch).
 /// Completes the 2x2 matrix: dst-deleted (test above), dst-tombstoned, src-deleted
 /// are covered; this test covers the src-tombstoned corner.
 #[test]

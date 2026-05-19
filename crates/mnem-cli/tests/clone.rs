@@ -364,7 +364,7 @@ fn clone_bare_car_path_works() {
     let dst_root = TempDir::new().unwrap();
     let dst = dst_root.path().join("clone-bare");
 
-    // Use the bare OS path — NOT a file:// URL.
+    // Use the bare OS path - NOT a file:// URL.
     let bare_path = car.to_str().expect("CAR path must be valid UTF-8");
     let cloned = mnem_no_repo(&["clone", bare_path, dst.to_str().unwrap()])
         .assert()

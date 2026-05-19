@@ -6,7 +6,7 @@
 //! **process-global** (shared across all remote routes) and enforces a
 //! combined ceiling of 100 requests/second with a burst allowance of 50.
 //!
-//! # Algorithm — token bucket
+//! # Algorithm - token bucket
 //!
 //! A token bucket is maintained with:
 //! - `capacity` = 50 tokens (burst ceiling)
@@ -36,9 +36,9 @@
 //! # Tunability
 //!
 //! Two environment variables override the defaults at server startup:
-//! - `MNEM_REMOTE_RATE_PER_SEC` — token refill rate (requests/second).
+//! - `MNEM_REMOTE_RATE_PER_SEC` - token refill rate (requests/second).
 //!   Default: 100.
-//! - `MNEM_REMOTE_RATE_BURST` — bucket capacity (burst ceiling).
+//! - `MNEM_REMOTE_RATE_BURST` - bucket capacity (burst ceiling).
 //!   Default: 50.
 
 use std::sync::Arc;

@@ -210,7 +210,7 @@ impl Counter {
     //   fn add, fn subtract → function_item captures
     //   struct Counter      → struct_item capture
     // impl Counter's methods (fn new, fn increment) live inside an impl_item node, which the
-    // Rust query does NOT capture — only the outer impl block would be, and impl_item is not
+    // Rust query does NOT capture - only the outer impl block would be, and impl_item is not
     // in the query. Methods are embedded in the class span but not chunked independently.
     // This is why the Rust floor (>= 3) is lower than the Python floor (>= 4), where methods
     // inside a class ARE captured via function_definition at any depth.
@@ -263,7 +263,7 @@ class Calculator:
         // 4 items provably captured:
         //   - def greet, def add (top-level function_definitions)
         //   - class Calculator (class_definition)
-        //   - def multiply (function_definition inside class — captured at any depth)
+        //   - def multiply (function_definition inside class - captured at any depth)
         // Note: method code appears in both its own chunk AND as part of the class span.
         // This is expected Python structural behavior.
         "at least 4 chunks expected (def greet, def add, class Calculator, def multiply); got {result:?}"

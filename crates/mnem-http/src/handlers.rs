@@ -3315,7 +3315,7 @@ pub(crate) async fn post_merge(
         std::sync::Arc::new(MemoryOpHeadsStore::new());
     let outcome = merge_three_way(&bs, &dummy_ohs, left_cid, right_cid, strategy).map_err(|e| {
         // NoCommonAncestor means the caller supplied two unrelated
-        // commits — that's a 400, not a server error.
+        // commits - that's a 400, not a server error.
         use mnem_core::error::RepoError;
         match &e {
             mnem_core::error::Error::Repo(RepoError::NoCommonAncestor) => Error::bad_request(

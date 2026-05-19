@@ -65,17 +65,17 @@ pub(in crate::tools) fn schema(server: &mut Server) -> Result<String> {
         }
         Ok(Some(_)) => {
             // Index is present (outgoing CID exists in IndexSet) but the tree
-            // contains no edge entries — e.g. all edges were deleted after the
+            // contains no edge entries - e.g. all edges were deleted after the
             // index was built, or embed --reindex was run on a node-only repo.
             // This is distinct from "index absent": the CID exists, we just
             // found zero edge labels inside it.
-            out.push_str("    <none — index present but contains no edges>\n");
+            out.push_str("    <none - index present but contains no edges>\n");
         }
         _ => {
             // Index absent (outgoing CID is None in IndexSet) or an I/O /
             // codec error occurred.  Prompt the user to build the index; never
             // hard-fail the tool call.
-            out.push_str("    (index not built — run `mnem embed --reindex` to populate)\n");
+            out.push_str("    (index not built - run `mnem embed --reindex` to populate)\n");
         }
     }
 
@@ -114,8 +114,8 @@ fn collect_edge_types(
 /// rooted at `outgoing_cid` and collect all unique edge type labels.
 ///
 /// Separated from [`collect_edge_types`] so it can be called with any
-/// [`mnem_core::store::Blockstore`] — including the in-memory reference
-/// implementation used in unit tests — without needing a full [`Server`].
+/// [`mnem_core::store::Blockstore`] - including the in-memory reference
+/// implementation used in unit tests - without needing a full [`Server`].
 ///
 /// Returns `Ok(None)` when the outgoing index is absent (`outgoing_cid` is
 /// `None`).  Returns `Ok(Some(set))` on success (set may be empty if the
@@ -214,7 +214,7 @@ mod tests {
         let tree_cid = build_tree(&bs, entries).expect("build tree");
 
         // collect_edge_types_from_bs with the tree CID must return
-        // Ok(Some(empty_set)) — the "index present but contains no edges" path.
+        // Ok(Some(empty_set)) - the "index present but contains no edges" path.
         let result =
             collect_edge_types_from_bs(&bs, &Some(tree_cid)).expect("collect must not error");
         match result {

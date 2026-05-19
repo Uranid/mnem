@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo/mnem-banner.svg" alt="mnem: Git for AI Agent Knowledge" />
+<img src="assets/logo/mnem-banner.svg" alt="mnem: Git for AI Agent knowledge" />
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/Uranid/mnem/ci.yml?style=for-the-badge&label=CI)](https://github.com/Uranid/mnem/actions/workflows/ci.yml)
@@ -31,7 +31,7 @@ https://github.com/user-attachments/assets/bd744a7e-8e89-4531-bd96-fdee0030c390
 1. [El problema](#el-problema)
 2. [Qué es mnem](#qué-es-mnem)
 3. [Benchmarks](#benchmarks)
-4. [Qué obtienes](#qué-obtienes)
+4. [vs otros](#comparación-con-otros)
 5. [Instalación](#instalación)
 6. [Inicio rápido](#inicio-rápido)
 7. [Integrar / Desintegrar](#mnem-integrate---integrar-en-cualquier-host-de-agente)
@@ -39,7 +39,7 @@ https://github.com/user-attachments/assets/bd744a7e-8e89-4531-bd96-fdee0030c390
 9. [Herramientas MCP](#herramientas-mcp)
 10. [API de Python](#api-de-python-mnem-py)
 11. [GraphRAG](#graphrag)
-12. [vs otros](#comparación-con-otros)
+12. [Qué obtienes](#qué-obtienes)
 13. [Cuándo NO usar](#cuándo-no-usar-mnem)
 14. [Documentación](#documentación)
 15. [Contribuir](#contribuir)
@@ -114,24 +114,39 @@ Metodología, artefactos brutos, desglose por benchmark: [`benchmarks/`](benchma
 
 <hr>
 
-## Qué obtienes
+## Comparación con otros
 
-<sup><img src="assets/legend/unique.svg" width="12" height="12" alt="unique"> exclusivo de mnem &nbsp;·&nbsp; <img src="assets/legend/rare.svg" width="12" height="12" alt="rare"> poco común entre sus pares</sup>
+<sup>✅ soporte completo &nbsp;·&nbsp; ~ parcial o limitado &nbsp;·&nbsp; ✗ no admitido &nbsp;·&nbsp; n/a no aplica &nbsp;·&nbsp; <strong>+</strong> ver nota al pie</sup>
 
-| | | |
-|:---:|:---|:---|
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Construye un grafo de conocimiento a partir de cualquier archivo o codebase al instante. Sin llamadas a un LLM.** Añade código fuente, PDFs, documentos Markdown o exportaciones de conversaciones - mnem se encarga del resto. Un solo comando. Más de 30 formatos de archivo, analizados e indexados automáticamente. | [LEER MÁS](docs/features/rich-ingest.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Crea ramas, compara diferencias y fusiona conocimiento como git.** Cada escritura es un commit versionado. Experimenta en una rama, fusiona cuando estés listo - tu grafo de conocimiento tiene los mismos primitivos que tu codebase. | [LEER MÁS](docs/features/versioned-memory.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Reemplaza los archivos planos del agente con un grafo versionado y consultable.** Los archivos `.cursorrules` y `AGENTS.md` no se pueden comparar ni fusionar. mnem sí puede - exporta el tuyo, importa el de un compañero, fusiona las partes que quieras. | [LEER MÁS](docs/features/skills-graph.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Ve exactamente qué encontró, omitió y costó la recuperación.** Cada consulta devuelve `tokens_used`, `candidates_seen` y `dropped`. Sin truncación silenciosa al agotar el presupuesto de tokens. | [LEER MÁS](docs/features/token-transparency.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **La misma entrada, la misma salida, en cualquier máquina (capa de almacenamiento).** Cada pieza de contenido obtiene una huella digital única basada en sus bytes exactos. Almacena el mismo hecho dos veces y mnem lo deduplica automáticamente, sin importar la máquina, la sesión o el usuario que lo ingirió. Los resultados de recuperación se ordenan por similitud aproximada y pueden variar ligeramente entre ejecuciones. | [LEER MÁS](docs/features/content-addressing.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Se ejecuta en una pestaña del navegador.** *(Avanzado - omite esto si solo estás usando la CLI.)* El mismo binario se ejecuta en Chrome via WASM (WebAssembly - una forma de ejecutar código compilado en un navegador) y se despliega en AWS Lambda (~40 MB). Sin Python, sin base de datos externa. Los bindings WASM se publican por separado; ver [`docs/features/wasm-edge.md`](docs/features/wasm-edge.md). | [LEER MÁS](docs/features/wasm-edge.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **El mejor o igual nivel de recuperación en todos los benchmarks probados.** Lidera en cinco de seis benchmarks públicos (recuperación = fracción de resultados correctos devueltos; cuanto mayor, mejor). Todos los números son reproducibles con el harness incluido. Consulta [Benchmarks](#benchmarks) para más detalles. | [LEER MÁS](docs/features/benchmarks.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **Inicio sin configuración, cualquier proveedor después.** Un modelo de texto preentrenado pequeño se ejecuta automáticamente en proceso (~40 MB de binario total, sin configuración). Cambia a Ollama, OpenAI o Cohere con una línea en `config.toml` (un archivo de configuración simple de clave-valor). | [LEER MÁS](docs/features/providers.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **CLI (herramienta de línea de comandos), HTTP (API web), MCP y Python - un único motor.** `mnem integrate` conecta el servidor MCP en Claude Code, Cursor, Gemini CLI y cualquier otra herramienta que hable MCP. | [LEER MÁS](docs/features/integrations.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **Un único binario de ~40 MB. No se requiere nada más.** Sin servicio en segundo plano (daemon), sin nube, sin cuenta. Funciona completamente sin conexión. El mismo binario impulsa la CLI y el servidor HTTP. | [LEER MÁS](docs/features/single-binary.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **Ingestión determinista sin API.** Sin llamada a LLM en el momento de la indexación. El mismo archivo siempre produce nodos idénticos - completamente reproducible y apto para auditorías. Vuelve a ingerir un archivo sin cambios y obtendrás cero nodos nuevos. | [LEER MÁS](docs/features/deterministic-ingest.md) |
-| | **Búsqueda vectorial, por palabras clave y de grafo en un solo paso.** Activa el recorrido multi-salto (siguiendo una cadena de enlaces a través de múltiples entradas conectadas) para consultas que abarcan documentos; omítelo para búsquedas rápidas en un solo documento. | [LEER MÁS](docs/features/hybrid-retrieval.md) |
+|  | <img src="assets/comparison/mnem.png" width="36" height="36" alt="mnem"><br>**mnem** | <img src="assets/comparison/mem0.png" width="36" height="36" alt="mem0"><br>**mem0** | <img src="assets/comparison/mempalace.png" width="36" height="36" alt="MemPalace"><br>**MemPalace** | <img src="assets/comparison/hermes.png" width="36" height="36" alt="Hermes"><br>**Hermes** | <img src="assets/comparison/supermemory.png" width="36" height="36" alt="Supermemory"><br>**Supermemory** | <img src="assets/comparison/graphiti.png" width="36" height="36" alt="Graphiti"><br>**Graphiti** | <img src="assets/comparison/letta.png" width="36" height="36" alt="Letta"><br>**Letta** | <img src="assets/comparison/cognee.png" width="36" height="36" alt="Cognee"><br>**Cognee** |
+|--|:--------:|:--------:|:-------------:|:------------:|:---------------:|:------------:|:---------:|:----------:|
+| Local primero | ✅ | ~ | ✅ | ~ | ✗ | ✗ | ~ | ~ |
+| Historial versionado | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ~ | ✗ |
+| Ramas y fusión | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Direccionamiento por contenido <sup>**+**</sup> | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| WASM / edge | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Ingestión sin API | ✅ | ~ | ✅ | ~ | ✗ | ✗ | ✗ | ~ |
+| Transparencia de presupuesto de tokens | ✅ | ✗ | ✗ | ~ | ✗ | ✗ | ~ | ✗ |
+| Binario único | ✅ | ✗ | ✗ | ✗ | n/a | ✗ | ✗ | ✗ |
+| Sin BD externa | ✅ | ~ | ✗ | ✅ | n/a | ✗ | ✗ | ~ |
+| Grafo de conocimiento | ✅ | ✗ | ~ | ✗ | ✗ | ✅ | ✗ | ✅ |
+| Recuperación híbrida | ✅ | ~ | ~ | ✗ | ~ | ✅ | ~ | ~ |
+| MCP nativo | ✅ | ~ | ✅ | ✗ | ✅ | ~ | ✅ | ✅ |
+| Licencia | Apache-2.0 | Apache-2.0 | MIT | MIT | MIT | Apache-2.0 | Apache-2.0 | Apache-2.0 |
+
+<sup><strong>+</strong> Direccionamiento por contenido: los mismos bytes siempre obtienen el mismo ID; los hechos idénticos se deduplican automáticamente &nbsp;·&nbsp; **Recuperación híbrida** aquí significa vector + dispersa + grafo en una sola pasada &nbsp;·&nbsp; **Hermes** es un runtime de agente, no un almacén de memoria; mnem se conecta como plugin `MemoryProvider` y las filas reflejan solo la memoria nativa de Hermes (`MEMORY.md` acotada + registro de sesión FTS5) &nbsp;·&nbsp; **mem0** v2 (abril 2026) eliminó los backends de grafo del SDK OSS &nbsp;·&nbsp; **Graphiti** requiere clave LLM + backend de grafo (Neo4j / FalkorDB / Kuzu / Neptune); incluye servidor MCP &nbsp;·&nbsp; **Letta** "MCP" = cliente MCP (los agentes Letta *llaman* a servidores MCP) &nbsp;·&nbsp; **MemPalace** usa ChromaDB por defecto (backend modular) &nbsp;·&nbsp; **Supermemory** self-host requiere Cloudflare + Postgres + OpenAI &nbsp;·&nbsp; **Cognee** requiere clave LLM para extracción de grafos; servidor MCP de primera parte desde v0.3.5 &nbsp;·&nbsp; verificado 2026-05-19</sup>
+
+Comparaciones más detalladas:
+
+- [mnem vs mem0](docs/src/comparisons/mem0.md) - capa de memoria para agentes, líder en OSS
+- [mnem vs MemPalace](docs/src/comparisons/mempalace.md) - par metodológico en benchmarks
+- [mnem vs Hermes](docs/src/comparisons/hermes.md) - runtime de agente; mnem se conecta como capa de memoria
+- [mnem vs Supermemory](docs/src/comparisons/supermemory.md) - servicio de memoria alojado en la nube
+- [mnem vs Graphiti](docs/src/comparisons/graphify.md) - herramienta de grafo de conocimiento para asistentes de IA
+- [mnem vs Letta](docs/src/comparisons/letta.md) - framework de memoria para agentes (antes MemGPT)
+- [mnem vs Cognee](docs/src/comparisons/cognee.md) - alternativa de KG para agentes
+
+Matriz completa: [`docs/src/comparisons/README.md`](docs/src/comparisons/README.md).
 
 <hr>
 
@@ -1134,38 +1149,24 @@ Arquitectura completa de recuperación: [`docs/src/cli.md`](docs/src/cli.md) (fl
 
 <hr>
 
-## Comparación con otros
+## Qué obtienes
 
-<sup>✅ soporte completo &nbsp;·&nbsp; ~ parcial o limitado &nbsp;·&nbsp; ✗ no admitido &nbsp;·&nbsp; n/a no aplica</sup>
+<sup><img src="assets/legend/unique.svg" width="12" height="12" alt="unique"> exclusivo de mnem &nbsp;·&nbsp; <img src="assets/legend/rare.svg" width="12" height="12" alt="rare"> poco común entre sus pares</sup>
 
-|  | **mnem** | **mem0** | **Graphiti** | **Letta** | **Supermemory** | **MemPalace** | **Cognee** |
-|--|:--------:|:--------:|:------------:|:---------:|:---------------:|:-------------:|:----------:|
-| Local primero / sin conexión | ✅ | ~ | ✗ | ~ | ✗ | ✅ | ~ |
-| Historial versionado | ✅ | ✗ | ✗ | ~ | ✗ | ✗ | ✗ |
-| Ramas y fusión | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Almacenamiento con direccionamiento por contenido *(el mismo contenido siempre obtiene el mismo ID; deduplica automáticamente hechos idénticos)* | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Desplegable en WASM / edge | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Ingestión sin API | ✅ | ~ | ✗ | ✗ | ✗ | ✅ | ~ |
-| Transparencia de presupuesto de tokens | ✅ | ✗ | ✗ | ~ | ✗ | ✗ | ✗ |
-| Binario único, sin daemon | ✅ | ✗ | ✗ | ✗ | n/a | ✗ | ✗ |
-| Sin base de datos externa necesaria | ✅ | ~ | ✗ | ✗ | n/a | ✗ | ~ |
-| Grafo de conocimiento | ✅ | ~ | ✅ | ✗ | ✗ | ~ | ✅ |
-| Recuperación híbrida (vector + dispersa + grafo) | ✅ | ~ | ✅ | ~ | ~ | ~ | ~ |
-| MCP nativo | ✅ | ~ | ~ | ✅ | ✅ | ✅ | ~ |
-| Código abierto | Apache-2.0 | Apache-2.0 | Apache-2.0 | Apache-2.0 | MIT | MIT | Apache-2.0 |
-
-<sup>~ = parcial o limitado &nbsp;·&nbsp; grafo de conocimiento mem0: memoria de grafo añadida en v1.1+ (Neo4j o en memoria) &nbsp;·&nbsp; Graphiti requiere Neo4j, FalkorDB o Kuzu (Kuzu es embebido); se necesita clave de API LLM para la ingestión &nbsp;·&nbsp; Letta usa SQLite localmente por defecto; PostgreSQL necesario para producción &nbsp;·&nbsp; MemPalace requiere ChromaDB &nbsp;·&nbsp; Supermemory enterprise self-host requiere Cloudflare + Postgres + OpenAI &nbsp;·&nbsp; Cognee usa Kuzu + LanceDB (ambos embebidos); se necesita clave de API LLM para extracción de grafos &nbsp;·&nbsp; Última verificación: mayo 2026</sup>
-
-Comparaciones más detalladas:
-
-- [mnem vs mem0](docs/src/comparisons/mem0.md) - capa de memoria para agentes, líder en OSS
-- [mnem vs MemPalace](docs/src/comparisons/mempalace.md) - par metodológico en benchmarks
-- [mnem vs Graphiti](docs/src/comparisons/graphify.md) - herramienta de grafo de conocimiento para asistentes de IA
-- [mnem vs Letta](docs/src/comparisons/letta.md) - framework de memoria para agentes (antes MemGPT)
-- [mnem vs Supermemory](docs/src/comparisons/supermemory.md) - servicio de memoria alojado en la nube
-- [mnem vs Cognee](docs/src/comparisons/cognee.md) - alternativa de KG para agentes
-
-Matriz completa: [`docs/src/comparisons/README.md`](docs/src/comparisons/README.md).
+| | | |
+|:---:|:---|:---|
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Construye un grafo de conocimiento a partir de cualquier archivo o codebase al instante. Sin llamadas a un LLM.** Añade código fuente, PDFs, documentos Markdown o exportaciones de conversaciones - mnem se encarga del resto. Un solo comando. Más de 30 formatos de archivo, analizados e indexados automáticamente. | [LEER MÁS](docs/features/rich-ingest.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Crea ramas, compara diferencias y fusiona conocimiento como git.** Cada escritura es un commit versionado. Experimenta en una rama, fusiona cuando estés listo - tu grafo de conocimiento tiene los mismos primitivos que tu codebase. | [LEER MÁS](docs/features/versioned-memory.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Reemplaza los archivos planos del agente con un grafo versionado y consultable.** Los archivos `.cursorrules` y `AGENTS.md` no se pueden comparar ni fusionar. mnem sí puede - exporta el tuyo, importa el de un compañero, fusiona las partes que quieras. | [LEER MÁS](docs/features/skills-graph.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Ve exactamente qué encontró, omitió y costó la recuperación.** Cada consulta devuelve `tokens_used`, `candidates_seen` y `dropped`. Sin truncación silenciosa al agotar el presupuesto de tokens. | [LEER MÁS](docs/features/token-transparency.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **La misma entrada, la misma salida, en cualquier máquina (capa de almacenamiento).** Cada pieza de contenido obtiene una huella digital única basada en sus bytes exactos. Almacena el mismo hecho dos veces y mnem lo deduplica automáticamente, sin importar la máquina, la sesión o el usuario que lo ingirió. Los resultados de recuperación se ordenan por similitud aproximada y pueden variar ligeramente entre ejecuciones. | [LEER MÁS](docs/features/content-addressing.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Se ejecuta en una pestaña del navegador.** *(Avanzado - omite esto si solo estás usando la CLI.)* El mismo binario se ejecuta en Chrome via WASM (WebAssembly - una forma de ejecutar código compilado en un navegador) y se despliega en AWS Lambda (~40 MB). Sin Python, sin base de datos externa. Los bindings WASM se publican por separado; ver [`docs/features/wasm-edge.md`](docs/features/wasm-edge.md). | [LEER MÁS](docs/features/wasm-edge.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **El mejor o igual nivel de recuperación en todos los benchmarks probados.** Lidera en cinco de seis benchmarks públicos (recuperación = fracción de resultados correctos devueltos; cuanto mayor, mejor). Todos los números son reproducibles con el harness incluido. Consulta [Benchmarks](#benchmarks) para más detalles. | [LEER MÁS](docs/features/benchmarks.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **Inicio sin configuración, cualquier proveedor después.** Un modelo de texto preentrenado pequeño se ejecuta automáticamente en proceso (~40 MB de binario total, sin configuración). Cambia a Ollama, OpenAI o Cohere con una línea en `config.toml` (un archivo de configuración simple de clave-valor). | [LEER MÁS](docs/features/providers.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **CLI (herramienta de línea de comandos), HTTP (API web), MCP y Python - un único motor.** `mnem integrate` conecta el servidor MCP en Claude Code, Cursor, Gemini CLI y cualquier otra herramienta que hable MCP. | [LEER MÁS](docs/features/integrations.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **Un único binario de ~40 MB. No se requiere nada más.** Sin servicio en segundo plano (daemon), sin nube, sin cuenta. Funciona completamente sin conexión. El mismo binario impulsa la CLI y el servidor HTTP. | [LEER MÁS](docs/features/single-binary.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **Ingestión determinista sin API.** Sin llamada a LLM en el momento de la indexación. El mismo archivo siempre produce nodos idénticos - completamente reproducible y apto para auditorías. Vuelve a ingerir un archivo sin cambios y obtendrás cero nodos nuevos. | [LEER MÁS](docs/features/deterministic-ingest.md) |
+| | **Búsqueda vectorial, por palabras clave y de grafo en un solo paso.** Activa el recorrido multi-salto (siguiendo una cadena de enlaces a través de múltiples entradas conectadas) para consultas que abarcan documentos; omítelo para búsquedas rápidas en un solo documento. | [LEER MÁS](docs/features/hybrid-retrieval.md) |
 
 <hr>
 

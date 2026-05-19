@@ -1,4 +1,4 @@
-//! `mnem schema [--json]` — print index metadata (node labels, indexed
+//! `mnem schema [--json]` - print index metadata (node labels, indexed
 //! props, adjacency indexes) from the current commit's IndexSet.
 
 use std::path::Path;

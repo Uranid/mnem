@@ -379,7 +379,7 @@ fn run_continue(data_dir: &Path, override_path: Option<&Path>) -> Result<()> {
     // Check the empty case first: Iterator::all() on an empty iterator
     // returns true vacuously, which would make both all_ours and all_theirs
     // true simultaneously for an empty conflicts list, causing all_theirs to
-    // win the if-chain below — wrong. An empty conflicts list means the file
+    // win the if-chain below - wrong. An empty conflicts list means the file
     // was already clean (or fully resolved before this path); treat it as a
     // clean-merge continuation with Ours.
     let strategy = if mc.conflicts.is_empty() {

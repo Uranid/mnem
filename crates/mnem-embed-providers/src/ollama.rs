@@ -190,7 +190,7 @@ impl Embedder for OllamaEmbedder {
         if let Err(e) = self.ensure_dim_initialized() {
             eprintln!(
                 "mnem-embed-providers [ollama]: manifest() could not probe dim for \
-                 model {:?} — Ollama unreachable? Returning dim=0. Error: {e}",
+                 model {:?} - Ollama unreachable? Returning dim=0. Error: {e}",
                 self.model_fq
             );
         }

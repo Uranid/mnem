@@ -1,103 +1,39 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 420" role="img" aria-label="mnem banner">
-  <title>mnem, Git for AI Agent Knowledge</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" role="img" aria-label="mnem banner">
+  <title>mnem - Git for AI Agent knowledge</title>
 
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%"  stop-color="#0d1320"/>
-      <stop offset="100%" stop-color="#06080e"/>
+      <stop offset="0%"  stop-color="#b4e6d7"/>
+      <stop offset="100%" stop-color="#3cc3a0"/>
     </linearGradient>
-    <radialGradient id="rustGlow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0%"  stop-color="#d1642b" stop-opacity="0.50"/>
-      <stop offset="60%" stop-color="#d1642b" stop-opacity="0.10"/>
-      <stop offset="100%" stop-color="#d1642b" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="tealGlow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0%"  stop-color="#00c896" stop-opacity="0.45"/>
-      <stop offset="60%" stop-color="#00c896" stop-opacity="0.08"/>
-      <stop offset="100%" stop-color="#00c896" stop-opacity="0"/>
-    </radialGradient>
-    <pattern id="grid" x="0" y="0" width="80" height="80" patternUnits="userSpaceOnUse">
-      <path d="M 80 0 L 0 0 0 80" fill="none" stroke="rgba(255,255,255,0.025)" stroke-width="1"/>
+    <linearGradient id="rustNode" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"  stop-color="#e07a3a"/>
+      <stop offset="100%" stop-color="#c25620"/>
+    </linearGradient>
+    <pattern id="grid" x="0" y="0" width="60" height="60" patternUnits="userSpaceOnUse">
+      <path d="M 60 0 L 0 0 0 60" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
     </pattern>
   </defs>
 
-  <!-- background -->
-  <rect width="1600" height="420" fill="url(#bg)"/>
-  <rect width="1600" height="420" fill="url(#grid)"/>
+  <rect width="1200" height="560" fill="url(#bg)"/>
+  <rect width="1200" height="560" fill="url(#grid)"/>
 
-  <!-- soft atmospheric glows -->
-  <circle cx="180"  cy="210" r="320" fill="url(#rustGlow)"/>
-  <circle cx="1300" cy="220" r="320" fill="url(#tealGlow)"/>
-
-  <!-- ── RIGHT: abstract knowledge-graph constellation ──────────────
-       Shifted right and down so its centroid sits on the teal glow center. -->
-  <g transform="translate(58,6)">
-    <!-- constellation edges (all faint slate-teal) -->
-    <g stroke="rgba(148,163,184,0.20)" stroke-width="1.2" fill="none">
-      <line x1="1180" y1="220" x2="1060" y2="120"/>
-      <line x1="1180" y1="220" x2="1280" y2="100"/>
-      <line x1="1180" y1="220" x2="1340" y2="200"/>
-      <line x1="1180" y1="220" x2="1080" y2="300"/>
-      <line x1="1180" y1="220" x2="1240" y2="320"/>
-      <line x1="1180" y1="220" x2="1380" y2="290"/>
-      <line x1="1280" y1="100" x2="1380" y2="160"/>
-      <line x1="1340" y1="200" x2="1380" y2="290"/>
-      <line x1="1060" y1="120" x2="1080" y2="300"/>
-      <line x1="1080" y1="300" x2="1240" y2="320"/>
-    </g>
-
-    <!-- accent edges that highlight a path through the graph -->
-    <g stroke="rgba(0,200,150,0.55)" stroke-width="1.6" fill="none">
-      <line x1="1180" y1="220" x2="1280" y2="100"/>
-      <line x1="1280" y1="100" x2="1380" y2="160"/>
-    </g>
-
-    <!-- nodes, small slate circles, one warm rust accent -->
-    <g>
-      <!-- secondary nodes -->
-      <circle cx="1060" cy="120" r="6" fill="#1f2a36" stroke="#94a3b8" stroke-width="1.2"/>
-      <circle cx="1280" cy="100" r="6" fill="#1f2a36" stroke="#94a3b8" stroke-width="1.2"/>
-      <circle cx="1340" cy="200" r="6" fill="#1f2a36" stroke="#94a3b8" stroke-width="1.2"/>
-      <circle cx="1080" cy="300" r="6" fill="#1f2a36" stroke="#94a3b8" stroke-width="1.2"/>
-      <circle cx="1240" cy="320" r="6" fill="#1f2a36" stroke="#94a3b8" stroke-width="1.2"/>
-      <circle cx="1380" cy="290" r="6" fill="#1f2a36" stroke="#94a3b8" stroke-width="1.2"/>
-      <circle cx="1380" cy="160" r="5" fill="#d1642b" stroke="#d1642b" stroke-width="1.2"/>
-
-      <!-- hub -->
-      <circle cx="1180" cy="220" r="14" fill="rgba(0,200,150,0.10)" stroke="#00c896" stroke-width="2"/>
-      <circle cx="1180" cy="220" r="22" fill="none" stroke="#00c896" stroke-width="0.8" opacity="0.35"/>
-      <circle cx="1180" cy="220" r="4"  fill="#00c896"/>
-    </g>
-
-    <!-- HEAD label, nudged right so it doesn't clip the hub's outer ring -->
-    <g transform="translate(1212,244)">
-      <rect x="0" y="-11" width="60" height="20" rx="3"
-            fill="rgba(0,200,150,0.10)" stroke="#00c896" stroke-width="0.8"/>
-      <text x="30" y="3" text-anchor="middle"
-            font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Arial, sans-serif"
-            font-size="11"
-            font-weight="700"
-            letter-spacing="1.2"
-            fill="#00c896">HEAD</text>
-    </g>
-  </g>
-
-  <!-- ── LEFT: logo glyph + wordmark ──────────────────────────────── -->
-  <!-- Logo glyph -->
-  <g transform="translate(80,90)">
+  <!-- Diamond logo, centered. Scale 1.1 -> 282px visible (was 240). -->
+  <!-- (1200 - 282) / 2 = 459 px x offset. Top pad y=25. -->
+  <g transform="translate(459,25) scale(1.1)">
     <g stroke="#1f2a36" stroke-width="20" stroke-linecap="butt" fill="none">
       <line x1="128" y1="48"  x2="48"  y2="128"/>
       <line x1="48"  y1="128" x2="128" y2="208"/>
       <line x1="128" y1="208" x2="208" y2="128"/>
       <line x1="208" y1="128" x2="128" y2="48"/>
     </g>
-    <g stroke="rgba(0,200,150,0.28)" stroke-width="1.4" fill="none">
+    <g stroke="rgba(31,42,54,0.35)" stroke-width="1.4" fill="none">
       <line x1="128" y1="48"  x2="48"  y2="128"/>
       <line x1="48"  y1="128" x2="128" y2="208"/>
       <line x1="128" y1="208" x2="208" y2="128"/>
       <line x1="208" y1="128" x2="128" y2="48"/>
     </g>
-    <g fill="#d1642b">
+    <g fill="url(#rustNode)">
       <polygon points="128,34  142,48  128,62  114,48"/>
       <polygon points="48,114  62,128  48,142  34,128"/>
       <polygon points="208,114 222,128 208,142 194,128"/>
@@ -105,48 +41,20 @@
     </g>
   </g>
 
-  <!-- Wordmark "mnem", solid white for crispness at small render sizes -->
-  <g transform="translate(360,218)">
-    <text x="0" y="0"
-          font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Arial, sans-serif"
-          font-size="180"
-          font-weight="900"
-          letter-spacing="-12"
-          fill="#f4f4f5">mnem</text>
-  </g>
+  <!-- Text block, all centered. Sizes unchanged; gaps tightened. -->
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Arial, sans-serif">
+    <text x="600" y="402" text-anchor="middle"
+          font-size="110" font-weight="900" letter-spacing="-5" fill="#0f2520">mnem</text>
 
-  <!-- Tagline -->
-  <g transform="translate(360,264)">
-    <text x="0" y="6"
-          font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Arial, sans-serif"
-          font-size="30"
-          font-weight="700"
-          letter-spacing="0.5"
-          fill="#00c896">Git for AI Agent Knowledge</text>
-  </g>
-  <g transform="translate(360,304)">
-    <text x="0" y="0"
-          font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Arial, sans-serif"
-          font-size="20"
-          font-weight="400"
-          fill="#94a3b8">A persistent versioned knowledge layer for AI agents</text>
-  </g>
-  <g transform="translate(360,328)">
-    <text x="0" y="0"
-          font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Arial, sans-serif"
-          font-size="20"
-          font-weight="400"
-          fill="#64748b">Hybrid GraphRAG retrieval · Runs entirely offline</text>
-  </g>
+    <text x="600" y="447" text-anchor="middle"
+          font-size="32" font-weight="700" letter-spacing="0.4" fill="#0a3328">Git for AI Agent knowledge</text>
 
-  <!-- ── BOTTOM: curated 4-item feature row ───────────────────────── -->
-  <g transform="translate(360,370)" font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" fill="#64748b" letter-spacing="0.6">
-    <text x="0" y="0">VERSIONED</text>
-    <circle cx="118" cy="-4" r="2" fill="#475569"/>
-    <text x="132" y="0">MULTI-HOP</text>
-    <circle cx="242" cy="-4" r="2" fill="#475569"/>
-    <text x="256" y="0">OFFLINE</text>
-    <circle cx="354" cy="-4" r="2" fill="#475569"/>
-    <text x="368" y="0">SINGLE BINARY</text>
+    <text x="600" y="487" text-anchor="middle"
+          font-size="22" font-weight="400" letter-spacing="0.1" fill="rgba(15,37,32,0.78)">A persistent, versioned memory layer for AI systems.</text>
+
+    <text x="600" y="524" text-anchor="middle"
+          font-size="13" font-weight="700" letter-spacing="2.4" fill="rgba(15,37,32,0.85)">VERSIONED &#160;&#160;·&#160;&#160; MULTI-HOP &#160;&#160;·&#160;&#160; OFFLINE &#160;&#160;·&#160;&#160; SINGLE BINARY</text>
+
+    <rect x="560" y="537" width="80" height="3" rx="1.5" fill="#d1642b" opacity="0.85"/>
   </g>
 </svg>

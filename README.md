@@ -1,6 +1,6 @@
 ﻿<div align="center">
 
-<img src="assets/logo/mnem-banner.svg" alt="mnem: Git for AI Agent Knowledge" />
+<img src="assets/logo/mnem-banner.svg" alt="mnem: Git for AI Agent knowledge" />
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/Uranid/mnem/ci.yml?style=for-the-badge&label=CI)](https://github.com/Uranid/mnem/actions/workflows/ci.yml)
@@ -31,7 +31,7 @@ https://github.com/user-attachments/assets/bd744a7e-8e89-4531-bd96-fdee0030c390
 1. [The Problem](#the-problem)
 2. [What is mnem](#what-is-mnem)
 3. [Benchmarks](#benchmarks)
-4. [What you get](#what-you-get)
+4. [vs others](#compared-to-others)
 5. [Install](#install)
 6. [Quickstart](#quickstart)
 7. [Integrate / Unintegrate](#mnem-integrate---wire-into-any-agent-host)
@@ -39,7 +39,7 @@ https://github.com/user-attachments/assets/bd744a7e-8e89-4531-bd96-fdee0030c390
 9. [MCP Tools](#mcp-tools)
 10. [Python API](#python-api-mnem-py)
 11. [GraphRAG](#graphrag)
-12. [vs others](#compared-to-others)
+12. [What you get](#what-you-get)
 13. [When NOT to use](#when-not-to-use-mnem)
 14. [Docs](#documentation)
 15. [Contributing](#contributing)
@@ -114,24 +114,39 @@ Methodology, raw artifacts, per-bench breakdowns: [`benchmarks/`](benchmarks/) a
 
 <hr>
 
-## What you get
+## Compared to others
 
-<sup><img src="assets/legend/unique.svg" width="12" height="12" alt="unique"> unique to mnem &nbsp;·&nbsp; <img src="assets/legend/rare.svg" width="12" height="12" alt="rare"> rare among peers</sup>
+<sup>✅ full support &nbsp;·&nbsp; ~ partial or limited &nbsp;·&nbsp; ✗ not supported &nbsp;·&nbsp; n/a not applicable &nbsp;·&nbsp; <strong>+</strong> see footnote</sup>
 
-| | | |
-|:---:|:---|:---|
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Instantly build a knowledge graph from any file or codebase. No LLM call required.** Drop in source code, PDFs, Markdown docs, or conversation exports - mnem handles the rest. One command. 30+ file formats, parsed and indexed automatically. | [READ MORE](docs/features/rich-ingest.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Branch, diff, and merge knowledge like git.** Every write is a versioned commit. Experiment on a branch, merge when ready - your knowledge graph has the same primitives as your codebase. | [READ MORE](docs/features/versioned-memory.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Replace flat agent files with a versioned, queryable graph.** `.cursorrules` and `AGENTS.md` can't be diffed or merged. mnem can - export yours, import a teammate's, merge the parts you want. | [READ MORE](docs/features/skills-graph.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **See exactly what retrieval found, skipped, and cost.** Every query returns `tokens_used`, `candidates_seen`, and `dropped`. No silent truncation at your token budget. | [READ MORE](docs/features/token-transparency.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Same input, same output, any machine (storage layer).** Every piece of content gets a unique fingerprint based on its exact bytes. Store the same fact twice and mnem deduplicates it automatically - no matter which machine, which session, or which user ingested it. Retrieval results are ranked by approximate similarity and may vary slightly across runs. | [READ MORE](docs/features/content-addressing.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Runs in a browser tab.** *(Advanced - skip if you're just using the CLI.)* The same binary runs in Chrome via WASM (WebAssembly - a way to run compiled code in a browser) and deploys in AWS Lambda (~40 MB). No Python, no external database. WASM bindings ship separately; see [`docs/features/wasm-edge.md`](docs/features/wasm-edge.md). | [READ MORE](docs/features/wasm-edge.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **Best or tied recall on every benchmark we tested.** Leads on five of six public benchmarks (recall = fraction of correct results returned; higher is better). All numbers reproducible with the shipped harness. See [Benchmarks](#benchmarks) above for details. | [READ MORE](docs/features/benchmarks.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **Zero-config start, any provider after.** A small pre-trained text model runs automatically in-process (~40 MB binary total, no setup). Switch to Ollama, OpenAI, or Cohere with one line in `config.toml` (a simple key-value config file). | [READ MORE](docs/features/providers.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **CLI (command-line tool), HTTP (web API), MCP, and Python - one engine.** `mnem integrate` wires the MCP server into Claude Code, Cursor, Gemini CLI, and anything else speaking MCP. | [READ MORE](docs/features/integrations.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **One ~40 MB binary. Nothing else required.** No background service (daemon), no cloud, no account. Runs fully offline. Same binary powers the CLI and the HTTP server. | [READ MORE](docs/features/single-binary.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **API-free, deterministic ingestion.** No LLM call at index time. Same file always produces identical nodes - fully reproducible and audit-friendly. Re-ingest an unchanged file and get zero new nodes. | [READ MORE](docs/features/deterministic-ingest.md) |
-| | **Vector, keyword, and graph search in one pass.** Enable multi-hop traversal (following a chain of links across multiple connected entries) for queries that span documents; skip it for fast single-doc lookup. | [READ MORE](docs/features/hybrid-retrieval.md) |
+|  | <img src="assets/comparison/mnem.png" width="36" height="36" alt="mnem"><br>**mnem** | <img src="assets/comparison/mem0.png" width="36" height="36" alt="mem0"><br>**mem0** | <img src="assets/comparison/mempalace.png" width="36" height="36" alt="MemPalace"><br>**MemPalace** | <img src="assets/comparison/hermes.png" width="36" height="36" alt="Hermes"><br>**Hermes** | <img src="assets/comparison/supermemory.png" width="36" height="36" alt="Supermemory"><br>**Supermemory** | <img src="assets/comparison/graphiti.png" width="36" height="36" alt="Graphiti"><br>**Graphiti** | <img src="assets/comparison/letta.png" width="36" height="36" alt="Letta"><br>**Letta** | <img src="assets/comparison/cognee.png" width="36" height="36" alt="Cognee"><br>**Cognee** |
+|--|:--------:|:--------:|:-------------:|:------------:|:---------------:|:------------:|:---------:|:----------:|
+| Local-first | ✅ | ~ | ✅ | ~ | ✗ | ✗ | ~ | ~ |
+| Versioned history | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ~ | ✗ |
+| Branch & merge | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Content-addressed storage <sup>**+**</sup> | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| WASM / edge | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| API-free ingest | ✅ | ~ | ✅ | ~ | ✗ | ✗ | ✗ | ~ |
+| Token-budget transparency | ✅ | ✗ | ✗ | ~ | ✗ | ✗ | ~ | ✗ |
+| Single binary | ✅ | ✗ | ✗ | ✗ | n/a | ✗ | ✗ | ✗ |
+| No external DB | ✅ | ~ | ✗ | ✅ | n/a | ✗ | ✗ | ~ |
+| Knowledge graph | ✅ | ✗ | ~ | ✗ | ✗ | ✅ | ✗ | ✅ |
+| Hybrid retrieval | ✅ | ~ | ~ | ✗ | ~ | ✅ | ~ | ~ |
+| MCP native | ✅ | ~ | ✅ | ✗ | ✅ | ~ | ✅ | ✅ |
+| License | Apache-2.0 | Apache-2.0 | MIT | MIT | MIT | Apache-2.0 | Apache-2.0 | Apache-2.0 |
+
+<sup><strong>+</strong> Content-addressed storage: same bytes always get the same ID; identical facts auto-deduplicate &nbsp;·&nbsp; **Hybrid retrieval** here means vector + sparse + graph in one pass &nbsp;·&nbsp; **Hermes** is an agent runtime, not a memory store; mnem attaches as a `MemoryProvider` plugin and rows show Hermes' native memory only (bounded `MEMORY.md` + FTS5 session log) &nbsp;·&nbsp; **mem0** v2 (Apr 2026) dropped graph backends from the OSS SDK &nbsp;·&nbsp; **Graphiti** needs an LLM key + a graph backend (Neo4j / FalkorDB / Kuzu / Neptune); ships an MCP server &nbsp;·&nbsp; **Letta** "MCP" = MCP client (Letta agents *call* MCP servers) &nbsp;·&nbsp; **MemPalace** defaults to ChromaDB (backend pluggable) &nbsp;·&nbsp; **Supermemory** self-host needs Cloudflare + Postgres + OpenAI &nbsp;·&nbsp; **Cognee** needs an LLM key for graph extraction; first-party MCP server since v0.3.5 &nbsp;·&nbsp; verified 2026-05-19</sup>
+
+Deeper comparisons:
+
+- [mnem vs mem0](docs/src/comparisons/mem0.md) - agent memory layer, OSS leader
+- [mnem vs MemPalace](docs/src/comparisons/mempalace.md) - benchmark peer
+- [mnem vs Hermes](docs/src/comparisons/hermes.md) - agent runtime; mnem plugs in as the memory layer
+- [mnem vs Supermemory](docs/src/comparisons/supermemory.md) - cloud-hosted memory service
+- [mnem vs Graphiti](docs/src/comparisons/graphify.md) - AI coding assistant knowledge graph tool
+- [mnem vs Letta](docs/src/comparisons/letta.md) - agent-memory framework (formerly MemGPT)
+- [mnem vs Cognee](docs/src/comparisons/cognee.md) - KG-for-agents alternative
+
+Full matrix: [`docs/src/comparisons/README.md`](docs/src/comparisons/README.md).
 
 <hr>
 
@@ -1137,38 +1152,24 @@ Full retrieval architecture: [`docs/src/cli.md`](docs/src/cli.md) (retrieve flag
 
 <hr>
 
-## Compared to others
+## What you get
 
-<sup>✅ full support &nbsp;·&nbsp; ~ partial or limited &nbsp;·&nbsp; ✗ not supported &nbsp;·&nbsp; n/a not applicable</sup>
+<sup><img src="assets/legend/unique.svg" width="12" height="12" alt="unique"> unique to mnem &nbsp;·&nbsp; <img src="assets/legend/rare.svg" width="12" height="12" alt="rare"> rare among peers</sup>
 
-|  | **mnem** | **mem0** | **Graphiti** | **Letta** | **Supermemory** | **MemPalace** | **Cognee** |
-|--|:--------:|:--------:|:------------:|:---------:|:---------------:|:-------------:|:----------:|
-| Local-first / offline | ✅ | ~ | ✗ | ~ | ✗ | ✅ | ~ |
-| Versioned history | ✅ | ✗ | ✗ | ~ | ✗ | ✗ | ✗ |
-| Branch & merge | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Content-addressed storage *(same content always gets the same ID; auto-deduplicates identical facts)* | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| WASM / edge deployable | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| API-free ingest | ✅ | ~ | ✗ | ✗ | ✗ | ✅ | ~ |
-| Token-budget transparency | ✅ | ✗ | ✗ | ~ | ✗ | ✗ | ✗ |
-| Single binary, no daemon | ✅ | ✗ | ✗ | ✗ | n/a | ✗ | ✗ |
-| No external DB required | ✅ | ~ | ✗ | ✗ | n/a | ✗ | ~ |
-| Knowledge graph | ✅ | ~ | ✅ | ✗ | ✗ | ~ | ✅ |
-| Hybrid retrieval (vector + sparse + graph) | ✅ | ~ | ✅ | ~ | ~ | ~ | ~ |
-| MCP native | ✅ | ~ | ~ | ✅ | ✅ | ✅ | ~ |
-| Open source | Apache-2.0 | Apache-2.0 | Apache-2.0 | Apache-2.0 | MIT | MIT | Apache-2.0 |
-
-<sup>~ = partial or limited &nbsp;·&nbsp; mem0 knowledge graph: graph memory added in v1.1+ (Neo4j or in-memory) &nbsp;·&nbsp; Graphiti requires Neo4j, FalkorDB, or Kuzu (Kuzu is embedded); LLM API key required for ingestion &nbsp;·&nbsp; Letta defaults to SQLite locally; PostgreSQL required for production &nbsp;·&nbsp; MemPalace requires ChromaDB &nbsp;·&nbsp; Supermemory enterprise self-host requires Cloudflare + Postgres + OpenAI &nbsp;·&nbsp; Cognee uses Kuzu + LanceDB (both embedded); LLM API key required for graph extraction &nbsp;·&nbsp; Last verified: May 2026</sup>
-
-Deeper comparisons:
-
-- [mnem vs mem0](docs/src/comparisons/mem0.md) - agent memory layer, OSS leader
-- [mnem vs MemPalace](docs/src/comparisons/mempalace.md) - benchmark peer
-- [mnem vs Graphiti](docs/src/comparisons/graphify.md) - AI coding assistant knowledge graph tool
-- [mnem vs Letta](docs/src/comparisons/letta.md) - agent-memory framework (formerly MemGPT)
-- [mnem vs Supermemory](docs/src/comparisons/supermemory.md) - cloud-hosted memory service
-- [mnem vs Cognee](docs/src/comparisons/cognee.md) - KG-for-agents alternative
-
-Full matrix: [`docs/src/comparisons/README.md`](docs/src/comparisons/README.md).
+| | | |
+|:---:|:---|:---|
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Instantly build a knowledge graph from any file or codebase. No LLM call required.** Drop in source code, PDFs, Markdown docs, or conversation exports - mnem handles the rest. One command. 30+ file formats, parsed and indexed automatically. | [READ MORE](docs/features/rich-ingest.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Branch, diff, and merge knowledge like git.** Every write is a versioned commit. Experiment on a branch, merge when ready - your knowledge graph has the same primitives as your codebase. | [READ MORE](docs/features/versioned-memory.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Replace flat agent files with a versioned, queryable graph.** `.cursorrules` and `AGENTS.md` can't be diffed or merged. mnem can - export yours, import a teammate's, merge the parts you want. | [READ MORE](docs/features/skills-graph.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **See exactly what retrieval found, skipped, and cost.** Every query returns `tokens_used`, `candidates_seen`, and `dropped`. No silent truncation at your token budget. | [READ MORE](docs/features/token-transparency.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Same input, same output, any machine (storage layer).** Every piece of content gets a unique fingerprint based on its exact bytes. Store the same fact twice and mnem deduplicates it automatically - no matter which machine, which session, or which user ingested it. Retrieval results are ranked by approximate similarity and may vary slightly across runs. | [READ MORE](docs/features/content-addressing.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **Runs in a browser tab.** *(Advanced - skip if you're just using the CLI.)* The same binary runs in Chrome via WASM (WebAssembly - a way to run compiled code in a browser) and deploys in AWS Lambda (~40 MB). No Python, no external database. WASM bindings ship separately; see [`docs/features/wasm-edge.md`](docs/features/wasm-edge.md). | [READ MORE](docs/features/wasm-edge.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **Best or tied recall on every benchmark we tested.** Leads on five of six public benchmarks (recall = fraction of correct results returned; higher is better). All numbers reproducible with the shipped harness. See [Benchmarks](#benchmarks) above for details. | [READ MORE](docs/features/benchmarks.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **Zero-config start, any provider after.** A small pre-trained text model runs automatically in-process (~40 MB binary total, no setup). Switch to Ollama, OpenAI, or Cohere with one line in `config.toml` (a simple key-value config file). | [READ MORE](docs/features/providers.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **CLI (command-line tool), HTTP (web API), MCP, and Python - one engine.** `mnem integrate` wires the MCP server into Claude Code, Cursor, Gemini CLI, and anything else speaking MCP. | [READ MORE](docs/features/integrations.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **One ~40 MB binary. Nothing else required.** No background service (daemon), no cloud, no account. Runs fully offline. Same binary powers the CLI and the HTTP server. | [READ MORE](docs/features/single-binary.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **API-free, deterministic ingestion.** No LLM call at index time. Same file always produces identical nodes - fully reproducible and audit-friendly. Re-ingest an unchanged file and get zero new nodes. | [READ MORE](docs/features/deterministic-ingest.md) |
+| | **Vector, keyword, and graph search in one pass.** Enable multi-hop traversal (following a chain of links across multiple connected entries) for queries that span documents; skip it for fast single-doc lookup. | [READ MORE](docs/features/hybrid-retrieval.md) |
 
 <hr>
 

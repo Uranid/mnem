@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo/mnem-banner.svg" alt="mnem: Git for AI Agent Knowledge" />
+<img src="assets/logo/mnem-banner.svg" alt="mnem: Git for AI Agent knowledge" />
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/Uranid/mnem/ci.yml?style=for-the-badge&label=CI)](https://github.com/Uranid/mnem/actions/workflows/ci.yml)
@@ -31,7 +31,7 @@ https://github.com/user-attachments/assets/bd744a7e-8e89-4531-bd96-fdee0030c390
 1. [问题所在](#问题所在)
 2. [什么是 mnem](#什么是-mnem)
 3. [性能基准](#性能基准)
-4. [你能获得什么](#你能获得什么)
+4. [与其他工具的比较](#与其他工具的比较)
 5. [安装](#安装)
 6. [快速入门](#快速入门)
 7. [接入与取消接入](#mnem-integrate---接入任何-agent-宿主)
@@ -39,7 +39,7 @@ https://github.com/user-attachments/assets/bd744a7e-8e89-4531-bd96-fdee0030c390
 9. [MCP 工具](#mcp-工具)
 10. [Python API](#python-api-mnem-py)
 11. [GraphRAG](#graphrag)
-12. [与其他工具的比较](#与其他工具的比较)
+12. [你能获得什么](#你能获得什么)
 13. [不适合使用 mnem 的场景](#不适合使用-mnem-的场景)
 14. [文档](#文档)
 15. [贡献](#贡献)
@@ -114,26 +114,42 @@ bash benchmarks/harness/run_bench.sh
 
 <hr>
 
-## 你能获得什么
+## 与其他工具的比较
 
-<sup><img src="assets/legend/unique.svg" width="12" height="12" alt="unique"> mnem 独有 &nbsp;·&nbsp; <img src="assets/legend/rare.svg" width="12" height="12" alt="rare"> 同类中罕见</sup>
+<sup>✅ 完全支持 &nbsp;·&nbsp; ~ 部分或有限支持 &nbsp;·&nbsp; ✗ 不支持 &nbsp;·&nbsp; n/a 不适用 &nbsp;·&nbsp; <strong>+</strong> 见下方脚注</sup>
 
-| | | |
-|:---:|:---|:---|
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **从任意文件或代码库即时构建知识图谱，无需调用 LLM。** 导入源代码、PDF、Markdown 文档或对话导出，mnem 自动处理一切。一条命令，支持 30 余种文件格式，自动解析并建索引。 | [了解更多](docs/features/rich-ingest.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **像 git 一样对知识进行分支、diff 和合并。** 每次写入都是一个版本化提交。在分支上实验，准备好后合并，你的知识图谱拥有与代码库相同的操作原语。 | [了解更多](docs/features/versioned-memory.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **用版本化、可查询的图谱替代扁平的 Agent 文件。** `.cursorrules` 和 `AGENTS.md` 无法被 diff 或合并。mnem 可以，导出你的图谱，导入队友的图谱，合并你需要的部分。 | [了解更多](docs/features/skills-graph.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **精确看到检索找到了什么、跳过了什么，以及花费了多少代价。** 每次查询都返回 `tokens_used`、`candidates_seen` 和 `dropped`。不会在 token 预算处发生静默截断。 | [了解更多](docs/features/token-transparency.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **相同输入，相同输出，任意机器（存储层）。** 每份内容都会根据其精确字节获得唯一指纹。两次存储同一事实，mnem 会自动去重，无论是哪台机器、哪个会话或哪个用户摄入的。检索结果按近似相似度排序，不同运行间可能略有差异。 | [了解更多](docs/features/content-addressing.md) |
-| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **可在浏览器标签页中运行。**（进阶功能，仅使用 CLI 的话可跳过。）相同的二进制文件通过 WASM（WebAssembly，一种在浏览器中运行编译代码的方式）在 Chrome 中运行，并可在 AWS Lambda 中部署（约 40 MB）。无需 Python，无需外部数据库。WASM 绑定单独发布，参见 [`docs/features/wasm-edge.md`](docs/features/wasm-edge.md)。 | [了解更多](docs/features/wasm-edge.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **在所有测试基准上达到最佳或并列最佳召回率。** 在六个公开基准测试中五个领先（召回率 = 返回正确结果的比例，越高越好）。所有数据均可通过附带的测试框架复现。详见上方[性能基准](#性能基准)。 | [了解更多](docs/features/benchmarks.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **零配置启动，之后可切换任意提供商。** 一个小型预训练文本模型自动在进程内运行（二进制文件总计约 40 MB，无需配置）。通过 `config.toml`（一个简单的键值配置文件）中的一行配置即可切换至 Ollama、OpenAI 或 Cohere。 | [了解更多](docs/features/providers.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **CLI（命令行工具）、HTTP（Web API）、MCP 和 Python，共用同一引擎。** `mnem integrate` 将 MCP 服务器接入 Claude Code、Cursor、Gemini CLI 以及任何支持 MCP 的工具。 | [了解更多](docs/features/integrations.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **单个约 40 MB 的二进制文件，无需其他任何东西。** 无需后台服务（守护进程），无需云端，无需账户。完全离线运行。同一二进制文件同时驱动 CLI 和 HTTP 服务器。 | [了解更多](docs/features/single-binary.md) |
-| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **无 API 调用、确定性的摄入。** 建索引时不调用 LLM。相同文件始终产生完全相同的节点，完全可重现且便于审计。重新摄入未更改的文件不会产生任何新节点。 | [了解更多](docs/features/deterministic-ingest.md) |
-| | **向量、关键词和图搜索一次完成。** 为跨文档查询启用多跳遍历（沿多个相连条目的链接链追踪），对快速单文档查找则可跳过。 | [了解更多](docs/features/hybrid-retrieval.md) |
+|  | <img src="assets/comparison/mnem.png" width="36" height="36" alt="mnem"><br>**mnem** | <img src="assets/comparison/mem0.png" width="36" height="36" alt="mem0"><br>**mem0** | <img src="assets/comparison/mempalace.png" width="36" height="36" alt="MemPalace"><br>**MemPalace** | <img src="assets/comparison/hermes.png" width="36" height="36" alt="Hermes"><br>**Hermes** | <img src="assets/comparison/supermemory.png" width="36" height="36" alt="Supermemory"><br>**Supermemory** | <img src="assets/comparison/graphiti.png" width="36" height="36" alt="Graphiti"><br>**Graphiti** | <img src="assets/comparison/letta.png" width="36" height="36" alt="Letta"><br>**Letta** | <img src="assets/comparison/cognee.png" width="36" height="36" alt="Cognee"><br>**Cognee** |
+|--|:--------:|:--------:|:-------------:|:------------:|:---------------:|:------------:|:---------:|:----------:|
+| 本地优先 | ✅ | ~ | ✅ | ~ | ✗ | ✗ | ~ | ~ |
+| 版本化历史 | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ~ | ✗ |
+| 分支与合并 | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| 内容寻址存储 <sup>**+**</sup> | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| WASM / 边缘 | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| 无 API 摄入 | ✅ | ~ | ✅ | ~ | ✗ | ✗ | ✗ | ~ |
+| Token 预算透明度 | ✅ | ✗ | ✗ | ~ | ✗ | ✗ | ~ | ✗ |
+| 单一二进制 | ✅ | ✗ | ✗ | ✗ | n/a | ✗ | ✗ | ✗ |
+| 无外部数据库 | ✅ | ~ | ✗ | ✅ | n/a | ✗ | ✗ | ~ |
+| 知识图谱 | ✅ | ✗ | ~ | ✗ | ✗ | ✅ | ✗ | ✅ |
+| 混合检索 | ✅ | ~ | ~ | ✗ | ~ | ✅ | ~ | ~ |
+| MCP 原生 | ✅ | ~ | ✅ | ✗ | ✅ | ~ | ✅ | ✅ |
+| 许可证 | Apache-2.0 | Apache-2.0 | MIT | MIT | MIT | Apache-2.0 | Apache-2.0 | Apache-2.0 |
+
+<sup><strong>+</strong> 内容寻址存储：相同字节始终获得相同 ID；相同事实自动去重 &nbsp;·&nbsp; **混合检索** 此处指向量 + 稀疏 + 图，单次完成 &nbsp;·&nbsp; **Hermes** 是 agent 运行时，并非记忆存储；mnem 作为 `MemoryProvider` 插件接入，行内仅反映 Hermes 原生记忆能力（受限的 `MEMORY.md` + FTS5 会话日志） &nbsp;·&nbsp; **mem0** v2（2026 年 4 月）从 OSS SDK 移除了图后端 &nbsp;·&nbsp; **Graphiti** 需要 LLM API 密钥 + 图后端（Neo4j / FalkorDB / Kuzu / Neptune）；内置 MCP 服务器 &nbsp;·&nbsp; **Letta** "MCP" = MCP 客户端（Letta agents *调用* MCP 服务器） &nbsp;·&nbsp; **MemPalace** 默认使用 ChromaDB（后端可插拔） &nbsp;·&nbsp; **Supermemory** 自托管需要 Cloudflare + Postgres + OpenAI &nbsp;·&nbsp; **Cognee** 图提取需要 LLM API 密钥；自 v0.3.5 起内置 MCP 服务器 &nbsp;·&nbsp; 验证：2026-05-19</sup>
+
+深度对比：
+
+- [mnem vs mem0](docs/src/comparisons/mem0.md) - agent 记忆层，OSS 领导者
+- [mnem vs MemPalace](docs/src/comparisons/mempalace.md) - 基准对标
+- [mnem vs Hermes](docs/src/comparisons/hermes.md) - agent 运行时；mnem 作为记忆层接入
+- [mnem vs Supermemory](docs/src/comparisons/supermemory.md) - 云托管记忆服务
+- [mnem vs Graphiti](docs/src/comparisons/graphify.md) - AI 编码助手知识图谱工具
+- [mnem vs Letta](docs/src/comparisons/letta.md) - agent 记忆框架（原 MemGPT）
+- [mnem vs Cognee](docs/src/comparisons/cognee.md) - 面向 agent 的 KG 替代方案
+
+完整矩阵：[`docs/src/comparisons/README.md`](docs/src/comparisons/README.md)。
 
 <hr>
+
 
 ## 安装
 
@@ -1134,38 +1150,24 @@ mnem ingest --extractor keybert notes.md
 
 <hr>
 
-## 与其他工具的比较
+## 你能获得什么
 
-<sup>✅ 完全支持 &nbsp;·&nbsp; ~ 部分或有限支持 &nbsp;·&nbsp; ✗ 不支持 &nbsp;·&nbsp; n/a 不适用</sup>
+<sup><img src="assets/legend/unique.svg" width="12" height="12" alt="unique"> mnem 独有 &nbsp;·&nbsp; <img src="assets/legend/rare.svg" width="12" height="12" alt="rare"> 同类中罕见</sup>
 
-|  | **mnem** | **mem0** | **Graphiti** | **Letta** | **Supermemory** | **MemPalace** | **Cognee** |
-|--|:--------:|:--------:|:------------:|:---------:|:---------------:|:-------------:|:----------:|
-| 本地优先/离线 | ✅ | ~ | ✗ | ~ | ✗ | ✅ | ~ |
-| 版本化历史 | ✅ | ✗ | ✗ | ~ | ✗ | ✗ | ✗ |
-| 分支与合并 | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| 内容寻址存储 *（相同内容始终获得相同 ID；自动去重相同事实）* | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| WASM / 边缘可部署 | ✅ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| 无 API 摄入 | ✅ | ~ | ✗ | ✗ | ✗ | ✅ | ~ |
-| Token 预算透明度 | ✅ | ✗ | ✗ | ~ | ✗ | ✗ | ✗ |
-| 单一二进制，无守护进程 | ✅ | ✗ | ✗ | ✗ | n/a | ✗ | ✗ |
-| 无需外部数据库 | ✅ | ~ | ✗ | ✗ | n/a | ✗ | ~ |
-| 知识图谱 | ✅ | ~ | ✅ | ✗ | ✗ | ~ | ✅ |
-| 混合检索（向量 + 稀疏 + 图） | ✅ | ~ | ✅ | ~ | ~ | ~ | ~ |
-| MCP 原生 | ✅ | ~ | ~ | ✅ | ✅ | ✅ | ~ |
-| 开源 | Apache-2.0 | Apache-2.0 | Apache-2.0 | Apache-2.0 | MIT | MIT | Apache-2.0 |
-
-<sup>~ = 部分或有限支持 &nbsp;·&nbsp; mem0 知识图谱：v1.1+ 新增图记忆（Neo4j 或内存） &nbsp;·&nbsp; Graphiti 需要 Neo4j、FalkorDB 或 Kuzu（Kuzu 可嵌入）；摄入需要 LLM API 密钥 &nbsp;·&nbsp; Letta 本地默认使用 SQLite；生产环境需要 PostgreSQL &nbsp;·&nbsp; MemPalace 需要 ChromaDB &nbsp;·&nbsp; Supermemory 企业自托管需要 Cloudflare + Postgres + OpenAI &nbsp;·&nbsp; Cognee 使用 Kuzu + LanceDB（均可嵌入）；图提取需要 LLM API 密钥 &nbsp;·&nbsp; 最后验证：2026 年 5 月</sup>
-
-深度对比：
-
-- [mnem vs mem0](docs/src/comparisons/mem0.md) - agent 记忆层，OSS 领导者
-- [mnem vs MemPalace](docs/src/comparisons/mempalace.md) - 基准对标
-- [mnem vs Graphiti](docs/src/comparisons/graphify.md) - AI 编码助手知识图谱工具
-- [mnem vs Letta](docs/src/comparisons/letta.md) - agent 记忆框架（原 MemGPT）
-- [mnem vs Supermemory](docs/src/comparisons/supermemory.md) - 云托管记忆服务
-- [mnem vs Cognee](docs/src/comparisons/cognee.md) - 面向 agent 的 KG 替代方案
-
-完整矩阵：[`docs/src/comparisons/README.md`](docs/src/comparisons/README.md)。
+| | | |
+|:---:|:---|:---|
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **从任意文件或代码库即时构建知识图谱，无需调用 LLM。** 导入源代码、PDF、Markdown 文档或对话导出，mnem 自动处理一切。一条命令，支持 30 余种文件格式，自动解析并建索引。 | [了解更多](docs/features/rich-ingest.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **像 git 一样对知识进行分支、diff 和合并。** 每次写入都是一个版本化提交。在分支上实验，准备好后合并，你的知识图谱拥有与代码库相同的操作原语。 | [了解更多](docs/features/versioned-memory.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **用版本化、可查询的图谱替代扁平的 Agent 文件。** `.cursorrules` 和 `AGENTS.md` 无法被 diff 或合并。mnem 可以，导出你的图谱，导入队友的图谱，合并你需要的部分。 | [了解更多](docs/features/skills-graph.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **精确看到检索找到了什么、跳过了什么，以及花费了多少代价。** 每次查询都返回 `tokens_used`、`candidates_seen` 和 `dropped`。不会在 token 预算处发生静默截断。 | [了解更多](docs/features/token-transparency.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **相同输入，相同输出，任意机器（存储层）。** 每份内容都会根据其精确字节获得唯一指纹。两次存储同一事实，mnem 会自动去重，无论是哪台机器、哪个会话或哪个用户摄入的。检索结果按近似相似度排序，不同运行间可能略有差异。 | [了解更多](docs/features/content-addressing.md) |
+| <img src="assets/legend/unique.svg" width="18" height="18" alt="unique"> | **可在浏览器标签页中运行。**（进阶功能，仅使用 CLI 的话可跳过。）相同的二进制文件通过 WASM（WebAssembly，一种在浏览器中运行编译代码的方式）在 Chrome 中运行，并可在 AWS Lambda 中部署（约 40 MB）。无需 Python，无需外部数据库。WASM 绑定单独发布，参见 [`docs/features/wasm-edge.md`](docs/features/wasm-edge.md)。 | [了解更多](docs/features/wasm-edge.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **在所有测试基准上达到最佳或并列最佳召回率。** 在六个公开基准测试中五个领先（召回率 = 返回正确结果的比例，越高越好）。所有数据均可通过附带的测试框架复现。详见上方[性能基准](#性能基准)。 | [了解更多](docs/features/benchmarks.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **零配置启动，之后可切换任意提供商。** 一个小型预训练文本模型自动在进程内运行（二进制文件总计约 40 MB，无需配置）。通过 `config.toml`（一个简单的键值配置文件）中的一行配置即可切换至 Ollama、OpenAI 或 Cohere。 | [了解更多](docs/features/providers.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **CLI（命令行工具）、HTTP（Web API）、MCP 和 Python，共用同一引擎。** `mnem integrate` 将 MCP 服务器接入 Claude Code、Cursor、Gemini CLI 以及任何支持 MCP 的工具。 | [了解更多](docs/features/integrations.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **单个约 40 MB 的二进制文件，无需其他任何东西。** 无需后台服务（守护进程），无需云端，无需账户。完全离线运行。同一二进制文件同时驱动 CLI 和 HTTP 服务器。 | [了解更多](docs/features/single-binary.md) |
+| <img src="assets/legend/rare.svg" width="18" height="18" alt="rare"> | **无 API 调用、确定性的摄入。** 建索引时不调用 LLM。相同文件始终产生完全相同的节点，完全可重现且便于审计。重新摄入未更改的文件不会产生任何新节点。 | [了解更多](docs/features/deterministic-ingest.md) |
+| | **向量、关键词和图搜索一次完成。** 为跨文档查询启用多跳遍历（沿多个相连条目的链接链追踪），对快速单文档查找则可跳过。 | [了解更多](docs/features/hybrid-retrieval.md) |
 
 <hr>
 

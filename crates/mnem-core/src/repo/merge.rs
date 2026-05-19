@@ -777,7 +777,7 @@ pub fn merge_three_way(
     // that the two strategies produce DIFFERENT merged trees (and thus
     // different merge-commit CIDs). The plain `union_prolly_trees` always
     // picks the CID-lex-max winner, making Ours and Theirs byte-identical
-    // — that is the bug this branch fixes.
+    // - that is the bug this branch fixes.
     //
     // For a clean merge (no conflicts) both paths produce identical output,
     // so we always use the strategy-aware function for simplicity.

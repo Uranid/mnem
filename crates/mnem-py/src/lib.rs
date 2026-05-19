@@ -133,7 +133,7 @@ fn map_core_err(e: CoreError) -> PyErr {
 /// Resolve the global graph parent directory.
 ///
 /// Precedence:
-/// 1. `MNEM_GLOBAL_DIR` env var (absolute path) — useful on WSL.
+/// 1. `MNEM_GLOBAL_DIR` env var (absolute path) - useful on WSL.
 /// 2. `$HOME/.mnemglobal` (Unix) / `$USERPROFILE/.mnemglobal` (Windows).
 /// 3. `./.mnemglobal` as a last-resort fallback.
 fn global_dir() -> PathBuf {
@@ -210,7 +210,7 @@ impl Repo {
     /// or ``$HOME/.mnemglobal`` otherwise. The ``~/.mnem/`` sub-directory
     /// and its database file are created automatically on first call.
     ///
-    /// Returns a fully-functional :class:`Repo` — all existing methods
+    /// Returns a fully-functional :class:`Repo` - all existing methods
     /// (``retrieve``, ``commit_node``, ``tombstone_node``, ``transaction``,
     /// etc.) work identically on the global graph.
     ///

@@ -1621,19 +1621,19 @@ fn lifecycle_delete_invisible_to_retrieve() {
 // ---- text= parameter contract tests ----
 //
 // The `text` parameter in `mnem_retrieve` is not a guaranteed base retrieval
-// lane — its behavior depends on the feature configuration. The
+// lane - its behavior depends on the feature configuration. The
 // `RetrievalEmpty` guard in the retriever checks `label`, `prop_filter`,
 // `vector_query`, and `sparse_query`. When the `bundled-embedder` feature is
 // active (the default), passing `text=` causes the handler to auto-embed the
-// text and use the resulting vector as a dense lane — so `text=` alone can
+// text and use the resulting vector as a dense lane - so `text=` alone can
 // produce hits. When the feature is absent, the guard fires and the handler
 // returns a graceful "0 item(s)" empty-success.
 //
 // The two tests below document the stable parts of the contract:
-//  A. `text=` alone must never crash or produce a JSON-RPC protocol error —
+//  A. `text=` alone must never crash or produce a JSON-RPC protocol error -
 //     regardless of feature flags, the response is always graceful.
 //  B. Adding `text=` to a `where=` query must never drop results that the
-//     `where=` filter alone would have returned — text= is non-destructive.
+//     `where=` filter alone would have returned - text= is non-destructive.
 
 /// Calling `mnem_retrieve` with ONLY a `text` parameter must NOT crash or
 /// return a JSON-RPC protocol error. The response is always graceful: with the
@@ -1831,17 +1831,17 @@ fn schema_empty_repo_reports_no_index_set() {
 /// A repo where only nodes have been committed (never `mnem_commit_relation`)
 /// must show "index not built" for edge types.  The outgoing adjacency CID
 /// in the IndexSet is None, so `collect_edge_types` returns Ok(None) and the
-/// `_` (absent/error) arm fires — NOT the Ok(Some(empty)) arm.
+/// `_` (absent/error) arm fires - NOT the Ok(Some(empty)) arm.
 ///
-/// The `Ok(Some(empty_set))` arm — fired when `outgoing_cid` is `Some` but
-/// the tree contains zero edge entries — is unreachable through the MCP
+/// The `Ok(Some(empty_set))` arm - fired when `outgoing_cid` is `Some` but
+/// the tree contains zero edge entries - is unreachable through the MCP
 /// dispatch path because `build_index_set` always sets `outgoing = None`
 /// when there are no edges.  That arm is exercised at unit-test level in
 /// `crates/mnem-mcp/src/tools/handlers/schema.rs` (mod tests).
 #[test]
 fn schema_nodes_only_no_edge_index_shows_not_built() {
     let (mut s, _td) = fresh_server(true); // initial commit already done via allow_labels=true
-    // Commit a standalone node — no edges.
+    // Commit a standalone node - no edges.
     let _ = tools_call(
         &mut s,
         "mnem_commit",
@@ -1859,7 +1859,7 @@ fn schema_nodes_only_no_edge_index_shows_not_built() {
         "Expected 'index not built' for node-only commit, got: {text}"
     );
     assert!(
-        !text.contains("<none — index present"),
+        !text.contains("<none - index present"),
         "Should not show empty-index message when no outgoing index CID exists: {text}"
     );
 }

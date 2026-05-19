@@ -210,7 +210,7 @@ pub(crate) fn run(_override: Option<&Path>, args: Args) -> Result<()> {
 /// When the source path is a directory we attempt to read
 /// `<source>/.mnem/config.toml` directly. When it is a file (e.g. a
 /// `.car` archive) there is no config to read, so we return `false`
-/// without emitting any error — the caller is expected to print a
+/// without emitting any error - the caller is expected to print a
 /// user-facing note instead.
 ///
 /// The copy is done by reading the already-written clone config as a
@@ -359,7 +359,7 @@ fn find_head_commit(
     // --- Primary path: use roots[0] as the authoritative HEAD. ---
     if let Some(root_cid) = roots.first() {
         let Some(bytes) = bs.get(root_cid)? else {
-            // roots[0] block missing — fall through to heuristic.
+            // roots[0] block missing - fall through to heuristic.
             return find_head_commit_heuristic(bs, roots);
         };
         if let Ok(Ipld::Map(m)) = from_canonical_bytes::<Ipld>(&bytes) {
@@ -484,7 +484,7 @@ mod find_head_commit_tests {
 
         // HEAD commit has time=1 (smaller).
         let head_cid = make_commit(&inner, 1);
-        // A second commit has time=9999 (larger) — it would win the old
+        // A second commit has time=9999 (larger) - it would win the old
         // largest-time heuristic, but it is NOT the designated head.
         let _stale_cid = make_commit(&inner, 9999);
 

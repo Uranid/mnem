@@ -153,7 +153,7 @@ fn explain_lane_line_precedes_rendered_content() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Both must be present — assert first so a missing lanes line is a clear failure.
+    // Both must be present - assert first so a missing lanes line is a clear failure.
     let lanes_pos = stdout
         .find("lanes: vector=")
         .unwrap_or_else(|| panic!("expected 'lanes: vector=' in stdout:\n{stdout}"));
@@ -233,7 +233,7 @@ fn explain_all_items_get_lane_scores() {
     let item_count = stdout.lines().filter(|l| l.starts_with("---")).count();
     assert!(item_count >= 2, "expected at least 2 items; stdout:\n{stdout}");
 
-    // Count lanes lines — must match item count.
+    // Count lanes lines - must match item count.
     let lanes_count = stdout.lines().filter(|l| l.trim().starts_with("lanes:")).count();
     assert_eq!(
         lanes_count, item_count,
@@ -327,7 +327,7 @@ fn explain_graph_expand_shows_graph_expand_lane() {
 /// 1. Print a warning on stderr about the missing LLM provider.
 /// 2. Fall back to plain retrieve (which still produces `lanes: vector=` with
 ///    --explain, since the mock-embedder vector lane is active).
-/// 3. NOT print the RRF-fusion note ("per-lane scores not propagated...") —
+/// 3. NOT print the RRF-fusion note ("per-lane scores not propagated...") -
 ///    that note only fires when the multi-query path actually ran with an LLM.
 ///
 /// The actual RRF fusion note is not tested here because it requires a live

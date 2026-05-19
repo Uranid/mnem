@@ -166,7 +166,7 @@ fn merge_clean_diverged_branches_succeeds() {
 
     let (_main_tip, _feature_tip) = setup_diverged_branches(p);
 
-    // Merge feature into main — non-overlapping commits, no conflicts expected.
+    // Merge feature into main - non-overlapping commits, no conflicts expected.
     let out = mnem(p, &["merge", "feature"]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(

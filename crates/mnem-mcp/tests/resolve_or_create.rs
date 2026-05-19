@@ -548,7 +548,7 @@ fn resolve_or_create_global_true_absent_graph_succeeds_locally() {
 
 /// When `allow_labels=true` and `label` is provided but neither `prop_name`
 /// nor the `name` alias is present, the handler must return a tool-level
-/// error (isError=true) whose text mentions "prop_name" — the specific field
+/// error (isError=true) whose text mentions "prop_name" - the specific field
 /// named in Arm 2 of the handler.
 #[test]
 fn resolve_or_create_missing_prop_name_returns_specific_error() {
@@ -583,7 +583,7 @@ fn resolve_or_create_missing_prop_name_returns_specific_error() {
 
 /// When `allow_labels=true`, `label` and `prop_name` are both provided, but
 /// neither `value` nor the `name` alias is present, the handler must return a
-/// tool-level error (isError=true) whose text mentions "value" — the specific
+/// tool-level error (isError=true) whose text mentions "value" - the specific
 /// field named in Arm 3 of the handler.
 #[test]
 fn resolve_or_create_missing_value_returns_specific_error() {

@@ -1,44 +1,46 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-label="mnem logo on background">
-  <title>mnem logo on background</title>
-  <desc>The mnem diamond logo (rust gradient corner nodes, slate edges, faint teal accent stroke) centered on a uniform cool-gray backdrop with generous padding. 800x800.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-label="mnem logo on brand teal gradient">
+  <title>mnem logo on brand teal gradient</title>
+  <desc>The mnem diamond logo (rust gradient corner nodes, slate edges, faint teal accent stroke) centered on a diagonal mint to brand-teal gradient. Rounded corners. 800x800. Matches the comparison-table thumbnail style.</desc>
 
   <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"  stop-color="#b4e6d7"/>
+      <stop offset="100%" stop-color="#3cc3a0"/>
+    </linearGradient>
     <linearGradient id="rustNode" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%"  stop-color="#e07a3a"/>
       <stop offset="100%" stop-color="#c25620"/>
     </linearGradient>
+    <clipPath id="rounded">
+      <rect x="0" y="0" width="800" height="800" rx="72" ry="72"/>
+    </clipPath>
   </defs>
 
-  <!-- Uniform cool-gray background, matches the existing logo-bg's neutral
-       and lets the slate + rust palette read cleanly on light or dark chrome. -->
-  <rect width="800" height="800" fill="#bcc1c8"/>
+  <g clip-path="url(#rounded)">
+    <rect width="800" height="800" fill="url(#bg)"/>
 
-  <!-- Logo: original 256-unit motif scaled 2.9x and centered.
-       At scale 2.9 the visible mark spans ~545px (raw 188-unit visible extent * 2.9),
-       leaving ~127px padding on each side (≈16%, half the previous ~32%).
-       Centering: translate so motif center (128,128) lands at (400,400).
-       (400 - 128*2.9) = 28.8. -->
-  <g transform="translate(28.8 28.8) scale(2.9)">
-    <!-- slate diamond edges -->
-    <g stroke="#1f2a36" stroke-width="20" stroke-linecap="butt" fill="none">
-      <line x1="128" y1="48"  x2="48"  y2="128"/>
-      <line x1="48"  y1="128" x2="128" y2="208"/>
-      <line x1="128" y1="208" x2="208" y2="128"/>
-      <line x1="208" y1="128" x2="128" y2="48"/>
-    </g>
-    <!-- subtle teal inner accent stroke -->
-    <g stroke="rgba(0,180,135,0.55)" stroke-width="1.4" fill="none">
-      <line x1="128" y1="48"  x2="48"  y2="128"/>
-      <line x1="48"  y1="128" x2="128" y2="208"/>
-      <line x1="128" y1="208" x2="208" y2="128"/>
-      <line x1="208" y1="128" x2="128" y2="48"/>
-    </g>
-    <!-- rust gradient corner nodes -->
-    <g fill="url(#rustNode)">
-      <polygon points="128,34  142,48  128,62  114,48"/>
-      <polygon points="48,114  62,128  48,142  34,128"/>
-      <polygon points="208,114 222,128 208,142 194,128"/>
-      <polygon points="128,194 142,208 128,222 114,208"/>
+    <g transform="translate(28.8 28.8) scale(2.9)">
+      <!-- slate diamond edges -->
+      <g stroke="#1f2a36" stroke-width="20" stroke-linecap="butt" fill="none">
+        <line x1="128" y1="48"  x2="48"  y2="128"/>
+        <line x1="48"  y1="128" x2="128" y2="208"/>
+        <line x1="128" y1="208" x2="208" y2="128"/>
+        <line x1="208" y1="128" x2="128" y2="48"/>
+      </g>
+      <!-- subtle inner accent stroke -->
+      <g stroke="rgba(31,42,54,0.35)" stroke-width="1.4" fill="none">
+        <line x1="128" y1="48"  x2="48"  y2="128"/>
+        <line x1="48"  y1="128" x2="128" y2="208"/>
+        <line x1="128" y1="208" x2="208" y2="128"/>
+        <line x1="208" y1="128" x2="128" y2="48"/>
+      </g>
+      <!-- rust gradient corner nodes -->
+      <g fill="url(#rustNode)">
+        <polygon points="128,34  142,48  128,62  114,48"/>
+        <polygon points="48,114  62,128  48,142  34,128"/>
+        <polygon points="208,114 222,128 208,142 194,128"/>
+        <polygon points="128,194 142,208 128,222 114,208"/>
+      </g>
     </g>
   </g>
 </svg>

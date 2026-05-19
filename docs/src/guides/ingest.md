@@ -9,7 +9,7 @@ parse -> chunk -> extract -> embed -> commit
 ## Sources
 
 - file path (`mnem ingest README.md`)
-- structured JSON (`mnem ingest data.json`) — JSON/JSONL detected by extension
+- structured JSON (`mnem ingest data.json`) - JSON/JSONL detected by extension
 - code files (`mnem ingest src/lib.rs`)
 - directory (`mnem ingest src/ --recursive`)
 - inline text (`mnem ingest --text "The quick brown fox"`)

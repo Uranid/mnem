@@ -23,8 +23,8 @@ use tempfile::TempDir;
 ///
 /// All routing is done via `-R <global_root>`, which sets `cli.repo` and is
 /// forwarded as `override_path` to `global_cmd::run`. The process CWD is set
-/// to the system temp directory — a directory that will never contain a
-/// `.mnem` subdirectory — so that local-repo auto-discovery in other code
+/// to the system temp directory - a directory that will never contain a
+/// `.mnem` subdirectory - so that local-repo auto-discovery in other code
 /// paths cannot accidentally pick up the project checkout directory. This
 /// also eliminates any risk from ambient env vars that influence local-repo
 /// detection, since the CWD fallback path is completely neutral.
@@ -97,7 +97,7 @@ fn global_add_labeled_node(global_root: &Path, summary: &str, label: &str) -> St
 #[test]
 fn global_uninitialised_exits_nonzero() {
     let dir = TempDir::new().unwrap();
-    // Do NOT call init_global — the directory has no .mnem inside it.
+    // Do NOT call init_global - the directory has no .mnem inside it.
     let out = mnem_global(dir.path(), &["global", "status"])
         .assert()
         .failure();
