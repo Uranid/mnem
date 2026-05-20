@@ -114,6 +114,7 @@ pub(crate) fn run(override_path: Option<&Path>, cmd: AddCmd) -> Result<()> {
     }
 }
 
+#[allow(clippy::if_not_else)]
 fn add_node(override_path: Option<&Path>, a: NodeArgs) -> Result<()> {
     if let Some(p) = &a.positional {
         anyhow::bail!(

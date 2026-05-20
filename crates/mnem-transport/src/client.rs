@@ -211,10 +211,10 @@ impl HttpRemoteClient {
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
                 let prev_host = attempt.previous()[0].host_str();
                 let next_host = attempt.url().host_str();
-                if prev_host != next_host {
-                    attempt.stop()
-                } else {
+                if prev_host == next_host {
                     attempt.follow()
+                } else {
+                    attempt.stop()
                 }
             }))
             .build()

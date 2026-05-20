@@ -109,7 +109,7 @@ fn require_global_init(global_dir: &Path) -> Result<()> {
 
 pub(crate) fn run(override_path: Option<&Path>, cmd: GlobalCmd) -> Result<()> {
     let global_dir = override_path
-        .map(|p| p.to_path_buf())
+        .map(Path::to_path_buf)
         .unwrap_or_else(global::default_dir);
     match cmd {
         GlobalCmd::Retrieve(args) => {

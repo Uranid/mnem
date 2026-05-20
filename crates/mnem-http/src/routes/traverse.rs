@@ -322,7 +322,10 @@ pub(crate) async fn traverse_answer(
     // retrieve up to 10 semantically ranked seed nodes. An empty or
     // absent `text` yields an empty frontier (0 hops, no expansion).
     let mut frontier: Vec<NodeId> = {
-        let repo = state.repo.lock().unwrap_or_else(|p| p.into_inner());
+        let repo = state
+            .repo
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match req.text.as_deref() {
             Some(t) if !t.trim().is_empty() => {
                 // Try parsing as a UUID first (cheap, no I/O).
@@ -400,7 +403,10 @@ pub(crate) async fn traverse_answer(
         // Acquire the lock, do all blocking I/O, release before the
         // async guard.charge() call below.
         let (hop_nodes, next_frontier) = {
-            let repo = state.repo.lock().unwrap_or_else(|p| p.into_inner());
+            let repo = state
+                .repo
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut hop_nodes: Vec<HopNode> = Vec::new();
             let mut next_ids: Vec<NodeId> = Vec::new();
 

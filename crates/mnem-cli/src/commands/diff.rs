@@ -218,8 +218,8 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
         let output = DiffOutput {
             op_a: a_cid.to_string(),
             op_b: b_cid.to_string(),
-            commit_a: head_a.map(|c| c.to_string()),
-            commit_b: head_b.map(|c| c.to_string()),
+            commit_a: head_a.map(ToString::to_string),
+            commit_b: head_b.map(ToString::to_string),
             ref_deltas,
             node_deltas,
             edge_deltas,
@@ -292,7 +292,7 @@ fn ref_target_str(t: &mnem_core::objects::RefTarget) -> String {
         RefTarget::Normal { target } => target.to_string(),
         RefTarget::Conflicted { adds, .. } => adds
             .first()
-            .map_or_else(|| "<conflicted>".to_string(), |c| c.to_string()),
+            .map_or_else(|| "<conflicted>".to_string(), ToString::to_string),
     }
 }
 

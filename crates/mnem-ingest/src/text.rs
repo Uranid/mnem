@@ -85,7 +85,7 @@ pub fn parse_text(input: &str) -> Result<Vec<Section>, Error> {
         let body_start = m.end();
         let body_end = headings
             .get(idx + 1)
-            .map(|next| next.start())
+            .map(regex::Match::start)
             .unwrap_or(input.len());
 
         let body = input[body_start..body_end].trim();
@@ -137,7 +137,10 @@ mod tests {
             "expected at least 2 sections, got {}",
             sections.len()
         );
-        let headings: Vec<_> = sections.iter().filter_map(|s| s.heading.as_deref()).collect();
+        let headings: Vec<_> = sections
+            .iter()
+            .filter_map(|s| s.heading.as_deref())
+            .collect();
         assert!(
             headings.iter().any(|h| h.contains("ARTICLE I")),
             "ARTICLE I not found in {headings:?}"
@@ -153,8 +156,16 @@ mod tests {
         let input = "Section 1\nIntroduction text.\n\nSection 2\nBody text here.\n";
         let sections = parse_text(input).unwrap();
         assert!(sections.len() >= 2, "got {}", sections.len());
-        assert!(sections.iter().any(|s| s.heading.as_deref() == Some("Section 1")));
-        assert!(sections.iter().any(|s| s.heading.as_deref() == Some("Section 2")));
+        assert!(
+            sections
+                .iter()
+                .any(|s| s.heading.as_deref() == Some("Section 1"))
+        );
+        assert!(
+            sections
+                .iter()
+                .any(|s| s.heading.as_deref() == Some("Section 2"))
+        );
     }
 
     #[test]

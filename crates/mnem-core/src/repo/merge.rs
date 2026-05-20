@@ -419,7 +419,7 @@ fn strategy_union_prolly_trees(
         right_map.insert(k, v);
     }
 
-    let all_keys: BTreeSet<ProllyKey> = left_map.keys().chain(right_map.keys()).cloned().collect();
+    let all_keys: BTreeSet<ProllyKey> = left_map.keys().chain(right_map.keys()).copied().collect();
 
     let mut merged: BTreeMap<ProllyKey, Cid> = BTreeMap::new();
     let mut conflicts: BTreeMap<ProllyKey, Vec<Cid>> = BTreeMap::new();

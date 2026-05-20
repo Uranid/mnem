@@ -684,11 +684,12 @@ pub(crate) async fn post_nodes_bulk(
     // Each entry pairs the Node with an optional dense (model, vec)
     // staged for the sidecar-side `Transaction::set_embedding` call
     // that runs after `add_node` returns the NodeCid.
-    let mut built: Vec<(
+    type BuiltBulkNode = (
         Node,
         Option<(String, mnem_core::objects::Embedding)>,
         Option<(String, mnem_core::sparse::SparseEmbed)>,
-    )> = Vec::with_capacity(body.nodes.len());
+    );
+    let mut built: Vec<BuiltBulkNode> = Vec::with_capacity(body.nodes.len());
     let mut results: Vec<BulkNodeEntry> = Vec::with_capacity(body.nodes.len());
     let mut embedded = 0u32;
     let mut skipped_embed = 0u32;

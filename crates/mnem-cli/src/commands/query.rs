@@ -25,7 +25,11 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
     let mut q = Query::new(&r);
     if let Some(wh) = &args.where_ {
         let (k, v) = parse_prop(wh)?;
-        q = q.where_prop(k, PropPredicate::Eq(v));
+        if let Some(label) = node_label_from_where(&k, &v)? {
+            q = q.label(label);
+        } else {
+            q = q.where_prop(k, PropPredicate::Eq(v));
+        }
     }
     for w in &args.with_outgoing {
         q = q.with_outgoing(w.as_str());

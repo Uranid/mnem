@@ -124,6 +124,7 @@ pub struct Query<'a> {
     with_incoming: Vec<String>,
     limit: Option<usize>,
     adjacency_cap: usize,
+    include_tombstoned: bool,
 }
 
 impl<'a> Query<'a> {
@@ -151,6 +152,7 @@ impl<'a> Query<'a> {
             with_incoming: Vec::new(),
             limit: None,
             adjacency_cap: Self::DEFAULT_ADJACENCY_CAP,
+            include_tombstoned: false,
         }
     }
 
@@ -219,6 +221,14 @@ impl<'a> Query<'a> {
     #[must_use]
     pub const fn adjacency_cap(mut self, cap: usize) -> Self {
         self.adjacency_cap = cap;
+        self
+    }
+
+    /// Include tombstoned nodes in results. Defaults to false so normal
+    /// retrieval/query paths honor privacy revocations.
+    #[must_use]
+    pub const fn include_tombstoned(mut self, include: bool) -> Self {
+        self.include_tombstoned = include;
         self
     }
 
@@ -333,7 +343,10 @@ impl<'a> Query<'a> {
                         // Defensive: the 16-byte hash could collide (cosmically
                         // unlikely with BLAKE3) - reject wrong-label / wrong-
                         // value nodes silently so callers see "no match."
-                        if node.ntype == *label && node.props.get(prop) == Some(value) {
+                        if node.ntype == *label
+                            && node.props.get(prop) == Some(value)
+                            && (self.include_tombstoned || !self.repo.is_tombstoned(&node.id))
+                        {
                             hits.push(build_hit(node, indexes.as_ref())?);
                         }
                     }
@@ -346,6 +359,9 @@ impl<'a> Query<'a> {
                     for entry in cursor {
                         let (_k, node_cid) = entry?;
                         let node: Node = decode_from_store(&*bs, &node_cid)?;
+                        if !self.include_tombstoned && self.repo.is_tombstoned(&node.id) {
+                            continue;
+                        }
                         // Index already guarantees the label matches; no
                         // redundant filter needed.
                         hits.push(build_hit(node, indexes.as_ref())?);
@@ -362,6 +378,9 @@ impl<'a> Query<'a> {
                 for entry in cursor {
                     let (_k, node_cid) = entry?;
                     let node: Node = decode_from_store(&*bs, &node_cid)?;
+                    if !self.include_tombstoned && self.repo.is_tombstoned(&node.id) {
+                        continue;
+                    }
                     if let Some(ref lbl) = self.label
                         && &node.ntype != lbl
                     {

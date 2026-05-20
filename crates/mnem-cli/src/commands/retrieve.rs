@@ -235,7 +235,11 @@ pub(crate) fn run(override_path: Option<&Path>, mut args: Args) -> Result<()> {
     let mut ret = r.retrieve();
     if let Some(w) = &args.where_eq {
         let (k, v) = parse_prop(w)?;
-        ret = ret.where_prop(k, PropPredicate::Eq(v));
+        if let Some(label) = node_label_from_where(&k, &v)? {
+            ret = ret.label(label);
+        } else {
+            ret = ret.where_prop(k, PropPredicate::Eq(v));
+        }
     }
 
     // Retain the original text so a cross-encoder reranker (if
@@ -536,6 +540,17 @@ pub(crate) fn run(override_path: Option<&Path>, mut args: Args) -> Result<()> {
         }
     }
 
+    if args.no_vector
+        && args
+            .text
+            .as_deref()
+            .is_some_and(|text| !text.trim().is_empty())
+    {
+        let result = text_only_retrieve(&r, &args)?;
+        print_retrieval_result(&result, &args, &cfg);
+        return Ok(());
+    }
+
     let result = ret.execute()?;
     let result = filter_by_label(result, &args.labels);
     print_retrieval_result(&result, &args, &cfg);
@@ -564,6 +579,82 @@ pub(crate) fn run(override_path: Option<&Path>, mut args: Args) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn text_only_retrieve(
+    r: &mnem_core::repo::ReadonlyRepo,
+    args: &Args,
+) -> Result<mnem_core::retrieve::RetrievalResult> {
+    use mnem_core::retrieve::{HeuristicEstimator, RetrievalResult, RetrievedItem, TokenEstimator};
+
+    let query_text = args
+        .text
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase();
+    let mut q = Query::new(r);
+    if let Some(w) = &args.where_eq {
+        let (k, v) = parse_prop(w)?;
+        if let Some(label) = node_label_from_where(&k, &v)? {
+            q = q.label(label);
+        } else {
+            q = q.where_prop(k, PropPredicate::Eq(v));
+        }
+    }
+
+    let hits = q.execute()?;
+    let mut candidates: Vec<_> = hits
+        .into_iter()
+        .filter_map(|hit| {
+            if !args.labels.is_empty() && !args.labels.iter().any(|label| label == &hit.node.ntype)
+            {
+                return None;
+            }
+            let rendered = mnem_core::retrieve::render_node(&hit.node);
+            let rendered_lc = rendered.to_lowercase();
+            rendered_lc.find(&query_text).map(|offset| {
+                let score = 1.0_f32 / (1.0 + offset as f32);
+                (hit.node, rendered, offset, score)
+            })
+        })
+        .collect();
+    candidates.sort_by(
+        |(left_node, left_rendered, left_offset, _),
+         (right_node, right_rendered, right_offset, _)| {
+            left_offset
+                .cmp(right_offset)
+                .then_with(|| left_rendered.len().cmp(&right_rendered.len()))
+                .then_with(|| left_node.id.cmp(&right_node.id))
+        },
+    );
+
+    let estimator = HeuristicEstimator;
+    let budget = args.budget.unwrap_or(u32::MAX);
+    let max_items = args.limit.unwrap_or(usize::MAX);
+    let candidates_seen = candidates.len() as u32;
+    let mut tokens_used = 0_u32;
+    let mut dropped = 0_u32;
+    let mut items = Vec::new();
+
+    for (node, rendered, _offset, score) in candidates.into_iter().take(max_items) {
+        let tokens = estimator.estimate(&rendered);
+        let next = tokens_used.saturating_add(tokens);
+        if next > budget {
+            dropped = dropped.saturating_add(1);
+            continue;
+        }
+        tokens_used = next;
+        items.push(RetrievedItem::new(node, rendered, tokens, score));
+    }
+
+    Ok(RetrievalResult::new(
+        items,
+        tokens_used,
+        budget,
+        dropped,
+        candidates_seen,
+    ))
 }
 
 /// audit-2026-04-25 C7-3b: opt-out switch for the mock-embedder
@@ -785,7 +876,11 @@ fn run_multi_query(
         let mut ret = r.retrieve();
         if let Some(w) = &args.where_eq {
             let (k, v) = parse_prop(w)?;
-            ret = ret.where_prop(k, mnem_core::index::PropPredicate::Eq(v));
+            if let Some(label) = node_label_from_where(&k, &v)? {
+                ret = ret.label(label);
+            } else {
+                ret = ret.where_prop(k, mnem_core::index::PropPredicate::Eq(v));
+            }
         }
         ret = ret.query_text(q.clone());
         if let Some(n) = args.limit {
@@ -914,7 +1009,10 @@ fn lane_name(lane: mnem_core::retrieve::Lane) -> &'static str {
         // arm is added above. The debug_assert fires in dev/test builds so
         // the gap is caught immediately without changing release behaviour.
         _ => {
-            debug_assert!(false, "unhandled Lane variant: add a new arm to lane_name()");
+            debug_assert!(
+                false,
+                "unhandled Lane variant: add a new arm to lane_name()"
+            );
             "unknown"
         }
     }

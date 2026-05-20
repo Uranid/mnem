@@ -155,7 +155,7 @@ fn global_stats_on_fresh_init() {
         "stats must print 'commit=<cid>' in the one-liner, got:\n{stdout}"
     );
     assert!(stdout.contains("content="), "stats must print 'content=...' in the one-liner, got:\n{stdout}");
-    assert!(stdout.contains("refs="), "stats must print 'refs=...' in the one-liner, got:\n{stdout}");
+    assert!(stdout.contains("edges="), "stats must print 'edges=...' in the one-liner, got:\n{stdout}");
     assert!(stdout.contains("labels="), "stats must print 'labels=...' in the one-liner, got:\n{stdout}");
 }
 
@@ -195,26 +195,26 @@ fn global_stats_labels_increments_after_labeled_node() {
     );
 }
 
-/// Adding an edge must increment the `refs=N` counter in `mnem global stats`.
+/// Adding an edge must increment the `edges=N` counter in `mnem global stats`.
 /// This verifies that the edge index is updated and reflected in the machine-readable stats.
 #[test]
-fn global_stats_refs_increments_after_edge() {
+fn global_stats_edges_increments_after_edge() {
     let dir = TempDir::new().unwrap();
     init_global(dir.path());
 
     let src = global_add_node(dir.path(), "refs-stats-src");
     let dst = global_add_node(dir.path(), "refs-stats-dst");
 
-    // Capture refs count before adding an edge.
+    // Capture edges count before adding an edge.
     let before_out = mnem_global(dir.path(), &["global", "stats"])
         .assert()
         .success();
     let before_stdout = String::from_utf8_lossy(&before_out.get_output().stdout).to_string();
-    let before_refs: usize = before_stdout
+    let before_edges: usize = before_stdout
         .split_whitespace()
-        .find(|tok| tok.starts_with("refs="))
-        .and_then(|tok| tok["refs=".len()..].parse().ok())
-        .expect("stats must include a 'refs=N' token");
+        .find(|tok| tok.starts_with("edges="))
+        .and_then(|tok| tok["edges=".len()..].parse().ok())
+        .expect("stats must include an 'edges=N' token");
 
     // Add an edge.
     mnem_global(
@@ -233,15 +233,15 @@ fn global_stats_refs_increments_after_edge() {
         .assert()
         .success();
     let after_stdout = String::from_utf8_lossy(&after_out.get_output().stdout).to_string();
-    let after_refs: usize = after_stdout
+    let after_edges: usize = after_stdout
         .split_whitespace()
-        .find(|tok| tok.starts_with("refs="))
-        .and_then(|tok| tok["refs=".len()..].parse().ok())
-        .expect("stats must include a 'refs=N' token after edge write");
+        .find(|tok| tok.starts_with("edges="))
+        .and_then(|tok| tok["edges=".len()..].parse().ok())
+        .expect("stats must include an 'edges=N' token after edge write");
 
     assert!(
-        after_refs > before_refs,
-        "refs= count in stats must increase after adding an edge (was {before_refs}, now {after_refs})"
+        after_edges > before_edges,
+        "edges= count in stats must increase after adding an edge (was {before_edges}, now {after_edges})"
     );
 }
 

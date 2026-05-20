@@ -10,7 +10,7 @@ use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -123,6 +123,11 @@ pub(crate) enum Host {
     /// Audit fix G7 (2026-04-25): Gemini CLI. MCP entries live in
     /// `~/.gemini/settings.json` under the top-level `mcpServers` map.
     GeminiCli,
+    /// Hermes Agent shell hooks. Hermes is intentionally hook-only:
+    /// `pre_llm_call` injects retrieved mnem memory as a +1 context layer,
+    /// and `post_llm_call` persists the turn. We do not edit Hermes'
+    /// system prompt.
+    HermesAgent,
 }
 
 impl Host {
@@ -134,6 +139,7 @@ impl Host {
             Host::Zed,
             Host::ClaudeCode,
             Host::GeminiCli,
+            Host::HermesAgent,
         ]
     }
 
@@ -145,6 +151,7 @@ impl Host {
             Host::Zed => "zed",
             Host::ClaudeCode => "claude-code",
             Host::GeminiCli => "gemini-cli",
+            Host::HermesAgent => "hermes",
         }
     }
 
@@ -156,6 +163,7 @@ impl Host {
             Host::Zed => "Zed",
             Host::ClaudeCode => "Claude Code",
             Host::GeminiCli => "Gemini CLI",
+            Host::HermesAgent => "Hermes Agent",
         }
     }
 
@@ -167,6 +175,7 @@ impl Host {
             "zed" => Some(Host::Zed),
             "claude-code" | "claude_code" | "claude" => Some(Host::ClaudeCode),
             "gemini-cli" | "gemini_cli" | "gemini" => Some(Host::GeminiCli),
+            "hermes" | "hermes-agent" | "hermes_agent" => Some(Host::HermesAgent),
             _ => None,
         }
     }
@@ -174,6 +183,10 @@ impl Host {
     /// The config-file path for this host on this OS, or `None` if we
     /// have no rule for this (OS, host) combination.
     pub(crate) fn config_path(self) -> Option<PathBuf> {
+        if self == Host::HermesAgent {
+            return hermes_home_dir().map(|d| d.join("config.yaml"));
+        }
+
         let home = dirs::home_dir()?;
         match self {
             Host::ClaudeDesktop => {
@@ -218,6 +231,10 @@ impl Host {
             // Gemini CLI follows the standard ~/.gemini/settings.json
             // shape on every OS.
             Host::GeminiCli => Some(home.join(".gemini").join("settings.json")),
+            // Hermes Agent stores profile config in $HERMES_HOME/config.yaml;
+            // fall back to the default ~/.hermes/config.yaml when the env var
+            // is absent. This is where shell hooks are configured.
+            Host::HermesAgent => unreachable!("handled before home-dir lookup"),
         }
     }
 
@@ -227,9 +244,14 @@ impl Host {
     /// `~/.claude/settings.json`, distinct from the MCP entry which
     /// lives in `~/.claude.json`.
     pub(crate) fn hooks_path(self) -> Option<PathBuf> {
+        if self == Host::HermesAgent {
+            return hermes_home_dir().map(|d| d.join("hooks").join("mnem").join("hermes-hook.py"));
+        }
+
         let home = dirs::home_dir()?;
         match self {
             Host::ClaudeCode => Some(home.join(".claude").join("settings.json")),
+            Host::HermesAgent => unreachable!("handled before home-dir lookup"),
             _ => None,
         }
     }
@@ -244,6 +266,10 @@ impl Host {
     /// - Zed         → settings.json (`assistant.system_prompt` JSON field)
     /// - ClaudeDesktop → `None` (UI-only custom-instructions panel)
     pub(crate) fn system_prompt_path(self) -> Option<PathBuf> {
+        if self == Host::HermesAgent {
+            return None;
+        }
+
         let home = dirs::home_dir()?;
         match self {
             Host::ClaudeCode => Some(home.join(".claude").join("CLAUDE.md")),
@@ -262,6 +288,9 @@ impl Host {
                     Some(home.join(".config").join("zed").join("settings.json"))
                 }
             }
+            // Hermes Agent integration uses pre_llm_call/post_llm_call hooks
+            // only. It intentionally stays out of the system prompt.
+            Host::HermesAgent => unreachable!("handled before home-dir lookup"),
             _ => None,
         }
     }
@@ -288,13 +317,15 @@ impl Host {
     }
 }
 
-/// How the host embeds MCP servers in its JSON config.
+/// How the host embeds MCP servers in its config.
 #[derive(Debug, Clone, Copy)]
 enum Schema {
     /// Top-level `mcpServers.<name>` map.
     McpServersTopLevel,
     /// Nested under `experimental.context_servers.<name>`.
     ZedNested,
+    /// Hermes Agent is hook-only; it must never receive an MCP config entry.
+    HermesHooks,
 }
 
 const fn schema_of(h: Host) -> Schema {
@@ -305,6 +336,7 @@ const fn schema_of(h: Host) -> Schema {
         | Host::ClaudeCode
         | Host::GeminiCli => Schema::McpServersTopLevel,
         Host::Zed => Schema::ZedNested,
+        Host::HermesAgent => Schema::HermesHooks,
     }
 }
 
@@ -785,7 +817,10 @@ pub(crate) fn run(args: Args) -> Result<()> {
     // TUI prompts with defaults in parens. --all / named-host mode
     // bootstraps silently with defaults (idempotent if already set up).
     let interactive_global = !args.all && args.hosts.is_empty();
-    if !args.dry_run {
+    let needs_global_setup = selected
+        .iter()
+        .any(|h| *h != Host::HermesAgent || !args.no_hooks);
+    if !args.dry_run && needs_global_setup {
         setup_global(interactive_global)?;
     }
 
@@ -795,31 +830,35 @@ pub(crate) fn run(args: Args) -> Result<()> {
         let mut components: Vec<String> = Vec::new();
         let mut any_ok = false;
 
-        match do_wire(host, &target, &stamp, args.dry_run) {
-            Ok(WireOutcome::Wrote) => {
-                println!("  ok {}  wired -> {}", host.display(), target.display());
-                components.push("mcp".to_string());
-                any_ok = true;
+        if host != Host::HermesAgent {
+            match do_wire(host, &target, &stamp, args.dry_run) {
+                Ok(WireOutcome::Wrote) => {
+                    println!("  ok {}  wired -> {}", host.display(), target.display());
+                    components.push("mcp".to_string());
+                    any_ok = true;
+                }
+                Ok(WireOutcome::DryRun(diff)) => {
+                    println!("  -- {} (dry-run)\n{diff}", host.display());
+                }
+                Ok(WireOutcome::AlreadyWired) => {
+                    println!(
+                        "  =  {}  already wired -> {}",
+                        host.display(),
+                        target.display()
+                    );
+                    components.push("mcp".to_string());
+                    any_ok = true;
+                }
+                Err(e) => {
+                    println!("  !  {}  {e}", host.display());
+                }
             }
-            Ok(WireOutcome::DryRun(diff)) => {
-                println!("  -- {} (dry-run)\n{diff}", host.display());
-            }
-            Ok(WireOutcome::AlreadyWired) => {
-                println!(
-                    "  =  {}  already wired -> {}",
-                    host.display(),
-                    target.display()
-                );
-                components.push("mcp".to_string());
-                any_ok = true;
-            }
-            Err(e) => {
-                println!("  !  {}  {e}", host.display());
-            }
+        } else if args.no_hooks {
+            println!("  -  {}  hooks skipped (--no-hooks)", host.display());
         }
-        // Wire the UserPromptSubmit hook for hosts that support it
-        // unless --no-hooks was passed. Today that's Claude Code only;
-        // other hosts skip silently.
+        // Wire hooks for hosts that support them unless --no-hooks was passed.
+        // Claude Code uses its JSON UserPromptSubmit hook; Hermes Agent uses
+        // pre_llm_call/post_llm_call shell hooks in config.yaml.
         if !args.no_hooks && host.hooks_path().is_some() {
             match do_wire_hooks(host, &stamp, args.dry_run) {
                 Ok(WireOutcome::Wrote) => {
@@ -953,6 +992,10 @@ enum WireOutcome {
 }
 
 fn do_wire(host: Host, target: &Path, stamp: &str, dry_run: bool) -> Result<WireOutcome> {
+    if host == Host::HermesAgent {
+        return do_wire_hermes_hooks(stamp, dry_run);
+    }
+
     let path = host
         .config_path()
         .ok_or_else(|| anyhow!("unsupported on this OS"))?;
@@ -973,6 +1016,7 @@ fn do_wire(host: Host, target: &Path, stamp: &str, dry_run: bool) -> Result<Wire
     let changed = match schema_of(host) {
         Schema::McpServersTopLevel => set_top_level(&mut root, target),
         Schema::ZedNested => set_zed_nested(&mut root, target),
+        Schema::HermesHooks => unreachable!("Hermes Agent is wired through shell hooks"),
     };
 
     if !changed {
@@ -1335,14 +1379,446 @@ fn remove_system_prompt(existing: &str) -> String {
     existing.to_string()
 }
 
-/// Write or update the `UserPromptSubmit` hook entry for hosts that
-/// support hooks (currently Claude Code only). Audit fix G2
-/// (2026-04-25).
+/// Return Hermes' active home directory: `$HERMES_HOME` when set,
+/// otherwise the default `~/.hermes` profile.
+fn hermes_home_dir() -> Option<PathBuf> {
+    hermes_home_dir_from_env(std::env::var_os("HERMES_HOME"), dirs::home_dir())
+}
+
+fn hermes_home_dir_from_env(
+    hermes_home: Option<std::ffi::OsString>,
+    home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    hermes_home
+        .map(PathBuf::from)
+        .or_else(|| home.map(|h| h.join(".hermes")))
+}
+
+fn hermes_hook_command(script: &Path, phase: &str) -> String {
+    format!("{} {phase}", hermes_python_script_command(script))
+}
+
+#[cfg(target_os = "windows")]
+fn hermes_python_script_command(script: &Path) -> String {
+    // Hermes runs shell hook commands as strings. On Windows, prefer the
+    // Python launcher and double-quote the script path so spaces survive under
+    // both cmd.exe and PowerShell.
+    format!("py -3 {}", windows_quote_path(script))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn hermes_python_script_command(script: &Path) -> String {
+    format!("python3 {}", posix_quote_path(script))
+}
+
+#[cfg(target_os = "windows")]
+fn windows_quote_path(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    format!("\"{}\"", s.replace('"', "\\\""))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn posix_quote_path(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | ':'))
+    {
+        s.into_owned()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+}
+
+fn hermes_hook_script_content(mnem_bin: &str) -> String {
+    let escaped = mnem_bin.replace('\\', "\\\\").replace('"', "\\\"");
+    format!(
+        r##"#!/usr/bin/env python3
+# mnem Hermes Agent hook - generated by `mnem integrate hermes`.
+# pre:  mnem retrieve / mnem global retrieve -> {{"context": "..."}}
+# post: mnem add node (CLI commit equivalent) to persist the turn.
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+# Local operator override for unusual installs; hook commands are executed locally.
+MNEM_BIN = os.environ.get("MNEM_BIN", "{escaped}")
+MAX_SUMMARY_CHARS = 1200
+MAX_CONTENT_CHARS = 12000
+
+
+def _payload():
+    try:
+        raw = sys.stdin.read()
+        return json.loads(raw) if raw.strip() else {{}}
+    except Exception:
+        return {{}}
+
+
+def _extra(payload):
+    extra = payload.get("extra")
+    return extra if isinstance(extra, dict) else {{}}
+
+
+def _field(payload, name):
+    extra = _extra(payload)
+    value = extra.get(name, payload.get(name))
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return ""
+    try:
+        return json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value)
+    except Exception:
+        return ""
+
+
+def _cwd(payload):
+    raw = payload.get("cwd") or os.getcwd()
+    try:
+        return Path(raw).expanduser().resolve()
+    except Exception:
+        return Path.cwd()
+
+
+def _repo_root(cwd):
+    for path in (cwd, *cwd.parents):
+        if (path / ".mnem").is_dir():
+            return path
+    return None
+
+
+def _run(args, cwd=None, input_text=None, timeout=12):
+    try:
+        return subprocess.run(
+            [MNEM_BIN, *args],
+            cwd=str(cwd) if cwd else None,
+            input=input_text,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=timeout,
+        )
+    except Exception as exc:
+        print(f"mnem hermes hook: command failed before exit: {{exc}}", file=sys.stderr)
+        return None
+
+
+def _retrieve(query, cwd):
+    query = _clip(query, 4000)
+    repo = _repo_root(cwd)
+    if repo is not None:
+        local = _run(["retrieve", query], cwd=repo)
+        if local is not None and local.returncode == 0 and local.stdout.strip():
+            return local.stdout.strip()
+    global_result = _run(["global", "retrieve", query], cwd=cwd)
+    if global_result is not None and global_result.returncode == 0:
+        return global_result.stdout.strip()
+    return ""
+
+
+def pre(payload):
+    query = _field(payload, "user_message") or _field(payload, "prompt")
+    if not query.strip():
+        print(json.dumps({{"context": ""}}))
+        return
+    out = _retrieve(query, _cwd(payload))
+    context = f"# mnem memory\n{{out}}" if out else ""
+    print(json.dumps({{"context": context}}))
+
+
+def _clip(text, limit):
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _clean_summary_text(text):
+    return re.sub(r"[\x00-\x1f\x7f]+", " ", text).strip()
+
+
+def _safe_prop_value(value):
+    return re.sub(r"[^a-zA-Z0-9_-]", "", str(value or ""))
+
+
+def post(payload):
+    user_message = _field(payload, "user_message") or _field(payload, "prompt")
+    assistant_response = _field(payload, "assistant_response")
+    if not user_message.strip() and not assistant_response.strip():
+        return
+    cwd = _cwd(payload)
+    session_id = _safe_prop_value(payload.get("session_id") or _extra(payload).get("session_id") or "")
+    summary_user = _clean_summary_text(user_message)
+    summary_assistant = _clean_summary_text(assistant_response)
+    summary = _clip(
+        "Hermes conversation turn. "
+        + (f"User: {{summary_user}} " if summary_user else "")
+        + (f"Assistant: {{summary_assistant}}" if summary_assistant else ""),
+        MAX_SUMMARY_CHARS,
+    )
+    content = json.dumps(
+        {{
+            "source": "hermes-agent",
+            "session_id": session_id,
+            "user_message": user_message,
+            "assistant_response": assistant_response,
+        }},
+        ensure_ascii=False,
+    )
+    args = [
+        "add", "node",
+        "--label", "SessionTurn",
+        "--summary", summary,
+        "--content", "@-",
+        "--prop", "source=hermes-agent",
+        "--message", "hermes post_llm_call",
+    ]
+    if session_id:
+        args.extend(["--prop", f"session_id={{session_id}}"])
+    repo = _repo_root(cwd)
+    if repo is not None:
+        result = _run(args, cwd=repo, input_text=_clip(content, MAX_CONTENT_CHARS))
+        _warn_failed(result, "local post commit")
+    else:
+        result = _run(["global", *args], cwd=cwd, input_text=_clip(content, MAX_CONTENT_CHARS))
+        _warn_failed(result, "global post commit")
+
+
+def _warn_failed(result, label):
+    if result is None:
+        print(f"mnem hermes hook: {{label}} did not run", file=sys.stderr)
+    elif result.returncode != 0:
+        stderr = _clip(result.stderr.strip(), 500)
+        print(f"mnem hermes hook: {{label}} exited {{result.returncode}}: {{stderr}}", file=sys.stderr)
+
+
+def main():
+    phase = sys.argv[1] if len(sys.argv) > 1 else "pre"
+    payload = _payload()
+    if phase == "post":
+        post(payload)
+    else:
+        pre(payload)
+
+
+if __name__ == "__main__":
+    main()
+"##
+    )
+}
+
+fn yaml_key(key: &str) -> serde_yml::Value {
+    serde_yml::Value::String(key.to_string())
+}
+
+fn ensure_hermes_yaml_mapping(value: &mut serde_yml::Value) -> Result<&mut serde_yml::Mapping> {
+    match value {
+        serde_yml::Value::Mapping(map) => Ok(map),
+        _ => bail!("Hermes config root must be a YAML mapping"),
+    }
+}
+
+fn ensure_hermes_yaml_mapping_child<'a>(
+    parent: &'a mut serde_yml::Mapping,
+    key: &str,
+) -> Result<&'a mut serde_yml::Mapping> {
+    let yaml_key = yaml_key(key);
+    if !parent.contains_key(&yaml_key) {
+        parent.insert(
+            yaml_key.clone(),
+            serde_yml::Value::Mapping(serde_yml::Mapping::new()),
+        );
+    }
+    let value = parent.get_mut(&yaml_key).expect("inserted above");
+    match value {
+        serde_yml::Value::Mapping(map) => Ok(map),
+        _ => bail!("Hermes config `{key}` must be a YAML mapping; refusing to replace user data"),
+    }
+}
+
+fn hermes_hook_yaml_entry(script: &Path, phase: &str) -> serde_yml::Value {
+    let mut entry = serde_yml::Mapping::new();
+    entry.insert(
+        yaml_key("command"),
+        serde_yml::Value::String(hermes_hook_command(script, phase)),
+    );
+    entry.insert(yaml_key("timeout"), serde_yml::Value::Number(30.into()));
+    serde_yml::Value::Mapping(entry)
+}
+
+fn yaml_entry_command(value: &serde_yml::Value) -> Option<&str> {
+    value
+        .as_mapping()
+        .and_then(|m| m.get(yaml_key("command")))
+        .and_then(serde_yml::Value::as_str)
+}
+
+fn is_hermes_mnem_hook_entry(value: &serde_yml::Value, script: &Path) -> bool {
+    yaml_entry_command(value).is_some_and(|command| is_hermes_mnem_hook_command(command, script))
+}
+
+fn is_hermes_mnem_hook_command(command: &str, script: &Path) -> bool {
+    if command == hermes_hook_command(script, "pre")
+        || command == hermes_hook_command(script, "post")
+    {
+        return true;
+    }
+
+    let normalized_command = command.replace('\\', "/").replace(['\"', '\''], "");
+    let normalized_script = script.to_string_lossy().replace('\\', "/");
+    let parts: Vec<&str> = normalized_command.split_whitespace().collect();
+    let script_token = match parts.as_slice() {
+        ["python3" | "python", script_token, "pre" | "post"] => *script_token,
+        ["py", "-3", script_token, "pre" | "post"] => *script_token,
+        _ => return false,
+    };
+    script_token == normalized_script || script_token.ends_with("/hooks/mnem/hermes-hook.py")
+}
+
+fn set_hermes_hook_phase(root: &mut serde_yml::Value, script: &Path, phase: &str) -> Result<bool> {
+    let root_map = ensure_hermes_yaml_mapping(root)?;
+    let hooks_map = ensure_hermes_yaml_mapping_child(root_map, "hooks")?;
+    let key = yaml_key(phase);
+    let old_value = hooks_map.get(&key).cloned();
+    let mut seq = match old_value
+        .clone()
+        .unwrap_or_else(|| serde_yml::Value::Sequence(Vec::new()))
+    {
+        serde_yml::Value::Sequence(items) => items,
+        serde_yml::Value::Null => Vec::new(),
+        other => bail!(
+            "Hermes config `hooks.{phase}` must be a YAML list; refusing to reshape existing {:?} entry",
+            other
+        ),
+    };
+    seq.retain(|item| !is_hermes_mnem_hook_entry(item, script));
+    seq.push(hermes_hook_yaml_entry(
+        script,
+        if phase == "post_llm_call" {
+            "post"
+        } else {
+            "pre"
+        },
+    ));
+    let new_value = serde_yml::Value::Sequence(seq);
+    let changed = old_value.as_ref() != Some(&new_value);
+    hooks_map.insert(key, new_value);
+    Ok(changed)
+}
+
+fn set_hermes_hooks(root: &mut serde_yml::Value, script: &Path) -> Result<bool> {
+    let pre = set_hermes_hook_phase(root, script, "pre_llm_call")?;
+    let post = set_hermes_hook_phase(root, script, "post_llm_call")?;
+    Ok(pre || post)
+}
+
+fn remove_hermes_hook_phase(root: &mut serde_yml::Value, script: &Path, phase: &str) -> bool {
+    let Some(root_map) = root.as_mapping_mut() else {
+        return false;
+    };
+    let Some(hooks) = root_map.get_mut(yaml_key("hooks")) else {
+        return false;
+    };
+    let Some(hooks_map) = hooks.as_mapping_mut() else {
+        return false;
+    };
+    let key = yaml_key(phase);
+    let Some(value) = hooks_map.get_mut(&key) else {
+        return false;
+    };
+    let Some(seq) = value.as_sequence_mut() else {
+        return false;
+    };
+    let before = seq.len();
+    seq.retain(|item| !is_hermes_mnem_hook_entry(item, script));
+    let changed = seq.len() != before;
+    if seq.is_empty() {
+        hooks_map.remove(&key);
+    }
+    changed
+}
+
+fn remove_hermes_hooks(root: &mut serde_yml::Value, script: &Path) -> bool {
+    let pre = remove_hermes_hook_phase(root, script, "pre_llm_call");
+    let post = remove_hermes_hook_phase(root, script, "post_llm_call");
+    pre || post
+}
+
+fn do_wire_hermes_hooks(stamp: &str, dry_run: bool) -> Result<WireOutcome> {
+    let config_path = Host::HermesAgent
+        .config_path()
+        .ok_or_else(|| anyhow!("Hermes home directory unavailable"))?;
+    let script_path = Host::HermesAgent
+        .hooks_path()
+        .ok_or_else(|| anyhow!("Hermes hook script path unavailable"))?;
+    let existing_text = if config_path.exists() {
+        fs::read_to_string(&config_path)
+            .with_context(|| format!("reading {}", config_path.display()))?
+    } else {
+        String::new()
+    };
+    let mut root: serde_yml::Value = if existing_text.trim().is_empty() {
+        serde_yml::Value::Mapping(serde_yml::Mapping::new())
+    } else {
+        serde_yml::from_str(&existing_text)
+            .with_context(|| format!("parsing YAML {}", config_path.display()))?
+    };
+    let config_changed = set_hermes_hooks(&mut root, &script_path)?;
+    let new_text = serde_yml::to_string(&root).context("serialising Hermes config")?;
+    let script_content = hermes_hook_script_content(&resolve_mnem_command());
+    let script_changed =
+        fs::read_to_string(&script_path).ok().as_deref() != Some(script_content.as_str());
+
+    if !config_changed && !script_changed {
+        return Ok(WireOutcome::AlreadyWired);
+    }
+    if dry_run {
+        return Ok(WireOutcome::DryRun(format!(
+            "{}\n     (would write hook script {})",
+            indent(&new_text, "     "),
+            script_path.display()
+        )));
+    }
+
+    if let Some(parent) = script_path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    }
+    atomic_write(&script_path, &script_content)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&script_path)?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script_path, perms)?;
+    }
+
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    }
+    if config_path.exists() {
+        let bak = config_path.with_extension(format!(
+            "{}.bak-{stamp}",
+            config_path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("yaml")
+        ));
+        fs::copy(&config_path, &bak).with_context(|| format!("backing up to {}", bak.display()))?;
+    }
+    atomic_write(&config_path, &new_text)?;
+    Ok(WireOutcome::Wrote)
+}
+
+/// Write or update hook entries for hosts that support hooks.
+/// Claude Code gets a JSON `UserPromptSubmit` entry; Hermes Agent gets
+/// YAML `pre_llm_call` / `post_llm_call` entries plus a generated script.
 ///
-/// Idempotent: re-running replaces the existing mnem entry rather
-/// than appending, so users can safely run `integrate --with-hooks`
-/// multiple times. Other hooks in the file are preserved.
+/// Idempotent: re-running replaces the mnem-owned entry rather than appending,
+/// so users can safely run `integrate` multiple times. Other hooks survive.
 fn do_wire_hooks(host: Host, stamp: &str, dry_run: bool) -> Result<WireOutcome> {
+    if host == Host::HermesAgent {
+        return do_wire_hermes_hooks(stamp, dry_run);
+    }
     let Some(path) = host.hooks_path() else {
         // Host has no hooks support; nothing to do.
         return Ok(WireOutcome::AlreadyWired);
@@ -1478,7 +1954,83 @@ fn entry_is_mnem_hook(entry: &Value) -> bool {
         })
 }
 
+fn do_undo_hermes(dry_run: bool) -> Result<()> {
+    let config_path = Host::HermesAgent
+        .config_path()
+        .ok_or_else(|| anyhow!("Hermes home directory unavailable"))?;
+    let script_path = Host::HermesAgent
+        .hooks_path()
+        .ok_or_else(|| anyhow!("Hermes hook script path unavailable"))?;
+    let hooks_changed = if config_path.exists() {
+        let text = fs::read_to_string(&config_path)
+            .with_context(|| format!("reading {}", config_path.display()))?;
+        let mut root: serde_yml::Value = if text.trim().is_empty() {
+            serde_yml::Value::Mapping(serde_yml::Mapping::new())
+        } else {
+            serde_yml::from_str(&text)
+                .with_context(|| format!("parsing YAML {}", config_path.display()))?
+        };
+        let changed = remove_hermes_hooks(&mut root, &script_path);
+        if changed {
+            let new_text = serde_yml::to_string(&root).context("serialising Hermes config")?;
+            if dry_run {
+                println!(
+                    "  -- {} hooks (dry-run)\n{}",
+                    Host::HermesAgent.display(),
+                    indent(&new_text, "     ")
+                );
+            } else {
+                atomic_write(&config_path, &new_text)?;
+                println!("  ok {}  removed mnem hooks", Host::HermesAgent.display());
+            }
+        }
+        changed
+    } else {
+        false
+    };
+
+    let script_changed = if script_path.exists() {
+        let expected = hermes_hook_script_content(&resolve_mnem_command());
+        let existing = fs::read_to_string(&script_path)
+            .with_context(|| format!("reading {}", script_path.display()))?;
+        if existing != expected {
+            println!(
+                "  !  {}  leaving modified hook script in place ({})",
+                Host::HermesAgent.display(),
+                script_path.display()
+            );
+            false
+        } else if dry_run {
+            println!(
+                "  -- {}  would delete {}",
+                Host::HermesAgent.display(),
+                script_path.display()
+            );
+            true
+        } else {
+            fs::remove_file(&script_path)
+                .with_context(|| format!("removing {}", script_path.display()))?;
+            println!(
+                "  ok {}  deleted {}",
+                Host::HermesAgent.display(),
+                script_path.display()
+            );
+            true
+        }
+    } else {
+        false
+    };
+
+    if !hooks_changed && !script_changed {
+        println!("  -  {}  no mnem entry", Host::HermesAgent.display());
+    }
+    Ok(())
+}
+
 pub(crate) fn do_undo(host: Host, dry_run: bool) -> Result<()> {
+    if host == Host::HermesAgent {
+        return do_undo_hermes(dry_run);
+    }
     let path = match host.config_path() {
         Some(p) => p,
         None => {
@@ -1497,6 +2049,7 @@ pub(crate) fn do_undo(host: Host, dry_run: bool) -> Result<()> {
         let changed = match schema_of(host) {
             Schema::McpServersTopLevel => remove_top_level(&mut root),
             Schema::ZedNested => remove_zed_nested(&mut root),
+            Schema::HermesHooks => unreachable!("Hermes Agent is unwired through shell hooks"),
         };
         if changed {
             let new_text = serde_json::to_string_pretty(&root).context("serialising config")?;
@@ -1615,6 +2168,40 @@ pub(crate) fn do_undo(host: Host, dry_run: bool) -> Result<()> {
 
 fn do_check() -> Result<()> {
     for host in Host::all() {
+        if *host == Host::HermesAgent {
+            let path = host.config_path();
+            let script = host.hooks_path();
+            let line = match (path, script) {
+                (Some(path), Some(script)) if path.exists() => {
+                    let s = fs::read_to_string(&path)?;
+                    let root: serde_yml::Value = if s.trim().is_empty() {
+                        serde_yml::Value::Mapping(serde_yml::Mapping::new())
+                    } else {
+                        serde_yml::from_str(&s)
+                            .with_context(|| format!("parsing YAML {}", path.display()))?
+                    };
+                    if hermes_config_has_hooks(&root, &script) {
+                        format!(
+                            "  ok {:<18} hooks wired ({})",
+                            host.display(),
+                            path.display()
+                        )
+                    } else {
+                        format!(
+                            "  -  {:<18} config exists, no mnem hooks ({})",
+                            host.display(),
+                            path.display()
+                        )
+                    }
+                }
+                (Some(path), _) => {
+                    format!("  -  {:<18} not wired ({})", host.display(), path.display())
+                }
+                _ => format!("  -  {:<18} unsupported on this OS", host.display()),
+            };
+            println!("{line}");
+            continue;
+        }
         let line = match host.config_path() {
             None => format!("  -  {:<18} unsupported on this OS", host.display()),
             Some(path) if !path.exists() => {
@@ -1630,6 +2217,7 @@ fn do_check() -> Result<()> {
                 let wired = match schema_of(*host) {
                     Schema::McpServersTopLevel => has_top_level(&root),
                     Schema::ZedNested => has_zed_nested(&root),
+                    Schema::HermesHooks => unreachable!("Hermes Agent check uses hook config"),
                 };
                 if wired {
                     format!("  ok {:<18} wired ({})", host.display(), path.display())
@@ -1918,6 +2506,27 @@ fn has_zed_nested(root: &Value) -> bool {
         .is_some_and(|m| m.contains_key("mnem"))
 }
 
+fn hermes_config_has_hooks(root: &serde_yml::Value, script: &Path) -> bool {
+    let Some(root_map) = root.as_mapping() else {
+        return false;
+    };
+    let Some(hooks) = root_map
+        .get(yaml_key("hooks"))
+        .and_then(serde_yml::Value::as_mapping)
+    else {
+        return false;
+    };
+    ["pre_llm_call", "post_llm_call"].iter().all(|phase| {
+        hooks
+            .get(yaml_key(phase))
+            .and_then(serde_yml::Value::as_sequence)
+            .is_some_and(|seq| {
+                seq.iter()
+                    .any(|item| is_hermes_mnem_hook_entry(item, script))
+            })
+    })
+}
+
 fn ensure_object(v: &mut Value) {
     if !v.is_object() {
         *v = Value::Object(Map::new());
@@ -1927,11 +2536,21 @@ fn ensure_object(v: &mut Value) {
 // ---------- Snippet for --show ----------
 
 fn snippet_for(host: Host, target: &Path) -> String {
+    if host == Host::HermesAgent {
+        let script = host
+            .hooks_path()
+            .unwrap_or_else(|| PathBuf::from("~/.hermes/hooks/mnem/hermes-hook.py"));
+        let mut root = serde_yml::Value::Mapping(serde_yml::Mapping::new());
+        set_hermes_hooks(&mut root, &script)
+            .expect("empty Hermes snippet root must accept generated hooks");
+        return serde_yml::to_string(&root).unwrap_or_else(|_| "<encode failure>".into());
+    }
     let v = match schema_of(host) {
         Schema::McpServersTopLevel => json!({"mcpServers": {"mnem": mnem_server_value(target)}}),
         Schema::ZedNested => {
             json!({"experimental": {"context_servers": {"mnem": zed_server_value(target)}}})
         }
+        Schema::HermesHooks => unreachable!("Hermes Agent snippet is YAML hook config"),
     };
     serde_json::to_string_pretty(&v).unwrap_or_else(|_| "<encode failure>".into())
 }
@@ -1968,16 +2587,10 @@ fn atomic_write(path: &Path, contents: &str) -> Result<()> {
     Ok(())
 }
 
-/// Number of milliseconds in one second. Named so the
-/// ms-to-seconds conversion in [`timestamp`] reads as a unit
-/// change rather than a magic divisor.
-const MILLIS_PER_SECOND: u64 = 1_000;
-
 fn timestamp() -> String {
-    let now = now_millis() / MILLIS_PER_SECOND;
-    // YYYYMMDD-HHMM pieces approximated without a date crate: we only
-    // need a monotone-ish, operator-recognisable suffix. Fall back to
-    // the raw epoch-seconds if formatting fails.
+    let now = now_millis();
+    // Millisecond precision avoids overwriting backups when integrate runs
+    // twice in the same second from scripts or repeated tests.
     format!("{now}")
 }
 
@@ -2011,6 +2624,14 @@ pub(crate) fn wired_status() -> Vec<(Host, Option<PathBuf>, bool)> {
                 .as_ref()
                 .and_then(|p| fs::read_to_string(p).ok())
                 .is_some_and(|s| {
+                    if *h == Host::HermesAgent {
+                        let root: serde_yml::Value = serde_yml::from_str(&s).unwrap_or_else(|_| {
+                            serde_yml::Value::Mapping(serde_yml::Mapping::new())
+                        });
+                        return h
+                            .hooks_path()
+                            .is_some_and(|script| hermes_config_has_hooks(&root, &script));
+                    }
                     let root: Value = if s.trim().is_empty() {
                         Value::Null
                     } else {
@@ -2019,6 +2640,7 @@ pub(crate) fn wired_status() -> Vec<(Host, Option<PathBuf>, bool)> {
                     match schema_of(*h) {
                         Schema::McpServersTopLevel => has_top_level(&root),
                         Schema::ZedNested => has_zed_nested(&root),
+                        Schema::HermesHooks => unreachable!("Hermes Agent status uses hook config"),
                     }
                 });
             (*h, path, wired)
@@ -2050,6 +2672,7 @@ mod tests {
         assert_eq!(Host::Cursor.slug(), "cursor");
         assert_eq!(Host::Continue_.slug(), "continue");
         assert_eq!(Host::Zed.slug(), "zed");
+        assert_eq!(Host::HermesAgent.slug(), "hermes");
     }
 
     #[test]
@@ -2192,6 +2815,9 @@ mod tests {
         assert_eq!(Host::parse("CLAUDE-CODE"), Some(Host::ClaudeCode));
         assert_eq!(Host::parse("gemini-cli"), Some(Host::GeminiCli));
         assert_eq!(Host::parse("gemini"), Some(Host::GeminiCli));
+        assert_eq!(Host::parse("hermes"), Some(Host::HermesAgent));
+        assert_eq!(Host::parse("hermes-agent"), Some(Host::HermesAgent));
+        assert_eq!(Host::parse("HERMES_AGENT"), Some(Host::HermesAgent));
         // G7: `claude` now resolves to ClaudeCode (the developer tool),
         // not Claude Desktop. Desktop must be addressed by its full
         // slug; this matches the developer-tool-first orientation of
@@ -2204,6 +2830,7 @@ mod tests {
         let slugs: Vec<_> = Host::all().iter().map(|h| h.slug()).collect();
         assert!(slugs.contains(&"claude-code"));
         assert!(slugs.contains(&"gemini-cli"));
+        assert!(slugs.contains(&"hermes"));
         // Pre-existing slugs survive.
         assert!(slugs.contains(&"claude-desktop"));
         assert!(slugs.contains(&"cursor"));
@@ -2223,8 +2850,9 @@ mod tests {
 
     #[test]
     fn claude_code_hooks_path_resolves() {
-        // G2: ClaudeCode is the only host with a hooks_path today.
+        // Claude Code and Hermes Agent have hook integration paths.
         assert!(Host::ClaudeCode.hooks_path().is_some());
+        assert!(Host::HermesAgent.hooks_path().is_some());
         assert!(Host::Cursor.hooks_path().is_none());
         assert!(Host::ClaudeDesktop.hooks_path().is_none());
         assert!(Host::GeminiCli.hooks_path().is_none());
@@ -2409,6 +3037,8 @@ mod tests {
         assert!(Host::Zed.system_prompt_path().is_some());
         // Claude Desktop has UI-only custom instructions - no file path.
         assert!(Host::ClaudeDesktop.system_prompt_path().is_none());
+        // Hermes uses pre/post LLM hooks and intentionally avoids system-prompt edits.
+        assert!(Host::HermesAgent.system_prompt_path().is_none());
         // Cursor gets a dedicated .mdc file, not the shared config.
         let cursor_path = Host::Cursor.system_prompt_path().unwrap();
         assert!(cursor_path.to_string_lossy().contains("mnem.mdc"));
@@ -2427,6 +3057,218 @@ mod tests {
             "hooks": [{ "type": "command", "command": "do_something_else.sh" }]
         });
         assert!(!entry_is_mnem_hook(&other));
+    }
+
+    #[test]
+    fn hermes_hooks_are_merged_idempotently_and_preserve_existing_config() {
+        let mut root = serde_yml::from_str::<serde_yml::Value>(
+            r#"
+model:
+  provider: openrouter
+hooks:
+  pre_llm_call:
+    - command: /usr/bin/other-pre
+      timeout: 5
+"#,
+        )
+        .unwrap();
+        let script = Path::new("/tmp/hermes-home/hooks/mnem/hermes-hook.py");
+
+        assert!(set_hermes_hooks(&mut root, script).unwrap());
+        assert!(!set_hermes_hooks(&mut root, script).unwrap());
+
+        let text = serde_yml::to_string(&root).unwrap();
+        assert!(
+            text.contains("provider: openrouter"),
+            "unrelated config lost: {text}"
+        );
+        assert!(
+            text.contains("/usr/bin/other-pre"),
+            "unrelated hook lost: {text}"
+        );
+        assert!(text.contains("pre_llm_call"));
+        assert!(text.contains("post_llm_call"));
+        assert_eq!(
+            text.matches("hermes-hook.py pre").count(),
+            1,
+            "duplicate pre hook: {text}"
+        );
+        assert_eq!(
+            text.matches("hermes-hook.py post").count(),
+            1,
+            "duplicate post hook: {text}"
+        );
+    }
+
+    #[test]
+    fn hermes_hook_phase_reports_no_change_when_entry_is_already_current() {
+        let script = Path::new("/tmp/hermes-home/hooks/mnem/hermes-hook.py");
+        let mut root = serde_yml::Value::Mapping(serde_yml::Mapping::new());
+
+        assert!(set_hermes_hook_phase(&mut root, script, "pre_llm_call").unwrap());
+        assert!(
+            !set_hermes_hook_phase(&mut root, script, "pre_llm_call").unwrap(),
+            "second write of an identical phase must be a true no-op"
+        );
+    }
+
+    #[test]
+    fn hermes_agent_has_hook_schema_not_mcp_schema() {
+        assert!(matches!(schema_of(Host::HermesAgent), Schema::HermesHooks));
+    }
+
+    #[test]
+    fn snippet_for_hermes_emits_yaml_hooks_not_mcp_json() {
+        let snippet = snippet_for(Host::HermesAgent, Path::new("/r"));
+        let root: serde_yml::Value = serde_yml::from_str(&snippet).expect("valid yaml");
+        let script = Host::HermesAgent
+            .hooks_path()
+            .unwrap_or_else(|| PathBuf::from("~/.hermes/hooks/mnem/hermes-hook.py"));
+
+        assert!(hermes_config_has_hooks(&root, &script));
+        assert!(!snippet.contains("mcpServers"));
+    }
+
+    #[test]
+    fn hermes_config_hook_detection_requires_both_phases() {
+        let script = Path::new("/tmp/hermes-home/hooks/mnem/hermes-hook.py");
+        let mut root = serde_yml::Value::Mapping(serde_yml::Mapping::new());
+
+        assert!(set_hermes_hook_phase(&mut root, script, "pre_llm_call").unwrap());
+        assert!(!hermes_config_has_hooks(&root, script));
+        assert!(set_hermes_hook_phase(&mut root, script, "post_llm_call").unwrap());
+        assert!(hermes_config_has_hooks(&root, script));
+    }
+
+    #[test]
+    fn hermes_home_dir_prefers_explicit_env_value() {
+        let explicit = std::ffi::OsString::from("/tmp/custom-hermes-home");
+        let fallback = PathBuf::from("/tmp/default-home");
+
+        assert_eq!(
+            hermes_home_dir_from_env(Some(explicit), Some(fallback)),
+            Some(PathBuf::from("/tmp/custom-hermes-home"))
+        );
+    }
+
+    #[test]
+    fn hermes_home_dir_defaults_to_dot_hermes_under_home() {
+        assert_eq!(
+            hermes_home_dir_from_env(None, Some(PathBuf::from("/tmp/home"))),
+            Some(PathBuf::from("/tmp/home/.hermes"))
+        );
+    }
+
+    #[test]
+    fn hermes_hook_removal_removes_only_mnem_entries() {
+        let script = Path::new("/tmp/hermes-home/hooks/mnem/hermes-hook.py");
+        let mut root = serde_yml::from_str::<serde_yml::Value>(
+            r#"
+hooks:
+  pre_llm_call:
+    - command: /usr/bin/other-pre
+      timeout: 5
+"#,
+        )
+        .unwrap();
+        assert!(set_hermes_hooks(&mut root, script).unwrap());
+        assert!(remove_hermes_hooks(&mut root, script));
+        assert!(!remove_hermes_hooks(&mut root, script));
+
+        let text = serde_yml::to_string(&root).unwrap();
+        assert!(
+            text.contains("/usr/bin/other-pre"),
+            "unrelated hook lost: {text}"
+        );
+        assert!(
+            !text.contains("hermes-hook.py"),
+            "mnem hook survived: {text}"
+        );
+    }
+
+    #[test]
+    fn hermes_hook_match_does_not_claim_wrappers_or_debug_commands() {
+        let script = Path::new("/tmp/hermes-home/hooks/mnem/hermes-hook.py");
+        assert!(!is_hermes_mnem_hook_command(
+            "echo checking hooks/mnem/hermes-hook.py before continuing",
+            script
+        ));
+        assert!(!is_hermes_mnem_hook_command(
+            "python3 /tmp/wrapper.py hooks/mnem/hermes-hook.py pre",
+            script
+        ));
+        assert!(is_hermes_mnem_hook_command(
+            "python3 /tmp/hermes-home/hooks/mnem/hermes-hook.py pre",
+            script
+        ));
+        assert!(is_hermes_mnem_hook_command(
+            "py -3 C:\\Users\\me\\.hermes\\hooks\\mnem\\hermes-hook.py post",
+            Path::new("C:/Users/me/.hermes/hooks/mnem/hermes-hook.py")
+        ));
+    }
+
+    #[test]
+    fn hermes_hook_phase_refuses_to_reshape_scalar_user_hook() {
+        let script = Path::new("/tmp/hermes-home/hooks/mnem/hermes-hook.py");
+        let mut root = serde_yml::from_str::<serde_yml::Value>(
+            r#"
+hooks:
+  pre_llm_call:
+    command: /usr/bin/other-pre
+    timeout: 5
+"#,
+        )
+        .unwrap();
+        let err = set_hermes_hook_phase(&mut root, script, "pre_llm_call").unwrap_err();
+        assert!(err.to_string().contains("must be a YAML list"));
+        let text = serde_yml::to_string(&root).unwrap();
+        assert!(text.contains("/usr/bin/other-pre"));
+    }
+
+    #[test]
+    fn hermes_hook_phase_refuses_to_replace_non_mapping_hooks_root() {
+        let script = Path::new("/tmp/hermes-home/hooks/mnem/hermes-hook.py");
+        let mut root = serde_yml::from_str::<serde_yml::Value>("hooks: []\n").unwrap();
+        let err = set_hermes_hook_phase(&mut root, script, "pre_llm_call").unwrap_err();
+        assert!(err.to_string().contains("must be a YAML mapping"));
+        let text = serde_yml::to_string(&root).unwrap();
+        assert!(text.contains("hooks: []"));
+    }
+
+    #[test]
+    fn hermes_hook_script_is_valid_python_syntax() {
+        let script = hermes_hook_script_content("mnem");
+        let status = std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import ast,sys; ast.parse(sys.stdin.read())")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write;
+                child.stdin.as_mut().unwrap().write_all(script.as_bytes())?;
+                child.wait()
+            })
+            .expect("python3 must parse generated hook script");
+        assert!(
+            status.success(),
+            "generated hook script must parse as Python"
+        );
+    }
+
+    #[test]
+    fn hermes_hook_script_uses_hook_json_fields_and_local_then_global_retrieval() {
+        let script = hermes_hook_script_content("mnem");
+        assert!(script.contains("payload.get(\"extra\")"));
+        assert!(script.contains("extra.get(name, payload.get(name))"));
+        assert!(script.contains("_field(payload, \"user_message\")"));
+        assert!(script.contains("_field(payload, \"assistant_response\")"));
+        assert!(script.contains("[\"retrieve\", query]"));
+        assert!(script.contains("[\"global\", \"retrieve\", query]"));
+        assert!(script.contains("\"add\", \"node\""));
+        assert!(script.contains("encoding=\"utf-8\""));
+        assert!(script.contains("def _safe_prop_value(value):"));
+        assert!(script.contains("_safe_prop_value(payload.get"));
+        assert!(script.contains("\"context\""));
     }
 
     #[test]

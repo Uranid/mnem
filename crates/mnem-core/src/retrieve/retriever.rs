@@ -654,7 +654,7 @@ impl<'a> Retriever<'a> {
         } else {
             // Filter-only mode: the structured query already returns
             // hits that carry the decoded `Node`, so reuse those.
-            let mut q = repo.query();
+            let mut q = repo.query().include_tombstoned(include_tombstoned);
             if let Some(lbl) = &label {
                 q = q.label(lbl.clone());
             }

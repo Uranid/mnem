@@ -210,6 +210,16 @@ pub(super) fn parse_prop(arg: &str) -> Result<(String, Ipld)> {
     Ok((k.to_string(), value))
 }
 
+pub(super) fn node_label_from_where(name: &str, value: &Ipld) -> Result<Option<String>> {
+    if !matches!(name, "ntype" | "label") {
+        return Ok(None);
+    }
+    let Ipld::String(label) = value else {
+        bail!("--where {name}=... expects a string label value");
+    };
+    Ok(Some(label.clone()))
+}
+
 pub(super) fn ipld_preview(v: &Ipld) -> String {
     match v {
         Ipld::Null => "null".into(),

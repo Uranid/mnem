@@ -1,5 +1,7 @@
 use super::*;
 
+use mnem_core::prolly::Cursor;
+
 pub(crate) fn run(override_path: Option<&Path>) -> Result<()> {
     let (_dir, r, bs, _ohs) = repo::open_all(override_path)?;
     let commit = r.head_commit();
@@ -10,6 +12,17 @@ pub(crate) fn run(override_path: Option<&Path>) -> Result<()> {
         .map(|i| i.nodes_by_label.keys().cloned().collect())
         .unwrap_or_default();
     let label_count = label_names.len();
+    let edge_count = if let Some(commit) = commit {
+        let cursor = Cursor::new(&*bs, &commit.edges)?;
+        let mut count = 0_usize;
+        for entry in cursor {
+            let _ = entry?;
+            count += 1;
+        }
+        count
+    } else {
+        0
+    };
     let head_commit_str = r
         .view()
         .heads
@@ -30,17 +43,16 @@ pub(crate) fn run(override_path: Option<&Path>) -> Result<()> {
         None => "<none>".into(),
     };
 
-    // One-line machine-friendly form (unchanged shape), followed by
-    // a human summary that tells the user whether the repo actually
-    // contains anything. Per-label node counts require walking a
-    // Prolly subtree per label; skip here and surface in a future
-    // `mnem stats --verbose` instead.
+    // One-line machine-friendly form, followed by a human summary that tells the
+    // user whether the repo actually contains anything. Per-label node counts
+    // require walking a Prolly subtree per label; skip here and surface in a
+    // future `mnem stats --verbose` instead.
     println!(
-        "op={} commit={} content={} refs={} labels={}",
+        "op={} commit={} content={} edges={} labels={}",
         r.op_id(),
         head_commit_str,
         content_cid_str,
-        r.view().refs.len(),
+        edge_count,
         label_count
     );
     if label_count == 0 {

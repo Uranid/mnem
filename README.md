@@ -403,7 +403,7 @@ Five minutes from zero. See [`docs/src/quickstart.md`](docs/src/quickstart.md) f
 
 > **Claude Code, Cursor, and similar tools must already be installed.** `mnem integrate` detects which are present - run `mnem integrate --check` first to see what's detected.
 
-One command wires three things into your agent host: the **MCP server** (gives the agent access to mnem tools like `mnem_retrieve` and `mnem_commit`), the **auto-retrieval trigger** (runs `mnem retrieve` automatically before each of your messages so relevant memory is ready before the agent replies; Claude Code only - implemented as a "UserPromptSubmit hook"), and the **mnem system prompt** (tells the agent how to use mnem). Restart the host (close and reopen Claude Code or Cursor as an application, not just the terminal) and the agent starts using mnem automatically. To verify: start a new session and send any message - you should see a line like `mnem: 3 item(s): [...]` appear as a system message at the top of the conversation, injected before Claude speaks. `0 item(s)` is fine - it means the graph is empty; the integration is working.
+One command wires mnem into your agent host. For MCP-aware hosts it adds the **MCP server** (tools like `mnem_retrieve` and `mnem_commit`), an **auto-retrieval trigger** where the host supports hooks, and the **mnem system prompt** where the host has a rules file. Hermes Agent is hook-only by design: `mnem integrate hermes` writes Hermes `pre_llm_call` / `post_llm_call` hooks that add retrieved memory as a +1 context layer and persist the turn, without modifying Hermes' system prompt. Restart the host (close and reopen Claude Code, Cursor, Hermes, etc. as an application, not just the terminal) and the agent starts using mnem automatically. To verify: start a new session and send any message - you should see retrieved mnem context injected before the model answers. `0 item(s)` is fine - it means the graph is empty; the integration is working.
 
 > **Troubleshooting:** Not seeing `mnem: N item(s)`?
 > - Make sure you closed and reopened the **application** (not just the terminal) - this means close the Claude Code or Cursor window entirely and relaunch it
@@ -414,6 +414,7 @@ One command wires three things into your agent host: the **MCP server** (gives t
 ```bash
 mnem integrate                           # interactive: detect installed hosts and prompt
 mnem integrate claude-code               # wire a specific host, skip interactive detection
+mnem integrate hermes                    # wire Hermes pre/post LLM hooks only
 mnem integrate --all                     # wire every detected host without prompting
 
 mnem integrate --check                   # report wired state for all hosts; nothing changes
@@ -426,9 +427,9 @@ mnem integrate --target-repo ~/notes     # point the MCP server at a specific gr
 ```
 
 **What gets wired:**
-- **MCP server** (`mcpServers.mnem`) - the agent gets full mnem tool access via `mnem mcp --repo <graph>`; defaults to the global graph (`~/.mnemglobal/.mnem`)
-- **Auto-retrieval trigger** (Claude Code only; implemented as a "UserPromptSubmit hook") - runs `mnem retrieve` before each of your messages so relevant memory is injected into context before the model ever sees your prompt
-- **System prompt** - mnem usage instructions injected into the host's project-rules file
+- **MCP server** (`mcpServers.mnem`) - MCP-aware hosts get full mnem tool access via `mnem mcp --repo <graph>`; defaults to the global graph (`~/.mnemglobal/.mnem`)
+- **Auto-retrieval trigger** - Claude Code gets a `UserPromptSubmit` hook; Hermes Agent gets `pre_llm_call` / `post_llm_call` shell hooks in `$HERMES_HOME/config.yaml` (defaulting to `~/.hermes/config.yaml` when `$HERMES_HOME` is unset). Both retrieve from the local graph first and fall back to the global graph.
+- **System prompt** - mnem usage instructions injected into hosts with project-rules files. Hermes is deliberately excluded because its hook contract is designed for +1 user-context enrichment rather than system-prompt edits.
 
 The hook always queries your project's `.mnem/` first (walking up from the current directory), then falls back to `mnem global retrieve` automatically. The hook and system prompt behave the same regardless of which default knowledge graph you choose during setup. Use `--target-repo` only if you want the MCP server to point somewhere other than the global graph.
 
@@ -439,6 +440,7 @@ Auto-detects and configures:
 - Continue
 - Zed
 - Gemini CLI
+- Hermes Agent (hook-only: `pre_llm_call` / `post_llm_call`)
 
 Any other MCP-aware host works via a hand-edited `mcpServers` entry pointing at `mnem mcp --repo <path>` - see [`docs/src/mcp.md`](docs/src/mcp.md).
 

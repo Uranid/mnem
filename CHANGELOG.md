@@ -2,6 +2,26 @@
 
 All notable changes to mnem.
 
+## Unreleased
+
+### CLI
+
+- `mnem stats` now reports the real Prolly edge count as `edges=...` instead
+  of printing that value under the old `refs=` label.
+- `mnem retrieve --no-vector` uses deterministic text relevance ordering for
+  text-only matches rather than UUID ordering.
+- `mnem query` / `mnem retrieve --where ntype=...` and `label=...` treat those
+  keys as node-label filters. Non-string label values now return an error
+  instead of an empty result.
+- `mnem log --json` includes an additive `time` field.
+- `mnem blame` includes a `relation` column, widening the human table output.
+
+### Integrations
+
+- Hermes Agent hook integration refuses to reshape scalar hook entries or
+  non-mapping `hooks:` config, avoids deleting modified generated hook scripts,
+  and surfaces malformed Hermes YAML during `mnem integrate --check`.
+
 ## 0.1.0 - 2026-04-27
 
 Initial public release. Versioned, mergeable, content-addressed knowledge
@@ -40,7 +60,8 @@ graph for AI agent memory. Local-first, Apache-2.0.
 ### Integrations
 
 - `mnem integrate` interactive wizard auto-detects and configures:
-  Claude Desktop, Claude Code, Cursor, Continue, Zed, Codex, Gemini CLI.
+  Claude Desktop, Claude Code, Cursor, Continue, Zed, Codex, Gemini CLI,
+  and Hermes Agent (pre/post LLM hooks).
 
 ### Distribution
 
