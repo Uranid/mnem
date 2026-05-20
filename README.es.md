@@ -1046,7 +1046,9 @@ Ejemplo de `mnem_commit_relation` - enlaza dos entidades en una sola llamada:
 
 <hr>
 
-## API de Python (mnem-py) - recuperación vectorial densa (v0.1.0)
+## API de Python (mnem-py)
+
+*Recuperación vectorial densa (v0.1.0).*
 
 > **Nombres de paquetes:** `pip install mnem-py` (nombre del paquete en PyPI) · `import pymnem` (nombre de importación en Python). Son dos nombres diferentes para la misma biblioteca. `mnem-cli` (la herramienta CLI) y `mnem-py` (esta biblioteca de Python) son paquetes separados.
 

@@ -1,30 +1,86 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 435" role="img" aria-label="mnem banner">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 465" role="img" aria-label="mnem banner">
   <title>mnem - Git for AI Agent Knowledge</title>
 
   <defs>
+    <!-- Base teal gradient (kept from the prior banner). -->
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%"  stop-color="#b4e6d7"/>
       <stop offset="100%" stop-color="#3cc3a0"/>
     </linearGradient>
+
+    <!-- Rust gradient for the logo corner nodes. -->
     <linearGradient id="rustNode" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%"  stop-color="#e07a3a"/>
       <stop offset="100%" stop-color="#c25620"/>
     </linearGradient>
+
+    <!-- Mesh-gradient blobs, layered to add organic colour depth a-la
+         Linear / Vercel / Stripe hero backgrounds. Each blob is a soft
+         radial fading to transparent; they overlap the base gradient
+         instead of replacing it. -->
+    <radialGradient id="meshWarm" cx="0.18" cy="0.22" r="0.55">
+      <stop offset="0%"  stop-color="#fff5e6" stop-opacity="0.55"/>
+      <stop offset="60%" stop-color="#fff5e6" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#fff5e6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="meshDeep" cx="0.85" cy="0.78" r="0.55">
+      <stop offset="0%"  stop-color="#1a7a62" stop-opacity="0.50"/>
+      <stop offset="60%" stop-color="#1a7a62" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#1a7a62" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="meshMint" cx="0.92" cy="0.12" r="0.40">
+      <stop offset="0%"  stop-color="#e8faf2" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#e8faf2" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Soft halo behind the centred logo so the diamond reads as
+         lit-from-behind, lifting it off the bg without any decorative
+         clutter. -->
+    <radialGradient id="logoHalo" cx="0.5" cy="0.42" r="0.32">
+      <stop offset="0%"  stop-color="#ffffff" stop-opacity="0.30"/>
+      <stop offset="55%" stop-color="#ffffff" stop-opacity="0.07"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Faint grid kept for subtle texture; opacity dialled down so the
+         mesh and contour lines own the visual rhythm. -->
     <pattern id="grid" x="0" y="0" width="60" height="60" patternUnits="userSpaceOnUse">
-      <path d="M 60 0 L 0 0 0 60" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      <path d="M 60 0 L 0 0 0 60" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
     </pattern>
+
     <clipPath id="frame">
-      <rect x="0" y="0" width="1200" height="435" rx="28" ry="28"/>
+      <rect x="0" y="0" width="1200" height="465" rx="28" ry="28"/>
     </clipPath>
   </defs>
 
   <g clip-path="url(#frame)">
-    <rect width="1200" height="435" fill="url(#bg)"/>
-    <rect width="1200" height="435" fill="url(#grid)"/>
+    <!-- Layered mesh background: base gradient + three radial blobs + grid. -->
+    <rect width="1200" height="465" fill="url(#bg)"/>
+    <rect width="1200" height="465" fill="url(#meshWarm)"/>
+    <rect width="1200" height="465" fill="url(#meshDeep)"/>
+    <rect width="1200" height="465" fill="url(#meshMint)"/>
+    <rect width="1200" height="465" fill="url(#grid)"/>
 
-    <!-- Diamond logo, centered. Same construction as assets/logo/mnem-logo.svg
-         (slate edges, teal accent stroke at 0.28 opacity, rust gradient nodes).
-         Scale 1.1 -> 282px visible. (1200 - 282) / 2 = 459 px x offset. -->
+    <!-- Topographic wave contours. Five sinusoidal-ish curves with bigger
+         amplitudes and stronger opacity for a clear "memory as terrain"
+         feel. Waves are allowed to cross behind the logo (the opaque
+         diamond edges visually break the wave for a layered look) but
+         are kept out of the wordmark zone (y=325..403) so the text stays
+         clean. Cream-white so they read as light on teal. -->
+    <g fill="none" stroke="#fff5e6" stroke-linecap="round" aria-hidden="true">
+      <path d="M -50 30  C 100 70, 280 -10, 450 35  S 780 80, 950 20   S 1180 65, 1260 30"  stroke-opacity="0.30" stroke-width="1.6"/>
+      <path d="M -50 95  C 150 130, 320 50, 520 100 S 820 145, 1000 80 S 1180 115, 1260 95"  stroke-opacity="0.26" stroke-width="1.5"/>
+      <path d="M -50 175 C 180 215, 400 130, 600 175 S 980 220, 1180 160 S 1260 180, 1260 170" stroke-opacity="0.22" stroke-width="1.7"/>
+      <path d="M -50 260 C 140 295, 340 215, 560 255 S 940 295, 1140 230 S 1260 265, 1260 255" stroke-opacity="0.28" stroke-width="1.4"/>
+      <path d="M -50 430 C 200 460, 440 410, 680 440 S 1060 460, 1260 425" stroke-opacity="0.24" stroke-width="1.5"/>
+    </g>
+
+    <!-- Halo behind the logo. Centred near the logo midpoint so the
+         diamond catches a soft backlight glow. -->
+    <rect width="1200" height="465" fill="url(#logoHalo)"/>
+
+    <!-- Diamond logo, centred. Scale 1.1 -> 282 px visible.
+         (1200 - 282) / 2 = 459 px x offset. -->
     <g transform="translate(459,25) scale(1.1)">
       <g stroke="#1f2a36" stroke-width="20" stroke-linecap="butt" fill="none">
         <line x1="128" y1="48"  x2="48"  y2="128"/>
@@ -53,9 +109,7 @@
   </g>
 
   <!-- Aesthetic inner frame: subtle white hairline just inside the rounded
-       edge, gives the card a soft highlight rim without competing with the
-       glyph or wordmark. Drawn outside the clip so it sits exactly on the
-       boundary. -->
-  <rect x="0.5" y="0.5" width="1199" height="434" rx="27.5" ry="27.5"
+       edge, gives the card a soft highlight rim. -->
+  <rect x="0.5" y="0.5" width="1199" height="464" rx="27.5" ry="27.5"
         fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1"/>
 </svg>

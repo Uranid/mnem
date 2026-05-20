@@ -1049,7 +1049,9 @@ Full reference: [`docs/src/mcp.md`](docs/src/mcp.md).
 
 <hr>
 
-## Python API (mnem-py) - dense vector retrieval (v0.1.0)
+## Python API (mnem-py)
+
+*Dense vector retrieval (v0.1.0).*
 
 > **Package names:** `pip install mnem-py` (PyPI package name) · `import pymnem` (Python import name). These are two different names for the same library. `mnem-cli` (the CLI tool) and `mnem-py` (this Python library) are separate packages.
 

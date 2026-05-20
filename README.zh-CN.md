@@ -1047,7 +1047,9 @@ mnem -R ~/notes retrieve "query"
 
 <hr>
 
-## Python API (mnem-py) - 密集向量检索（v0.1.0）
+## Python API (mnem-py)
+
+*密集向量检索（v0.1.0）。*
 
 > **包名说明：** `pip install mnem-py`（PyPI 包名）· `import pymnem`（Python 导入名）。这是同一个库的两个不同名称。`mnem-cli`（CLI 工具）和 `mnem-py`（本 Python 库）是独立的包。
 
