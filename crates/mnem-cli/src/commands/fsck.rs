@@ -89,7 +89,7 @@ fn check_block(
 
     let bytes = match bytes {
         Some(b) => b,
-        None => return Err(format!("missing")),
+        None => return Err("missing".to_string()),
     };
 
     // Recompute and compare. `recompute_cid` returns `None` for unknown

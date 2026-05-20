@@ -93,7 +93,7 @@ fn run_get(override_path: Option<&Path>, args: GetArgs) -> Result<()> {
         .collect();
 
     // Print vector to stdout (space-separated).
-    let line: Vec<String> = floats.iter().map(|f| f.to_string()).collect();
+    let line: Vec<String> = floats.iter().map(ToString::to_string).collect();
     println!("{}", line.join(" "));
 
     // Print metadata to stderr.

@@ -345,7 +345,7 @@ fn run_continue(data_dir: &Path, override_path: Option<&Path>) -> Result<()> {
     let mut unresolved_indices: Vec<usize> = Vec::new();
     for (i, c) in mc.conflicts.iter().enumerate() {
         match c.resolution.as_deref() {
-            Some("ours") | Some("theirs") => {}
+            Some("ours" | "theirs") => {}
             Some(other) => bail!(
                 "conflict #{} has unrecognised resolution {:?}. \
                  Set `\"resolution\"` to `\"ours\"` or `\"theirs\"` \
@@ -365,7 +365,7 @@ fn run_continue(data_dir: &Path, override_path: Option<&Path>) -> Result<()> {
             unresolved_indices.len(),
             unresolved_indices
                 .iter()
-                .map(|n| n.to_string())
+                .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(", "),
         );

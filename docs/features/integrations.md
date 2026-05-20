@@ -8,10 +8,13 @@ The primary agent interface. `mnem integrate` wires the MCP server into your age
 
 ```bash
 mnem integrate                  # auto-detect and configure all installed hosts
-mnem integrate claude-code      # wire a specific host
+mnem integrate claude-code      # wire a specific MCP host
+mnem integrate hermes           # wire Hermes Agent pre/post LLM hooks
 ```
 
-Supported hosts: Claude Code, Claude Desktop, Cursor, Continue, Zed, Gemini CLI. Any other MCP-aware host works via a manual `mcpServers` entry.
+Supported hosts: Claude Code, Claude Desktop, Cursor, Continue, Zed, Gemini CLI, and Hermes Agent. Any other MCP-aware host works via a manual `mcpServers` entry.
+
+Hermes Agent support is intentionally hook-only: `mnem integrate hermes` writes `$HERMES_HOME/config.yaml` shell hooks plus `$HERMES_HOME/hooks/mnem/hermes-hook.py`. If `$HERMES_HOME` is unset, mnem uses Hermes' default profile directory: `~/.hermes`. `pre_llm_call` retrieves local project memory (walking up to find `.mnem/`) and falls back to `mnem global retrieve`; `post_llm_call` commits the turn back into local mnem or the global graph. This keeps mnem as a +1 memory layer without editing Hermes' system prompt. The YAML writer preserves all config values but does not preserve comments; a timestamped `.bak-*` file is written before changes so annotated configs can be recovered if needed.
 
 The MCP server exposes 22 native tools prefixed `mnem_` - retrieve, commit, ingest, traverse, tombstone, global graph access, and more. Full reference: [`docs/src/mcp.md`](../src/mcp.md).
 

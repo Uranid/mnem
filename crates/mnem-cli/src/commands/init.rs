@@ -176,7 +176,7 @@ fn seed_anchor_node(repo: &ReadonlyRepo, _data_dir: &std::path::Path) {
     match tx.add_node(&node) {
         Ok(_) => {}
         Err(_) => return,
-    };
+    }
 
     let opts = CommitOptions::new("mnem init", "seed anchor node")
         .with_time_micros(ANCHOR_TIME_MICROS)

@@ -188,9 +188,9 @@ impl Ingester {
             .and_then(|s| s.to_str())
             .map(str::to_ascii_lowercase);
         match ext.as_deref() {
-            Some("md") | Some("markdown") => SourceKind::Markdown,
+            Some("md" | "markdown") => SourceKind::Markdown,
             Some("pdf") => SourceKind::Pdf,
-            Some("json") | Some("jsonl") => SourceKind::Conversation,
+            Some("json" | "jsonl") => SourceKind::Conversation,
             Some(e) => {
                 if let Some(lang) = CodeLanguage::from_extension(e) {
                     return SourceKind::Code(lang);

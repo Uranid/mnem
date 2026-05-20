@@ -251,7 +251,7 @@ pub fn app_with_options(repo_dir: &Path, opts: AppOptions) -> Result<Router> {
     let push_token = opts
         .push_token
         .clone()
-        .or_else(|| AppState::resolve_push_token_from_env());
+        .or_else(AppState::resolve_push_token_from_env);
     if push_token.is_some() {
         tracing::info!(
             "mnem http: MNEM_HTTP_PUSH_TOKEN configured; /remote/v1/push-blocks + /remote/v1/advance-head enabled."

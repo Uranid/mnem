@@ -709,7 +709,7 @@ impl Transaction {
         // by commit. A node is "visible" if it is in `new_nodes` AND NOT
         // in `removed_nodes`, OR in the base commit's Prolly tree AND NOT
         // in `removed_nodes`.
-        for (_edge_id, edge_cid) in &new_edges {
+        for edge_cid in new_edges.values() {
             // Decode the edge from the blockstore to retrieve src/dst.
             let edge: Edge = super::readonly::decode_from_store(&*base.blockstore, edge_cid)?;
             for (endpoint, role) in [(edge.src, "src"), (edge.dst, "dst")] {

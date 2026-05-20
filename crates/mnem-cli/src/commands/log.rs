@@ -22,6 +22,7 @@ use super::*;
 #[derive(Serialize)]
 struct LogRecord<'a> {
     cid: String,
+    time: u64,
     timestamp: String,
     author: &'a str,
     description: &'a str,
@@ -126,6 +127,7 @@ fn write_human_record(w: &mut impl Write, cid: &mnem_core::id::Cid, op: &Operati
 fn write_json_record(w: &mut impl Write, cid: &mnem_core::id::Cid, op: &Operation) -> Result<()> {
     let record = LogRecord {
         cid: cid.to_string(),
+        time: op.time,
         timestamp: micros_to_rfc3339(op.time),
         author: &op.author,
         description: &op.description,

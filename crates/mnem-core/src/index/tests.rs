@@ -81,6 +81,52 @@ fn prop_eq_index_point_lookup() {
 }
 
 #[test]
+fn query_execute_filters_tombstones_in_all_scan_paths() {
+    let (bs, ohs) = stores();
+    let repo = ReadonlyRepo::init(bs, ohs).unwrap();
+    let mut tx = repo.start_transaction();
+    let visible =
+        Node::new(NodeId::new_v7(), "Person").with_prop("name", Ipld::String("Visible".into()));
+    let hidden =
+        Node::new(NodeId::new_v7(), "Person").with_prop("name", Ipld::String("Hidden".into()));
+    tx.add_node(&visible).unwrap();
+    tx.add_node(&hidden).unwrap();
+    let repo = tx.commit("t", "seed").unwrap();
+
+    let mut tx = repo.start_transaction();
+    tx.tombstone_node(hidden.id, "test tombstone").unwrap();
+    let repo = tx.commit("t", "tombstone hidden").unwrap();
+
+    let point_hits = Query::new(&repo)
+        .label("Person")
+        .where_prop("name", PropPredicate::Eq(Ipld::String("Hidden".into())))
+        .execute()
+        .unwrap();
+    assert!(point_hits.is_empty(), "point lookup leaked tombstone");
+
+    let label_hits = Query::new(&repo).label("Person").execute().unwrap();
+    assert_eq!(label_hits.len(), 1, "label cursor leaked tombstone");
+    assert_eq!(label_hits[0].node.id, visible.id);
+
+    let streaming_hits = Query::new(&repo).execute().unwrap();
+    assert!(
+        streaming_hits.iter().all(|hit| hit.node.id != hidden.id),
+        "streaming fallback leaked tombstone"
+    );
+    assert!(streaming_hits.iter().any(|hit| hit.node.id == visible.id));
+
+    let included_hits = Query::new(&repo)
+        .label("Person")
+        .include_tombstoned(true)
+        .execute()
+        .unwrap();
+    assert!(
+        included_hits.iter().any(|hit| hit.node.id == hidden.id),
+        "include_tombstoned(true) should surface tombstoned nodes"
+    );
+}
+
+#[test]
 fn outgoing_edges_are_returned_when_requested() {
     let (bs, ohs) = stores();
     let repo = ReadonlyRepo::init(bs, ohs).unwrap();

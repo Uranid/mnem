@@ -87,8 +87,10 @@ fn compute_first_writers(
         .first()
         .map_or_else(|| "<no-head>".into(), ToString::to_string);
 
-    let mut first_writer: HashMap<EdgeId, String> =
-        edges.iter().map(|e| (e.id, current_commit.clone())).collect();
+    let mut first_writer: HashMap<EdgeId, String> = edges
+        .iter()
+        .map(|e| (e.id, current_commit.clone()))
+        .collect();
 
     let bs = r.blockstore().clone();
     let ohs = r.op_heads_store().clone();
@@ -99,7 +101,8 @@ fn compute_first_writers(
         if !visited.insert(ancestor_op_id.clone()) {
             continue;
         }
-        let ancestor = match ReadonlyRepo::load_at(bs.clone(), ohs.clone(), ancestor_op_id.clone()) {
+        let ancestor = match ReadonlyRepo::load_at(bs.clone(), ohs.clone(), ancestor_op_id.clone())
+        {
             Ok(a) => a,
             Err(err) => {
                 eprintln!(
@@ -132,6 +135,9 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
     let (_dir, r, _bs, _ohs) = repo::open_all(override_path)?;
 
     let node_id = NodeId::parse_uuid(&args.node).context("parsing node id")?;
+    if r.lookup_node(&node_id)?.is_none() {
+        bail!("no node with id={}", args.node);
+    }
 
     let filter = args.etype.as_deref();
     let filter_slice = filter.map(|s| [s]);
@@ -148,16 +154,23 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
     if args.first_writer {
         let fw_map = compute_first_writers(&r, &node_id, filter_ref, &edges)?;
         println!(
-            "{:<36}  {:<16}  {:<36}  first_writer",
-            "edge_id", "etype", "src"
+            "{:<36}  {:<16}  {:<36}  {:<78}  first_writer",
+            "edge_id", "etype", "src", "relation"
         );
         for e in &edges {
             let fw = fw_map.get(&e.id).map(String::as_str).unwrap_or("<unknown>");
+            let relation = format!(
+                "{} -[{}]-> {}",
+                e.src.to_uuid_string(),
+                e.etype,
+                node_id.to_uuid_string()
+            );
             println!(
-                "{:<36}  {:<16}  {:<36}  {fw}",
+                "{:<36}  {:<16}  {:<36}  {:<78}  {fw}",
                 e.id.to_uuid_string(),
                 e.etype,
-                e.src.to_uuid_string()
+                e.src.to_uuid_string(),
+                relation
             );
         }
     } else {
@@ -167,15 +180,22 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
             .first()
             .map_or_else(|| "<no-head>".into(), ToString::to_string);
         println!(
-            "{:<36}  {:<16}  {:<36}  in_commit",
-            "edge_id", "etype", "src"
+            "{:<36}  {:<16}  {:<36}  {:<78}  in_commit",
+            "edge_id", "etype", "src", "relation"
         );
         for e in &edges {
+            let relation = format!(
+                "{} -[{}]-> {}",
+                e.src.to_uuid_string(),
+                e.etype,
+                node_id.to_uuid_string()
+            );
             println!(
-                "{:<36}  {:<16}  {:<36}  {head}",
+                "{:<36}  {:<16}  {:<36}  {:<78}  {head}",
                 e.id.to_uuid_string(),
                 e.etype,
-                e.src.to_uuid_string()
+                e.src.to_uuid_string(),
+                relation
             );
         }
     }
