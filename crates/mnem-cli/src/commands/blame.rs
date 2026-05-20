@@ -12,19 +12,31 @@
 //! commit FIRST wrote each back-link - is provided by `--first-writer`,
 //! which performs a BFS over the operation ancestry chain.
 //!
-//! Output columns:
+//! Output columns (default):
+//!
+//! ```text
+//! edge_id                              etype    src (node-id)        relation                                        in_commit
+//! 019ab2f1-...                        authored 019a...               <src> -[authored]-> <dst>                        01HZABC...
+//! ```
+//!
+//! With `--first-writer`:
+//!
+//! ```text
+//! edge_id                              etype    src (node-id)        relation                                        first_writer
+//! 019ab2f1-...                        authored 019a...               <src> -[authored]-> <dst>                        01HXYZ...
+//! ```
+//!
+//! With `--no-relation` (narrow output, omits the `relation` column - useful
+//! for narrow terminals and positional column-parsing scripts):
 //!
 //! ```text
 //! edge_id                              etype    src (node-id)        in_commit
 //! 019ab2f1-...                        authored 019a...               01HZABC...
 //! ```
 //!
-//! With `--first-writer`:
-//!
-//! ```text
-//! edge_id                              etype    src (node-id)        first_writer
-//! 019ab2f1-...                        authored 019a...               01HXYZ...
-//! ```
+//! When the requested node does not exist, a warning is printed to stderr and
+//! the command exits zero with an empty-edges table; pass `--strict` to make
+//! a missing node a hard error with a non-zero exit.
 //!
 //! When no incoming edges exist, prints `<no incoming edges>` and
 //! returns success.
@@ -35,6 +47,8 @@
 //! mnem blame 019b8c...
 //! mnem blame 019b8c... | awk '{print $3}' | sort -u   # distinct authors
 //! mnem blame 019b8c... --first-writer                  # per-edge first-writer commit
+//! mnem blame 019b8c... --no-relation                   # omit the relation column
+//! mnem blame 019b8c... --strict                        # exit non-zero on unknown node
 //! ```
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -49,6 +63,8 @@ Examples:
   mnem blame <node-uuid>                    # list incoming edges
   mnem blame <node-uuid> --etype authored   # only one edge-type
   mnem blame <node-uuid> --first-writer     # per-edge first-writer commit
+  mnem blame <node-uuid> --no-relation      # omit the relation column
+  mnem blame <node-uuid> --strict           # exit non-zero on unknown node
 ")]
 pub(crate) struct Args {
     /// UUID string of the destination node (dst of the incoming
@@ -62,6 +78,18 @@ pub(crate) struct Args {
     /// that edge (BUG-55). O(depth × edges) - suitable for debugging.
     #[arg(long)]
     pub first_writer: bool,
+    /// Hide the `relation` column (`<src> -[etype]-> <dst>`) to keep the
+    /// human table narrower for terminals under ~170 cols or scripts that
+    /// parse columns positionally. The remaining columns match the
+    /// pre-#30 output shape.
+    #[arg(long)]
+    pub no_relation: bool,
+    /// When the requested node does not exist, exit non-zero with a hard
+    /// error. Without this flag, the command prints a stderr warning and
+    /// exits zero with an empty-edges table (back-compat with the pre-#30
+    /// behaviour).
+    #[arg(long)]
+    pub strict: bool,
 }
 
 /// BFS over ancestor operations to find the oldest commit CID that
@@ -136,7 +164,13 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
 
     let node_id = NodeId::parse_uuid(&args.node).context("parsing node id")?;
     if r.lookup_node(&node_id)?.is_none() {
-        bail!("no node with id={}", args.node);
+        if args.strict {
+            bail!("no node with id={}", args.node);
+        }
+        eprintln!(
+            "warning: no node with id={} (use --strict to fail with a non-zero exit)",
+            args.node
+        );
     }
 
     let filter = args.etype.as_deref();
@@ -151,27 +185,47 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
         return Ok(());
     }
 
+    let show_relation = !args.no_relation;
+    let relation_for = |e: &Edge| {
+        format!(
+            "{} -[{}]-> {}",
+            e.src.to_uuid_string(),
+            e.etype,
+            node_id.to_uuid_string()
+        )
+    };
+
     if args.first_writer {
         let fw_map = compute_first_writers(&r, &node_id, filter_ref, &edges)?;
-        println!(
-            "{:<36}  {:<16}  {:<36}  {:<78}  first_writer",
-            "edge_id", "etype", "src", "relation"
-        );
+        if show_relation {
+            println!(
+                "{:<36}  {:<16}  {:<36}  {:<78}  first_writer",
+                "edge_id", "etype", "src", "relation"
+            );
+        } else {
+            println!(
+                "{:<36}  {:<16}  {:<36}  first_writer",
+                "edge_id", "etype", "src"
+            );
+        }
         for e in &edges {
             let fw = fw_map.get(&e.id).map(String::as_str).unwrap_or("<unknown>");
-            let relation = format!(
-                "{} -[{}]-> {}",
-                e.src.to_uuid_string(),
-                e.etype,
-                node_id.to_uuid_string()
-            );
-            println!(
-                "{:<36}  {:<16}  {:<36}  {:<78}  {fw}",
-                e.id.to_uuid_string(),
-                e.etype,
-                e.src.to_uuid_string(),
-                relation
-            );
+            if show_relation {
+                println!(
+                    "{:<36}  {:<16}  {:<36}  {:<78}  {fw}",
+                    e.id.to_uuid_string(),
+                    e.etype,
+                    e.src.to_uuid_string(),
+                    relation_for(e)
+                );
+            } else {
+                println!(
+                    "{:<36}  {:<16}  {:<36}  {fw}",
+                    e.id.to_uuid_string(),
+                    e.etype,
+                    e.src.to_uuid_string()
+                );
+            }
         }
     } else {
         let head = r
@@ -179,24 +233,34 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
             .heads
             .first()
             .map_or_else(|| "<no-head>".into(), ToString::to_string);
-        println!(
-            "{:<36}  {:<16}  {:<36}  {:<78}  in_commit",
-            "edge_id", "etype", "src", "relation"
-        );
-        for e in &edges {
-            let relation = format!(
-                "{} -[{}]-> {}",
-                e.src.to_uuid_string(),
-                e.etype,
-                node_id.to_uuid_string()
-            );
+        if show_relation {
             println!(
-                "{:<36}  {:<16}  {:<36}  {:<78}  {head}",
-                e.id.to_uuid_string(),
-                e.etype,
-                e.src.to_uuid_string(),
-                relation
+                "{:<36}  {:<16}  {:<36}  {:<78}  in_commit",
+                "edge_id", "etype", "src", "relation"
             );
+        } else {
+            println!(
+                "{:<36}  {:<16}  {:<36}  in_commit",
+                "edge_id", "etype", "src"
+            );
+        }
+        for e in &edges {
+            if show_relation {
+                println!(
+                    "{:<36}  {:<16}  {:<36}  {:<78}  {head}",
+                    e.id.to_uuid_string(),
+                    e.etype,
+                    e.src.to_uuid_string(),
+                    relation_for(e)
+                );
+            } else {
+                println!(
+                    "{:<36}  {:<16}  {:<36}  {head}",
+                    e.id.to_uuid_string(),
+                    e.etype,
+                    e.src.to_uuid_string()
+                );
+            }
         }
     }
     Ok(())

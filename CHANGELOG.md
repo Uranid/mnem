@@ -13,12 +13,16 @@ All notable changes to mnem.
   refs=N edges=M labels=K`. Scripts that grepped `refs=` continue to
   work unchanged; new consumers should read `edges=`. Additive, not
   breaking.
-- **BREAKING:** `mnem blame <unknown-uuid>` now exits non-zero with
-  `Error: no node with id=<uuid>`. Previously exited 0 with an empty-edges
-  table, which could not be distinguished from a node that existed with
-  zero incoming edges.
-- `mnem blame` includes a `relation` column (`src -[etype]-> dst`),
-  widening the human table output.
+- `mnem blame` adds two flags:
+  - `--no-relation` hides the new `relation` column
+    (`<src> -[etype]-> <dst>`) so the human table fits in narrower
+    terminals and matches the pre-#30 column shape for positional
+    column-parsing scripts.
+  - `--strict` exits non-zero on an unknown node id. Without the flag,
+    an unknown node prints a one-line stderr warning and exits zero
+    with an empty-edges table (back-compat with the pre-#30 behaviour).
+- `mnem blame` shows a `relation` column (`<src> -[etype]-> <dst>`) by
+  default in the human table. Pass `--no-relation` to suppress it.
 - `mnem retrieve --no-vector` uses deterministic text relevance ordering for
   text-only matches rather than UUID ordering.
 - `mnem query` / `mnem retrieve --where ntype=...` and `label=...` treat those

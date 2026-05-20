@@ -797,14 +797,39 @@ fn global_blame_no_incoming_edges() {
     );
 }
 
-/// `mnem global blame <uuid>` on a UUID that was never inserted exits non-zero.
+/// `mnem global blame <unknown-uuid>` warns to stderr and exits zero by
+/// default (back-compat: the pre-#30 shape was empty-table + exit 0); the
+/// new opt-in `--strict` flag flips the missing-node case to a hard error
+/// with a non-zero exit.
 #[test]
-fn global_blame_nonexistent_uuid_exits_nonzero() {
+fn global_blame_nonexistent_uuid_default_warns_and_succeeds() {
+    let dir = TempDir::new().unwrap();
+    init_global(dir.path());
+    let out = mnem_global(
+        dir.path(),
+        &["global", "blame", "00000000-0000-7000-8000-000000000099"],
+    )
+    .assert()
+    .success();
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+    assert!(
+        stderr.contains("warning: no node with id="),
+        "blame on unknown uuid must emit a stderr warning, got stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn global_blame_nonexistent_uuid_strict_exits_nonzero() {
     let dir = TempDir::new().unwrap();
     init_global(dir.path());
     mnem_global(
         dir.path(),
-        &["global", "blame", "00000000-0000-7000-8000-000000000099"],
+        &[
+            "global",
+            "blame",
+            "00000000-0000-7000-8000-000000000099",
+            "--strict",
+        ],
     )
     .assert()
     .failure();
