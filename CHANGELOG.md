@@ -52,6 +52,15 @@ All notable changes to mnem.
   same-second collisions when `mnem integrate hermes` runs twice in quick
   succession.
 
+### Dependencies
+
+- Replace the unmaintained `serde_yml = "0.0.12"` (the Hermes config
+  YAML writer dep) with the actively-maintained community fork
+  `serde_yaml_ng = "0.10"`. Drops the `libyml` transitive in favour of
+  `unsafe-libyaml` (the well-scrutinised C-FFI binding used by the
+  upstream `serde_yaml`). Resolves the `unmaintained` dependabot
+  advisories on `serde_yml` and `libyml`.
+
 ## 0.1.0 - 2026-04-27
 
 Initial public release. Versioned, mergeable, content-addressed knowledge

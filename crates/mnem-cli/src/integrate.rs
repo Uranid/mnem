@@ -1607,53 +1607,53 @@ if __name__ == "__main__":
     )
 }
 
-fn yaml_key(key: &str) -> serde_yml::Value {
-    serde_yml::Value::String(key.to_string())
+fn yaml_key(key: &str) -> serde_yaml_ng::Value {
+    serde_yaml_ng::Value::String(key.to_string())
 }
 
-fn ensure_hermes_yaml_mapping(value: &mut serde_yml::Value) -> Result<&mut serde_yml::Mapping> {
+fn ensure_hermes_yaml_mapping(value: &mut serde_yaml_ng::Value) -> Result<&mut serde_yaml_ng::Mapping> {
     match value {
-        serde_yml::Value::Mapping(map) => Ok(map),
+        serde_yaml_ng::Value::Mapping(map) => Ok(map),
         _ => bail!("Hermes config root must be a YAML mapping"),
     }
 }
 
 fn ensure_hermes_yaml_mapping_child<'a>(
-    parent: &'a mut serde_yml::Mapping,
+    parent: &'a mut serde_yaml_ng::Mapping,
     key: &str,
-) -> Result<&'a mut serde_yml::Mapping> {
+) -> Result<&'a mut serde_yaml_ng::Mapping> {
     let yaml_key = yaml_key(key);
     if !parent.contains_key(&yaml_key) {
         parent.insert(
             yaml_key.clone(),
-            serde_yml::Value::Mapping(serde_yml::Mapping::new()),
+            serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new()),
         );
     }
     let value = parent.get_mut(&yaml_key).expect("inserted above");
     match value {
-        serde_yml::Value::Mapping(map) => Ok(map),
+        serde_yaml_ng::Value::Mapping(map) => Ok(map),
         _ => bail!("Hermes config `{key}` must be a YAML mapping; refusing to replace user data"),
     }
 }
 
-fn hermes_hook_yaml_entry(script: &Path, phase: &str) -> serde_yml::Value {
-    let mut entry = serde_yml::Mapping::new();
+fn hermes_hook_yaml_entry(script: &Path, phase: &str) -> serde_yaml_ng::Value {
+    let mut entry = serde_yaml_ng::Mapping::new();
     entry.insert(
         yaml_key("command"),
-        serde_yml::Value::String(hermes_hook_command(script, phase)),
+        serde_yaml_ng::Value::String(hermes_hook_command(script, phase)),
     );
-    entry.insert(yaml_key("timeout"), serde_yml::Value::Number(30.into()));
-    serde_yml::Value::Mapping(entry)
+    entry.insert(yaml_key("timeout"), serde_yaml_ng::Value::Number(30.into()));
+    serde_yaml_ng::Value::Mapping(entry)
 }
 
-fn yaml_entry_command(value: &serde_yml::Value) -> Option<&str> {
+fn yaml_entry_command(value: &serde_yaml_ng::Value) -> Option<&str> {
     value
         .as_mapping()
         .and_then(|m| m.get(yaml_key("command")))
-        .and_then(serde_yml::Value::as_str)
+        .and_then(serde_yaml_ng::Value::as_str)
 }
 
-fn is_hermes_mnem_hook_entry(value: &serde_yml::Value, script: &Path) -> bool {
+fn is_hermes_mnem_hook_entry(value: &serde_yaml_ng::Value, script: &Path) -> bool {
     yaml_entry_command(value).is_some_and(|command| is_hermes_mnem_hook_command(command, script))
 }
 
@@ -1675,17 +1675,17 @@ fn is_hermes_mnem_hook_command(command: &str, script: &Path) -> bool {
     script_token == normalized_script || script_token.ends_with("/hooks/mnem/hermes-hook.py")
 }
 
-fn set_hermes_hook_phase(root: &mut serde_yml::Value, script: &Path, phase: &str) -> Result<bool> {
+fn set_hermes_hook_phase(root: &mut serde_yaml_ng::Value, script: &Path, phase: &str) -> Result<bool> {
     let root_map = ensure_hermes_yaml_mapping(root)?;
     let hooks_map = ensure_hermes_yaml_mapping_child(root_map, "hooks")?;
     let key = yaml_key(phase);
     let old_value = hooks_map.get(&key).cloned();
     let mut seq = match old_value
         .clone()
-        .unwrap_or_else(|| serde_yml::Value::Sequence(Vec::new()))
+        .unwrap_or_else(|| serde_yaml_ng::Value::Sequence(Vec::new()))
     {
-        serde_yml::Value::Sequence(items) => items,
-        serde_yml::Value::Null => Vec::new(),
+        serde_yaml_ng::Value::Sequence(items) => items,
+        serde_yaml_ng::Value::Null => Vec::new(),
         other => bail!(
             "Hermes config `hooks.{phase}` must be a YAML list; refusing to reshape existing {:?} entry",
             other
@@ -1700,19 +1700,19 @@ fn set_hermes_hook_phase(root: &mut serde_yml::Value, script: &Path, phase: &str
             "pre"
         },
     ));
-    let new_value = serde_yml::Value::Sequence(seq);
+    let new_value = serde_yaml_ng::Value::Sequence(seq);
     let changed = old_value.as_ref() != Some(&new_value);
     hooks_map.insert(key, new_value);
     Ok(changed)
 }
 
-fn set_hermes_hooks(root: &mut serde_yml::Value, script: &Path) -> Result<bool> {
+fn set_hermes_hooks(root: &mut serde_yaml_ng::Value, script: &Path) -> Result<bool> {
     let pre = set_hermes_hook_phase(root, script, "pre_llm_call")?;
     let post = set_hermes_hook_phase(root, script, "post_llm_call")?;
     Ok(pre || post)
 }
 
-fn remove_hermes_hook_phase(root: &mut serde_yml::Value, script: &Path, phase: &str) -> bool {
+fn remove_hermes_hook_phase(root: &mut serde_yaml_ng::Value, script: &Path, phase: &str) -> bool {
     let Some(root_map) = root.as_mapping_mut() else {
         return false;
     };
@@ -1738,7 +1738,7 @@ fn remove_hermes_hook_phase(root: &mut serde_yml::Value, script: &Path, phase: &
     changed
 }
 
-fn remove_hermes_hooks(root: &mut serde_yml::Value, script: &Path) -> bool {
+fn remove_hermes_hooks(root: &mut serde_yaml_ng::Value, script: &Path) -> bool {
     let pre = remove_hermes_hook_phase(root, script, "pre_llm_call");
     let post = remove_hermes_hook_phase(root, script, "post_llm_call");
     pre || post
@@ -1757,14 +1757,14 @@ fn do_wire_hermes_hooks(stamp: &str, dry_run: bool) -> Result<WireOutcome> {
     } else {
         String::new()
     };
-    let mut root: serde_yml::Value = if existing_text.trim().is_empty() {
-        serde_yml::Value::Mapping(serde_yml::Mapping::new())
+    let mut root: serde_yaml_ng::Value = if existing_text.trim().is_empty() {
+        serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new())
     } else {
-        serde_yml::from_str(&existing_text)
+        serde_yaml_ng::from_str(&existing_text)
             .with_context(|| format!("parsing YAML {}", config_path.display()))?
     };
     let config_changed = set_hermes_hooks(&mut root, &script_path)?;
-    let new_text = serde_yml::to_string(&root).context("serialising Hermes config")?;
+    let new_text = serde_yaml_ng::to_string(&root).context("serialising Hermes config")?;
     let script_content = hermes_hook_script_content(&resolve_mnem_command());
     let script_changed =
         fs::read_to_string(&script_path).ok().as_deref() != Some(script_content.as_str());
@@ -1964,15 +1964,15 @@ fn do_undo_hermes(dry_run: bool) -> Result<()> {
     let hooks_changed = if config_path.exists() {
         let text = fs::read_to_string(&config_path)
             .with_context(|| format!("reading {}", config_path.display()))?;
-        let mut root: serde_yml::Value = if text.trim().is_empty() {
-            serde_yml::Value::Mapping(serde_yml::Mapping::new())
+        let mut root: serde_yaml_ng::Value = if text.trim().is_empty() {
+            serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new())
         } else {
-            serde_yml::from_str(&text)
+            serde_yaml_ng::from_str(&text)
                 .with_context(|| format!("parsing YAML {}", config_path.display()))?
         };
         let changed = remove_hermes_hooks(&mut root, &script_path);
         if changed {
-            let new_text = serde_yml::to_string(&root).context("serialising Hermes config")?;
+            let new_text = serde_yaml_ng::to_string(&root).context("serialising Hermes config")?;
             if dry_run {
                 println!(
                     "  -- {} hooks (dry-run)\n{}",
@@ -2174,10 +2174,10 @@ fn do_check() -> Result<()> {
             let line = match (path, script) {
                 (Some(path), Some(script)) if path.exists() => {
                     let s = fs::read_to_string(&path)?;
-                    let root: serde_yml::Value = if s.trim().is_empty() {
-                        serde_yml::Value::Mapping(serde_yml::Mapping::new())
+                    let root: serde_yaml_ng::Value = if s.trim().is_empty() {
+                        serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new())
                     } else {
-                        serde_yml::from_str(&s)
+                        serde_yaml_ng::from_str(&s)
                             .with_context(|| format!("parsing YAML {}", path.display()))?
                     };
                     if hermes_config_has_hooks(&root, &script) {
@@ -2506,20 +2506,20 @@ fn has_zed_nested(root: &Value) -> bool {
         .is_some_and(|m| m.contains_key("mnem"))
 }
 
-fn hermes_config_has_hooks(root: &serde_yml::Value, script: &Path) -> bool {
+fn hermes_config_has_hooks(root: &serde_yaml_ng::Value, script: &Path) -> bool {
     let Some(root_map) = root.as_mapping() else {
         return false;
     };
     let Some(hooks) = root_map
         .get(yaml_key("hooks"))
-        .and_then(serde_yml::Value::as_mapping)
+        .and_then(serde_yaml_ng::Value::as_mapping)
     else {
         return false;
     };
     ["pre_llm_call", "post_llm_call"].iter().all(|phase| {
         hooks
             .get(yaml_key(phase))
-            .and_then(serde_yml::Value::as_sequence)
+            .and_then(serde_yaml_ng::Value::as_sequence)
             .is_some_and(|seq| {
                 seq.iter()
                     .any(|item| is_hermes_mnem_hook_entry(item, script))
@@ -2540,10 +2540,10 @@ fn snippet_for(host: Host, target: &Path) -> String {
         let script = host
             .hooks_path()
             .unwrap_or_else(|| PathBuf::from("~/.hermes/hooks/mnem/hermes-hook.py"));
-        let mut root = serde_yml::Value::Mapping(serde_yml::Mapping::new());
+        let mut root = serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new());
         set_hermes_hooks(&mut root, &script)
             .expect("empty Hermes snippet root must accept generated hooks");
-        return serde_yml::to_string(&root).unwrap_or_else(|_| "<encode failure>".into());
+        return serde_yaml_ng::to_string(&root).unwrap_or_else(|_| "<encode failure>".into());
     }
     let v = match schema_of(host) {
         Schema::McpServersTopLevel => json!({"mcpServers": {"mnem": mnem_server_value(target)}}),
@@ -2625,8 +2625,8 @@ pub(crate) fn wired_status() -> Vec<(Host, Option<PathBuf>, bool)> {
                 .and_then(|p| fs::read_to_string(p).ok())
                 .is_some_and(|s| {
                     if *h == Host::HermesAgent {
-                        let root: serde_yml::Value = serde_yml::from_str(&s).unwrap_or_else(|_| {
-                            serde_yml::Value::Mapping(serde_yml::Mapping::new())
+                        let root: serde_yaml_ng::Value = serde_yaml_ng::from_str(&s).unwrap_or_else(|_| {
+                            serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new())
                         });
                         return h
                             .hooks_path()
@@ -3061,7 +3061,7 @@ mod tests {
 
     #[test]
     fn hermes_hooks_are_merged_idempotently_and_preserve_existing_config() {
-        let mut root = serde_yml::from_str::<serde_yml::Value>(
+        let mut root = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(
             r#"
 model:
   provider: openrouter
@@ -3077,7 +3077,7 @@ hooks:
         assert!(set_hermes_hooks(&mut root, script).unwrap());
         assert!(!set_hermes_hooks(&mut root, script).unwrap());
 
-        let text = serde_yml::to_string(&root).unwrap();
+        let text = serde_yaml_ng::to_string(&root).unwrap();
         assert!(
             text.contains("provider: openrouter"),
             "unrelated config lost: {text}"
@@ -3088,13 +3088,17 @@ hooks:
         );
         assert!(text.contains("pre_llm_call"));
         assert!(text.contains("post_llm_call"));
+        // Strip shell-quoting so the substring check matches on every
+        // platform: Windows uses `py -3 "<path>" pre`, Unix uses the
+        // unquoted `python3 <path> pre` when the path has only safe chars.
+        let normalized = text.replace('"', "").replace('\'', "");
         assert_eq!(
-            text.matches("hermes-hook.py pre").count(),
+            normalized.matches("hermes-hook.py pre").count(),
             1,
             "duplicate pre hook: {text}"
         );
         assert_eq!(
-            text.matches("hermes-hook.py post").count(),
+            normalized.matches("hermes-hook.py post").count(),
             1,
             "duplicate post hook: {text}"
         );
@@ -3103,7 +3107,7 @@ hooks:
     #[test]
     fn hermes_hook_phase_reports_no_change_when_entry_is_already_current() {
         let script = Path::new("/tmp/hermes-home/hooks/mnem/hermes-hook.py");
-        let mut root = serde_yml::Value::Mapping(serde_yml::Mapping::new());
+        let mut root = serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new());
 
         assert!(set_hermes_hook_phase(&mut root, script, "pre_llm_call").unwrap());
         assert!(
@@ -3120,7 +3124,7 @@ hooks:
     #[test]
     fn snippet_for_hermes_emits_yaml_hooks_not_mcp_json() {
         let snippet = snippet_for(Host::HermesAgent, Path::new("/r"));
-        let root: serde_yml::Value = serde_yml::from_str(&snippet).expect("valid yaml");
+        let root: serde_yaml_ng::Value = serde_yaml_ng::from_str(&snippet).expect("valid yaml");
         let script = Host::HermesAgent
             .hooks_path()
             .unwrap_or_else(|| PathBuf::from("~/.hermes/hooks/mnem/hermes-hook.py"));
@@ -3132,7 +3136,7 @@ hooks:
     #[test]
     fn hermes_config_hook_detection_requires_both_phases() {
         let script = Path::new("/tmp/hermes-home/hooks/mnem/hermes-hook.py");
-        let mut root = serde_yml::Value::Mapping(serde_yml::Mapping::new());
+        let mut root = serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new());
 
         assert!(set_hermes_hook_phase(&mut root, script, "pre_llm_call").unwrap());
         assert!(!hermes_config_has_hooks(&root, script));
@@ -3162,7 +3166,7 @@ hooks:
     #[test]
     fn hermes_hook_removal_removes_only_mnem_entries() {
         let script = Path::new("/tmp/hermes-home/hooks/mnem/hermes-hook.py");
-        let mut root = serde_yml::from_str::<serde_yml::Value>(
+        let mut root = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(
             r#"
 hooks:
   pre_llm_call:
@@ -3175,7 +3179,7 @@ hooks:
         assert!(remove_hermes_hooks(&mut root, script));
         assert!(!remove_hermes_hooks(&mut root, script));
 
-        let text = serde_yml::to_string(&root).unwrap();
+        let text = serde_yaml_ng::to_string(&root).unwrap();
         assert!(
             text.contains("/usr/bin/other-pre"),
             "unrelated hook lost: {text}"
@@ -3210,7 +3214,7 @@ hooks:
     #[test]
     fn hermes_hook_phase_refuses_to_reshape_scalar_user_hook() {
         let script = Path::new("/tmp/hermes-home/hooks/mnem/hermes-hook.py");
-        let mut root = serde_yml::from_str::<serde_yml::Value>(
+        let mut root = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(
             r#"
 hooks:
   pre_llm_call:
@@ -3221,17 +3225,17 @@ hooks:
         .unwrap();
         let err = set_hermes_hook_phase(&mut root, script, "pre_llm_call").unwrap_err();
         assert!(err.to_string().contains("must be a YAML list"));
-        let text = serde_yml::to_string(&root).unwrap();
+        let text = serde_yaml_ng::to_string(&root).unwrap();
         assert!(text.contains("/usr/bin/other-pre"));
     }
 
     #[test]
     fn hermes_hook_phase_refuses_to_replace_non_mapping_hooks_root() {
         let script = Path::new("/tmp/hermes-home/hooks/mnem/hermes-hook.py");
-        let mut root = serde_yml::from_str::<serde_yml::Value>("hooks: []\n").unwrap();
+        let mut root = serde_yaml_ng::from_str::<serde_yaml_ng::Value>("hooks: []\n").unwrap();
         let err = set_hermes_hook_phase(&mut root, script, "pre_llm_call").unwrap_err();
         assert!(err.to_string().contains("must be a YAML mapping"));
-        let text = serde_yml::to_string(&root).unwrap();
+        let text = serde_yaml_ng::to_string(&root).unwrap();
         assert!(text.contains("hooks: []"));
     }
 
