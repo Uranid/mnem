@@ -6,21 +6,46 @@ All notable changes to mnem.
 
 ### CLI
 
-- `mnem stats` now reports the real Prolly edge count as `edges=...` instead
-  of printing that value under the old `refs=` label.
+- **BREAKING:** `mnem stats` now reports the real Prolly edge count as
+  `edges=...`. Previously the slot printed `view().refs.len()` (branch
+  count, typically `1`) under a misleading label - the value as well as
+  the label were wrong. Scripts that parsed `refs=N` from `mnem stats` /
+  `mnem global stats` need to read `edges=N` and treat the number as the
+  graph's edge count.
+- **BREAKING:** `mnem blame <unknown-uuid>` now exits non-zero with
+  `Error: no node with id=<uuid>`. Previously exited 0 with an empty-edges
+  table, which could not be distinguished from a node that existed with
+  zero incoming edges.
+- `mnem blame` includes a `relation` column (`src -[etype]-> dst`),
+  widening the human table output.
 - `mnem retrieve --no-vector` uses deterministic text relevance ordering for
   text-only matches rather than UUID ordering.
 - `mnem query` / `mnem retrieve --where ntype=...` and `label=...` treat those
   keys as node-label filters. Non-string label values now return an error
   instead of an empty result.
 - `mnem log --json` includes an additive `time` field.
-- `mnem blame` includes a `relation` column, widening the human table output.
+
+### Core
+
+- `Query` builder hides tombstoned nodes by default across every surface
+  that uses it - `mnem query` CLI, MCP `list_nodes`, MCP `search`, HTTP
+  `/traverse` seed selection, and direct library callers. Tombstoned
+  (revoked / forgotten) nodes were previously leaking through these paths
+  in violation of the documented "retrieval paths filter it out by
+  default" contract. Audit and admin tooling can restore the prior
+  behavior with the new `Query::include_tombstoned(true)` builder method.
+- New library API: `mnem_core::index::query::Query::include_tombstoned(bool)`
+  for explicit opt-in to tombstoned nodes.
 
 ### Integrations
 
 - Hermes Agent hook integration refuses to reshape scalar hook entries or
   non-mapping `hooks:` config, avoids deleting modified generated hook scripts,
   and surfaces malformed Hermes YAML during `mnem integrate --check`.
+- Hermes config backup filenames (`$HERMES_HOME/config.yaml.bak-<stamp>`)
+  now use millisecond timestamps instead of second timestamps, preventing
+  same-second collisions when `mnem integrate hermes` runs twice in quick
+  succession.
 
 ## 0.1.0 - 2026-04-27
 

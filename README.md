@@ -440,7 +440,7 @@ Auto-detects and configures:
 - Continue
 - Zed
 - Gemini CLI
-- Hermes Agent (hook-only: `pre_llm_call` / `post_llm_call`)
+- Hermes Agent
 
 Any other MCP-aware host works via a hand-edited `mcpServers` entry pointing at `mnem mcp --repo <path>` - see [`docs/src/mcp.md`](docs/src/mcp.md).
 

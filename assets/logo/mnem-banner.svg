@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" role="img" aria-label="mnem banner">
-  <title>mnem - Git for AI Agent knowledge</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 435" role="img" aria-label="mnem banner">
+  <title>mnem - Git for AI Agent Knowledge</title>
 
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -13,48 +13,49 @@
     <pattern id="grid" x="0" y="0" width="60" height="60" patternUnits="userSpaceOnUse">
       <path d="M 60 0 L 0 0 0 60" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
     </pattern>
+    <clipPath id="frame">
+      <rect x="0" y="0" width="1200" height="435" rx="28" ry="28"/>
+    </clipPath>
   </defs>
 
-  <rect width="1200" height="560" fill="url(#bg)"/>
-  <rect width="1200" height="560" fill="url(#grid)"/>
+  <g clip-path="url(#frame)">
+    <rect width="1200" height="435" fill="url(#bg)"/>
+    <rect width="1200" height="435" fill="url(#grid)"/>
 
-  <!-- Diamond logo, centered. Scale 1.1 -> 282px visible (was 240). -->
-  <!-- (1200 - 282) / 2 = 459 px x offset. Top pad y=25. -->
-  <g transform="translate(459,25) scale(1.1)">
-    <g stroke="#1f2a36" stroke-width="20" stroke-linecap="butt" fill="none">
-      <line x1="128" y1="48"  x2="48"  y2="128"/>
-      <line x1="48"  y1="128" x2="128" y2="208"/>
-      <line x1="128" y1="208" x2="208" y2="128"/>
-      <line x1="208" y1="128" x2="128" y2="48"/>
+    <!-- Diamond logo, centered. Same construction as assets/logo/mnem-logo.svg
+         (slate edges, teal accent stroke at 0.28 opacity, rust gradient nodes).
+         Scale 1.1 -> 282px visible. (1200 - 282) / 2 = 459 px x offset. -->
+    <g transform="translate(459,25) scale(1.1)">
+      <g stroke="#1f2a36" stroke-width="20" stroke-linecap="butt" fill="none">
+        <line x1="128" y1="48"  x2="48"  y2="128"/>
+        <line x1="48"  y1="128" x2="128" y2="208"/>
+        <line x1="128" y1="208" x2="208" y2="128"/>
+        <line x1="208" y1="128" x2="128" y2="48"/>
+      </g>
+      <g stroke="rgba(0,200,150,0.55)" stroke-width="1.4" fill="none">
+        <line x1="128" y1="48"  x2="48"  y2="128"/>
+        <line x1="48"  y1="128" x2="128" y2="208"/>
+        <line x1="128" y1="208" x2="208" y2="128"/>
+        <line x1="208" y1="128" x2="128" y2="48"/>
+      </g>
+      <g fill="url(#rustNode)">
+        <polygon points="128,34  142,48  128,62  114,48"/>
+        <polygon points="48,114  62,128  48,142  34,128"/>
+        <polygon points="208,114 222,128 208,142 194,128"/>
+        <polygon points="128,194 142,208 128,222 114,208"/>
+      </g>
     </g>
-    <g stroke="rgba(31,42,54,0.35)" stroke-width="1.4" fill="none">
-      <line x1="128" y1="48"  x2="48"  y2="128"/>
-      <line x1="48"  y1="128" x2="128" y2="208"/>
-      <line x1="128" y1="208" x2="208" y2="128"/>
-      <line x1="208" y1="128" x2="128" y2="48"/>
-    </g>
-    <g fill="url(#rustNode)">
-      <polygon points="128,34  142,48  128,62  114,48"/>
-      <polygon points="48,114  62,128  48,142  34,128"/>
-      <polygon points="208,114 222,128 208,142 194,128"/>
-      <polygon points="128,194 142,208 128,222 114,208"/>
-    </g>
-  </g>
 
-  <!-- Text block, all centered. Sizes unchanged; gaps tightened. -->
-  <g font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Arial, sans-serif">
+    <!-- Wordmark. Baseline y=402; visual bottom ~y=410. Bottom pad 25 mirrors top. -->
     <text x="600" y="402" text-anchor="middle"
+          font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', Arial, sans-serif"
           font-size="110" font-weight="900" letter-spacing="-5" fill="#0f2520">mnem</text>
-
-    <text x="600" y="447" text-anchor="middle"
-          font-size="32" font-weight="700" letter-spacing="0.4" fill="#0a3328">Git for AI Agent knowledge</text>
-
-    <text x="600" y="487" text-anchor="middle"
-          font-size="22" font-weight="400" letter-spacing="0.1" fill="rgba(15,37,32,0.78)">A persistent, versioned memory layer for AI systems.</text>
-
-    <text x="600" y="524" text-anchor="middle"
-          font-size="13" font-weight="700" letter-spacing="2.4" fill="rgba(15,37,32,0.85)">VERSIONED &#160;&#160;·&#160;&#160; MULTI-HOP &#160;&#160;·&#160;&#160; OFFLINE &#160;&#160;·&#160;&#160; SINGLE BINARY</text>
-
-    <rect x="560" y="537" width="80" height="3" rx="1.5" fill="#d1642b" opacity="0.85"/>
   </g>
+
+  <!-- Aesthetic inner frame: subtle white hairline just inside the rounded
+       edge, gives the card a soft highlight rim without competing with the
+       glyph or wordmark. Drawn outside the clip so it sits exactly on the
+       boundary. -->
+  <rect x="0.5" y="0.5" width="1199" height="434" rx="27.5" ry="27.5"
+        fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1"/>
 </svg>

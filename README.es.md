@@ -400,7 +400,7 @@ Cinco minutos desde cero. Consulta [`docs/src/quickstart.md`](docs/src/quickstar
 
 > **Claude Code, Cursor y herramientas similares deben estar ya instaladas.** `mnem integrate` detecta cuáles están presentes - ejecuta primero `mnem integrate --check` para ver qué se detecta.
 
-Un solo comando conecta tres cosas en tu host de agente: el **servidor MCP** (da al agente acceso a las herramientas de mnem como `mnem_retrieve` y `mnem_commit`), el **disparador de recuperación automática** (ejecuta `mnem retrieve` automáticamente antes de cada uno de tus mensajes para que la memoria relevante esté lista antes de que el agente responda; solo para Claude Code - implementado como un "hook UserPromptSubmit") y el **prompt de sistema de mnem** (le indica al agente cómo usar mnem). Reinicia el host (cierra y vuelve a abrir Claude Code o Cursor como aplicación, no solo el terminal) y el agente empieza a usar mnem automáticamente. Para verificar: inicia una nueva sesión y envía cualquier mensaje - deberías ver una línea como `mnem: 3 item(s): [...]` como mensaje de sistema al inicio de la conversación, inyectada antes de que Claude hable. `0 item(s)` está bien - significa que el grafo está vacío; la integración está funcionando.
+Un solo comando conecta mnem con tu host de agente. Para los hosts compatibles con MCP añade el **servidor MCP** (herramientas como `mnem_retrieve` y `mnem_commit`), un **disparador de recuperación automática** allí donde el host admite hooks, y el **prompt de sistema de mnem** allí donde el host tiene un archivo de reglas. Hermes Agent es solo-hooks por diseño: `mnem integrate hermes` escribe hooks `pre_llm_call` / `post_llm_call` de Hermes que añaden la memoria recuperada como una capa adicional de contexto y persisten el turno, sin modificar el prompt de sistema de Hermes. Reinicia el host (cierra y vuelve a abrir Claude Code, Cursor, Hermes, etc. como aplicación, no solo el terminal) y el agente empieza a usar mnem automáticamente. Para verificar: inicia una nueva sesión y envía cualquier mensaje - deberías ver el contexto de mnem recuperado inyectado antes de que el modelo responda. `0 item(s)` está bien - significa que el grafo está vacío; la integración está funcionando.
 
 > **Solución de problemas:** ¿No ves `mnem: N item(s)`?
 > - Asegúrate de haber cerrado y vuelto a abrir la **aplicación** (no solo el terminal) - esto significa cerrar completamente la ventana de Claude Code o Cursor y volver a lanzarla
@@ -411,6 +411,7 @@ Un solo comando conecta tres cosas en tu host de agente: el **servidor MCP** (da
 ```bash
 mnem integrate                           # interactivo: detecta hosts instalados y pregunta
 mnem integrate claude-code               # conecta un host específico, omite la detección interactiva
+mnem integrate hermes                    # conecta solo los hooks pre/post LLM de Hermes
 mnem integrate --all                     # conecta todos los hosts detectados sin preguntar
 
 mnem integrate --check                   # muestra el estado de conexión de todos los hosts; no cambia nada
@@ -423,9 +424,9 @@ mnem integrate --target-repo ~/notes     # apunta el servidor MCP a un grafo esp
 ```
 
 **Qué se conecta:**
-- **Servidor MCP** (`mcpServers.mnem`) - el agente obtiene acceso completo a las herramientas de mnem mediante `mnem mcp --repo <graph>`; por defecto apunta al grafo global (`~/.mnemglobal/.mnem`)
-- **Disparador de recuperación automática** (solo Claude Code; implementado como un "hook UserPromptSubmit") - ejecuta `mnem retrieve` antes de cada uno de tus mensajes para que la memoria relevante se inyecte en el contexto antes de que el modelo vea tu mensaje
-- **Prompt de sistema** - instrucciones de uso de mnem inyectadas en el archivo de reglas del proyecto del host
+- **Servidor MCP** (`mcpServers.mnem`) - los hosts compatibles con MCP obtienen acceso completo a las herramientas de mnem mediante `mnem mcp --repo <graph>`; por defecto apunta al grafo global (`~/.mnemglobal/.mnem`)
+- **Disparador de recuperación automática** - Claude Code obtiene un hook `UserPromptSubmit`; Hermes Agent obtiene hooks shell `pre_llm_call` / `post_llm_call` en `$HERMES_HOME/config.yaml` (por defecto `~/.hermes/config.yaml` cuando `$HERMES_HOME` no está definido). Ambos consultan primero el grafo local y luego recurren al global.
+- **Prompt de sistema** - instrucciones de uso de mnem inyectadas en los hosts con archivos de reglas. Hermes está deliberadamente excluido porque su contrato de hooks está diseñado para enriquecer el contexto del usuario con una capa adicional en lugar de modificar el prompt de sistema.
 
 El hook consulta primero el directorio `.mnem/` de tu proyecto (recorriendo hacia arriba desde el directorio actual) y luego recurre automáticamente a `mnem global retrieve`. El hook y el prompt de sistema se comportan igual independientemente del grafo de conocimiento predeterminado que elijas durante la configuración. Usa `--target-repo` solo si quieres que el servidor MCP apunte a un lugar distinto del grafo global.
 
@@ -436,6 +437,7 @@ Detecta y configura automáticamente:
 - Continue
 - Zed
 - Gemini CLI
+- Hermes Agent
 
 Cualquier otro host compatible con MCP funciona mediante una entrada `mcpServers` editada manualmente que apunte a `mnem mcp --repo <path>` - consulta [`docs/src/mcp.md`](docs/src/mcp.md).
 
