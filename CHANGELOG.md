@@ -60,6 +60,15 @@ All notable changes to mnem.
   `unsafe-libyaml` (the well-scrutinised C-FFI binding used by the
   upstream `serde_yaml`). Resolves the `unmaintained` dependabot
   advisories on `serde_yml` and `libyml`.
+- Bump tree-sitter family for the code-ingest parsers:
+  `tree-sitter` 0.24 -> 0.26, `tree-sitter-rust` 0.23 -> 0.24,
+  `tree-sitter-python` 0.23 -> 0.25, `tree-sitter-javascript` 0.23
+  -> 0.25, `tree-sitter-go` 0.23 -> 0.25. The six remaining language
+  grammars (typescript, java, c, cpp, ruby, c-sharp) stay at 0.23
+  pending upstream releases; tree-sitter 0.26 is backward-compatible
+  with older grammar ABI versions so the mixed-version state is
+  intentional. Verified by running the full `mnem-ingest` test suite
+  (Rust + Python parser tests including ABI-fallback scenarios).
 
 ## 0.1.0 - 2026-04-27
 

@@ -134,9 +134,12 @@ Methodology, raw artifacts, per-bench breakdowns: [`benchmarks/`](benchmarks/) a
 | MCP native | ✅ | ~ | ✅ | ✗ | ✅ | ~ | ✅ | ✅ |
 | License | Apache-2.0 | Apache-2.0 | MIT | MIT | MIT | Apache-2.0 | Apache-2.0 | Apache-2.0 |
 
+<details>
+<summary>Footnotes and head-to-head comparisons</summary>
+
 <sup><strong>+</strong> Content-addressed storage: same bytes always get the same ID; identical facts auto-deduplicate &nbsp;·&nbsp; **Hybrid retrieval** here means vector + sparse + graph in one pass &nbsp;·&nbsp; **Hermes** is an agent runtime, not a memory store; mnem attaches as a `MemoryProvider` plugin and rows show Hermes' native memory only (bounded `MEMORY.md` + FTS5 session log) &nbsp;·&nbsp; **mem0** v2 (Apr 2026) dropped graph backends from the OSS SDK &nbsp;·&nbsp; **Graphiti** needs an LLM key + a graph backend (Neo4j / FalkorDB / Kuzu / Neptune); ships an MCP server &nbsp;·&nbsp; **Letta** "MCP" = MCP client (Letta agents *call* MCP servers) &nbsp;·&nbsp; **MemPalace** defaults to ChromaDB (backend pluggable) &nbsp;·&nbsp; **Supermemory** self-host needs Cloudflare + Postgres + OpenAI &nbsp;·&nbsp; **Cognee** needs an LLM key for graph extraction; first-party MCP server since v0.3.5 &nbsp;·&nbsp; verified 2026-05-19</sup>
 
-Deeper comparisons:
+Deeper write-ups:
 
 - [mnem vs mem0](docs/src/comparisons/mem0.md) - agent memory layer, OSS leader
 - [mnem vs MemPalace](docs/src/comparisons/mempalace.md) - benchmark peer
@@ -148,23 +151,37 @@ Deeper comparisons:
 
 Full matrix: [`docs/src/comparisons/README.md`](docs/src/comparisons/README.md).
 
+</details>
+
 <hr>
 
 ## Install
-
-**Prerequisites:** Check what you have: `python --version` / `node --version` / `cargo --version`. Don't have any? [Install Python](https://www.python.org/downloads) or [Install Node.js](https://nodejs.org/en/download) - both are free and include pip/npm. For Cargo: [Install Rust via rustup](https://rustup.rs/) (free, also installs `cargo`).
-
-> **Using Python to call mnem from your own app?** `pip install mnem-cli` gives you the `mnem` command-line tool. To import mnem from Python code (`import pymnem`), use `pip install mnem-py` instead - see [Python API](#python-api-mnem-py).
 
 **Pick one** (pip is recommended if you have Python):
 
 **pip (Python) - recommended** · pre-built binary, bundled embedder, works immediately
 
+<details>
+<summary>No pip yet?</summary>
+
+[Install Python](https://www.python.org/downloads/) (free; pip is bundled with Python 3.4+). Verify with `python --version`.
+
+</details>
+
 ```bash
 pip install mnem-cli
 ```
 
+> **Using Python to call mnem from your own app?** `pip install mnem-cli` gives you the `mnem` command-line tool. To import mnem from Python code (`import pymnem`), use `pip install mnem-py` instead - see [Python API](#python-api-mnem-py).
+
 **npm (Node.js)** · pre-built binary, bundled embedder, works immediately
+
+<details>
+<summary>No npm yet?</summary>
+
+[Install Node.js](https://nodejs.org/en/download) (free; npm is bundled, Node 18+ required). Verify with `node --version`.
+
+</details>
 
 ```bash
 npm install -g mnem-cli
@@ -172,9 +189,32 @@ npm install -g mnem-cli
 
 **Cargo (Rust)** · compiles from source, ~5-15 min first run
 
+<details>
+<summary>No Cargo yet?</summary>
+
+[Install via rustup](https://rustup.rs/) (free; also installs `rustc`). Verify with `cargo --version`.
+
+</details>
+
 ```bash
 # Linux only: sudo apt-get install g++ (Debian/Ubuntu/WSL)  or  sudo dnf install gcc-c++ (Fedora/RHEL)
 cargo install --locked mnem-cli --features bundled-embedder
+```
+
+**From source** · the unreleased `main` branch, for local changes or pre-release commits
+
+<details>
+<summary>When to pick this over <code>cargo install</code></summary>
+
+Use this if you need a commit that hasn't been published to crates.io yet, or you're making local changes. Otherwise prefer the published-crate path above. Requires Rust 1.95+ (`rustup install 1.95 && rustup default 1.95` if needed).
+
+</details>
+
+```bash
+# Linux only: sudo apt-get install g++ (Debian/Ubuntu/WSL)  or  sudo dnf install gcc-c++ (Fedora/RHEL)
+git clone https://github.com/Uranid/mnem
+cd mnem
+cargo install --path crates/mnem-cli --features bundled-embedder
 ```
 
 **Docker** · runs the HTTP server; no local install needed
@@ -186,160 +226,13 @@ docker run --rm -p 9876:9876 -e MNEM_HTTP_ALLOW_NON_LOOPBACK=1 \
 
 ```bash
 mnem --version    # confirm install
+mnem doctor       # checks embedder + store + config, prints a green/yellow/red checklist
 ```
 
 > **If `mnem: command not found`:** Try opening a new terminal first (PATH changes only take effect in new sessions). On Linux, pip installs to `~/.local/bin` - if that's not in your PATH, run `export PATH="$HOME/.local/bin:$PATH"` then add that same line to `~/.bashrc` (this is a one-time fix; the file change makes it permanent). On Windows: 1. Run `pip show mnem-cli`. 2. Copy the `Location` value (e.g. `C:\Users\you\AppData\Roaming\Python\Python312\site-packages`). 3. Replace `site-packages` with `Scripts` to get the Scripts folder path. 4. Open System Properties → Environment Variables → Path → Edit → New → paste the Scripts path → OK. 5. Open a new Command Prompt - PATH changes require a new window to take effect.
 
 > [!NOTE]
 > `--locked` pins exact tested dependency versions. `--features bundled-embedder` packs the embedder (~40 MB) into the binary so `mnem retrieve` works immediately - no extra setup. **This flag is Cargo-only**; pip and npm ship with the embedder pre-baked. Without it (and without configuring another provider in `config.toml`), `mnem retrieve` fails with "embedder not configured".
-
-<details>
-<summary>Sample <code>.mnem/config.toml</code> (Ollama example)</summary>
-
-```toml
-[embed]
-provider = "ollama"
-model    = "nomic-embed-text"
-base_url = "http://localhost:11434"
-```
-
-Full list of config keys: [`docs/src/configuration.md`](docs/src/configuration.md).
-
-</details>
-
-<details>
-<summary><b>macOS / Linux</b></summary>
-
-No Cargo? [Install via rustup](https://rustup.rs/) (also installs `rustc`).
-
-```bash
-# C++ stdlib required to link the bundled ONNX Runtime (Linux only)
-sudo apt-get install g++          # Debian / Ubuntu / WSL
-# sudo dnf install gcc-c++        # Fedora / RHEL
-```
-
-```bash
-cargo install --locked mnem-cli --features bundled-embedder
-
-# CUDA-accelerated embedder (Linux, NVIDIA GPU)
-cargo install --locked mnem-cli --features bundled-embedder-cuda
-```
-
-If `mnem` is not found after install, `~/.cargo/bin` is not on `$PATH`.
-
-**rustup install**: source the env (or open a new terminal):
-```bash
-source ~/.cargo/env
-```
-
-**System Rust (apt/dnf)**: add to PATH permanently:
-```bash
-echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-```
-
-</details>
-
-<details>
-<summary><b>Windows</b></summary>
-
-No Cargo? [Install via rustup](https://rustup.rs/) (also installs `rustc`).
-
-```powershell
-cargo install --locked mnem-cli --features bundled-embedder
-
-# DirectML-accelerated embedder (any GPU vendor on Windows)
-cargo install --locked mnem-cli --features bundled-embedder-directml
-```
-
-</details>
-
-<details>
-<summary><b>npm / Node.js</b></summary>
-
-No npm? [Install Node.js](https://nodejs.org/en/download) (npm is bundled, Node 18+ required).
-
-```bash
-npm install -g mnem-cli
-mnem --version
-
-# or without a global install (one-shot)
-npx mnem-cli --version
-```
-
-Downloads the prebuilt native binary for your platform at install time. Node 18+ required. Bundled embedder included - no Ollama or API key needed.
-
-</details>
-
-<details>
-<summary><b>pip (PyPI)</b></summary>
-
-No pip? [Install Python](https://www.python.org/downloads/) (pip is bundled with Python 3.4+).
-
-```bash
-pip install mnem-cli
-mnem --version
-```
-
-Ships the `mnem` binary as a manylinux / macOS / Windows wheel with the bundled embedder pre-baked.
-
-</details>
-
-<details>
-<summary><b>Docker</b></summary>
-
-No Docker? [Install Docker Desktop](https://docs.docker.com/get-started/get-docker/).
-
-```bash
-# Ephemeral (data is lost when the container stops - for quick testing only):
-docker run --rm -p 9876:9876 \
-  -e MNEM_HTTP_ALLOW_NON_LOOPBACK=1 \
-  ghcr.io/uranid/mnem:latest http --bind 0.0.0.0:9876
-
-# Persistent (data survives restarts - recommended for any real use):
-mkdir -p ./mnem-data
-docker run -p 9876:9876 \
-  -v "$(pwd)/mnem-data:/data" -w /data \
-  -e MNEM_HTTP_ALLOW_NON_LOOPBACK=1 \
-  ghcr.io/uranid/mnem:latest http --bind 0.0.0.0:9876
-# Windows (PowerShell): replace $(pwd) with ${PWD}; Windows (cmd.exe): replace $(pwd) with %cd%
-```
-
-The image includes the bundled embedder. The `--bind 0.0.0.0:9876` flag and
-`MNEM_HTTP_ALLOW_NON_LOOPBACK=1` env var are required inside Docker so the
-port mapping (`-p 9876:9876`) works; the default loopback bind is unreachable
-from the host. Run `mnem mcp` inside the container for the MCP server surface.
-
-> **Fresh volume (no prior data):** If the mounted `/data` directory has no `.mnem/` present, `mnem http` auto-initializes a new graph on first start - no manual `mnem init` required. Subsequent restarts reuse the existing graph.
-
-> **Image tag pinning:** `ghcr.io/uranid/mnem:latest` always points to the most recent release. For production deployments, pin to a specific version tag (e.g., `ghcr.io/uranid/mnem:v0.1.0`) to avoid unexpected upgrades.
-
-> **⚠️ No authentication by default:** The examples above expose the API with no token. Anyone who can reach port 9876 can read and write your graph. Before binding to a non-loopback address, set `MNEM_HTTP_AUTH_TOKEN` on the server and `--token-env` on the client - see the Authentication section under `mnem push`/`mnem pull`.
-
-</details>
-
-<details>
-<summary><b>From source</b></summary>
-
-```bash
-# C++ stdlib required to link the bundled ONNX Runtime (Linux only)
-sudo apt-get install g++          # Debian / Ubuntu / WSL
-# sudo dnf install gcc-c++        # Fedora / RHEL
-```
-
-```bash
-git clone https://github.com/Uranid/mnem
-cd mnem
-cargo install --path crates/mnem-cli --features bundled-embedder
-```
-
-Requires Rust 1.95+. If needed: `rustup install 1.95 && rustup default 1.95`.
-
-</details>
-
-```bash
-mnem --version
-mnem doctor        # checks embedder + store + config, prints a green/yellow/red checklist
-```
 
 Full install matrix: [`docs/src/install.md`](docs/src/install.md).
 

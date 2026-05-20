@@ -134,6 +134,9 @@ bash benchmarks/harness/run_bench.sh
 | MCP 原生 | ✅ | ~ | ✅ | ✗ | ✅ | ~ | ✅ | ✅ |
 | 许可证 | Apache-2.0 | Apache-2.0 | MIT | MIT | MIT | Apache-2.0 | Apache-2.0 | Apache-2.0 |
 
+<details>
+<summary>脚注与逐项深度对比</summary>
+
 <sup><strong>+</strong> 内容寻址存储：相同字节始终获得相同 ID；相同事实自动去重 &nbsp;·&nbsp; **混合检索** 此处指向量 + 稀疏 + 图，单次完成 &nbsp;·&nbsp; **Hermes** 是 agent 运行时，并非记忆存储；mnem 作为 `MemoryProvider` 插件接入，行内仅反映 Hermes 原生记忆能力（受限的 `MEMORY.md` + FTS5 会话日志） &nbsp;·&nbsp; **mem0** v2（2026 年 4 月）从 OSS SDK 移除了图后端 &nbsp;·&nbsp; **Graphiti** 需要 LLM API 密钥 + 图后端（Neo4j / FalkorDB / Kuzu / Neptune）；内置 MCP 服务器 &nbsp;·&nbsp; **Letta** "MCP" = MCP 客户端（Letta agents *调用* MCP 服务器） &nbsp;·&nbsp; **MemPalace** 默认使用 ChromaDB（后端可插拔） &nbsp;·&nbsp; **Supermemory** 自托管需要 Cloudflare + Postgres + OpenAI &nbsp;·&nbsp; **Cognee** 图提取需要 LLM API 密钥；自 v0.3.5 起内置 MCP 服务器 &nbsp;·&nbsp; 验证：2026-05-19</sup>
 
 深度对比：
@@ -148,24 +151,38 @@ bash benchmarks/harness/run_bench.sh
 
 完整矩阵：[`docs/src/comparisons/README.md`](docs/src/comparisons/README.md)。
 
+</details>
+
 <hr>
 
 
 ## 安装
 
-**前提条件：** 检查你已有什么：`python --version` / `node --version` / `cargo --version`。都没有？[安装 Python](https://www.python.org/downloads) 或 [安装 Node.js](https://nodejs.org/en/download)，两者均免费且包含 pip/npm。需要 Cargo 的话：[通过 rustup 安装 Rust](https://rustup.rs/)（免费，同时安装 `cargo`）。
-
-> **想用 Python 从自己的应用调用 mnem？** `pip install mnem-cli` 给你提供的是 `mnem` 命令行工具。如果要在 Python 代码中导入 mnem（`import pymnem`），请改用 `pip install mnem-py`，参见 [Python API](#python-api-mnem-py)。
-
 **选择一种**（如果你有 Python，推荐使用 pip）：
 
 **pip (Python) - 推荐** · 预构建二进制，内置嵌入器，即装即用
+
+<details>
+<summary>还没有 pip？</summary>
+
+[安装 Python](https://www.python.org/downloads/)（免费；pip 随 Python 3.4+ 一同提供）。可通过 `python --version` 验证。
+
+</details>
 
 ```bash
 pip install mnem-cli
 ```
 
+> **想用 Python 从自己的应用调用 mnem？** `pip install mnem-cli` 给你提供的是 `mnem` 命令行工具。如果要在 Python 代码中导入 mnem（`import pymnem`），请改用 `pip install mnem-py`，参见 [Python API](#python-api-mnem-py)。
+
 **npm (Node.js)** · 预构建二进制，内置嵌入器，即装即用
+
+<details>
+<summary>还没有 npm？</summary>
+
+[安装 Node.js](https://nodejs.org/en/download)（免费；npm 已内置，需要 Node 18+）。可通过 `node --version` 验证。
+
+</details>
 
 ```bash
 npm install -g mnem-cli
@@ -173,9 +190,32 @@ npm install -g mnem-cli
 
 **Cargo (Rust)** · 从源码编译，首次运行约需 5-15 分钟
 
+<details>
+<summary>还没有 Cargo？</summary>
+
+[通过 rustup 安装](https://rustup.rs/)（免费；同时安装 `rustc`）。可通过 `cargo --version` 验证。
+
+</details>
+
 ```bash
 # Linux 专属：sudo apt-get install g++ (Debian/Ubuntu/WSL)  或  sudo dnf install gcc-c++ (Fedora/RHEL)
 cargo install --locked mnem-cli --features bundled-embedder
+```
+
+**从源码构建** · 未发布的 `main` 分支，适用于本地修改或预发布提交
+
+<details>
+<summary>何时使用此方式而非 <code>cargo install</code></summary>
+
+如果你需要尚未发布到 crates.io 的提交，或者正在进行本地修改，请使用此方式。否则推荐使用上面的已发布 crate 路径。需要 Rust 1.95+（如有需要：`rustup install 1.95 && rustup default 1.95`）。
+
+</details>
+
+```bash
+# Linux 专属：sudo apt-get install g++ (Debian/Ubuntu/WSL)  或  sudo dnf install gcc-c++ (Fedora/RHEL)
+git clone https://github.com/Uranid/mnem
+cd mnem
+cargo install --path crates/mnem-cli --features bundled-embedder
 ```
 
 **Docker** · 运行 HTTP 服务器，无需本地安装
@@ -187,157 +227,13 @@ docker run --rm -p 9876:9876 -e MNEM_HTTP_ALLOW_NON_LOOPBACK=1 \
 
 ```bash
 mnem --version    # 确认安装成功
+mnem doctor       # 检测嵌入器、存储和配置，输出绿/黄/红状态清单
 ```
 
 > **如果提示 `mnem: command not found`：** 先尝试打开新终端（PATH 变更只对新会话生效）。在 Linux 上，pip 安装路径为 `~/.local/bin`，如果该路径不在 PATH 中，运行 `export PATH="$HOME/.local/bin:$PATH"`，然后将该行添加到 `~/.bashrc`（一次性修复，文件修改后永久生效）。在 Windows 上：1. 运行 `pip show mnem-cli`。2. 复制 `Location` 值（如 `C:\Users\you\AppData\Roaming\Python\Python312\site-packages`）。3. 将 `site-packages` 替换为 `Scripts` 得到 Scripts 文件夹路径。4. 打开系统属性 - 环境变量 - Path - 编辑 - 新建 - 粘贴 Scripts 路径 - 确定。5. 打开新的命令提示符（PATH 变更需要新窗口才能生效）。
 
 > [!NOTE]
 > `--locked` 固定经过测试的精确依赖版本。`--features bundled-embedder` 将嵌入器（约 40 MB）打包进二进制文件，使 `mnem retrieve` 即刻可用，无需额外配置。**此标志仅适用于 Cargo**；pip 和 npm 已预置内置嵌入器。如不使用该标志（且未在 `config.toml` 中配置其他提供商），`mnem retrieve` 会报错"embedder not configured"。
-
-<details>
-<summary>示例 <code>.mnem/config.toml</code>（Ollama 示例）</summary>
-
-```toml
-[embed]
-provider = "ollama"
-model    = "nomic-embed-text"
-base_url = "http://localhost:11434"
-```
-
-完整配置键列表：[`docs/src/configuration.md`](docs/src/configuration.md)。
-
-</details>
-
-<details>
-<summary><b>macOS / Linux</b></summary>
-
-没有 Cargo？[通过 rustup 安装](https://rustup.rs/)（同时安装 `rustc`）。
-
-```bash
-# 链接内置 ONNX Runtime 需要 C++ 标准库（仅限 Linux）
-sudo apt-get install g++          # Debian / Ubuntu / WSL
-# sudo dnf install gcc-c++        # Fedora / RHEL
-```
-
-```bash
-cargo install --locked mnem-cli --features bundled-embedder
-
-# CUDA 加速嵌入器（Linux，NVIDIA GPU）
-cargo install --locked mnem-cli --features bundled-embedder-cuda
-```
-
-安装后找不到 `mnem`，说明 `~/.cargo/bin` 不在 `$PATH` 中。
-
-**rustup 安装**：加载环境变量（或打开新终端）：
-```bash
-source ~/.cargo/env
-```
-
-**系统 Rust（apt/dnf）**：永久添加到 PATH：
-```bash
-echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-```
-
-</details>
-
-<details>
-<summary><b>Windows</b></summary>
-
-没有 Cargo？[通过 rustup 安装](https://rustup.rs/)（同时安装 `rustc`）。
-
-```powershell
-cargo install --locked mnem-cli --features bundled-embedder
-
-# DirectML 加速嵌入器（Windows，支持任意 GPU 厂商）
-cargo install --locked mnem-cli --features bundled-embedder-directml
-```
-
-</details>
-
-<details>
-<summary><b>npm / Node.js</b></summary>
-
-没有 npm？[安装 Node.js](https://nodejs.org/en/download)（npm 已内置，需要 Node 18+）。
-
-```bash
-npm install -g mnem-cli
-mnem --version
-
-# 或不全局安装（一次性使用）
-npx mnem-cli --version
-```
-
-安装时会自动下载适用于你当前平台的预构建原生二进制文件。需要 Node 18+。已内置嵌入器，无需 Ollama 或 API 密钥。
-
-</details>
-
-<details>
-<summary><b>pip (PyPI)</b></summary>
-
-没有 pip？[安装 Python](https://www.python.org/downloads/)（pip 随 Python 3.4+ 一同提供）。
-
-```bash
-pip install mnem-cli
-mnem --version
-```
-
-以 manylinux / macOS / Windows wheel 形式发布 `mnem` 二进制文件，已预置内置嵌入器。
-
-</details>
-
-<details>
-<summary><b>Docker</b></summary>
-
-没有 Docker？[安装 Docker Desktop](https://docs.docker.com/get-started/get-docker/)。
-
-```bash
-# 临时使用（容器停止后数据丢失，仅用于快速测试）：
-docker run --rm -p 9876:9876 \
-  -e MNEM_HTTP_ALLOW_NON_LOOPBACK=1 \
-  ghcr.io/uranid/mnem:latest http --bind 0.0.0.0:9876
-
-# 持久使用（重启后数据保留，正式使用推荐）：
-mkdir -p ./mnem-data
-docker run -p 9876:9876 \
-  -v "$(pwd)/mnem-data:/data" -w /data \
-  -e MNEM_HTTP_ALLOW_NON_LOOPBACK=1 \
-  ghcr.io/uranid/mnem:latest http --bind 0.0.0.0:9876
-# Windows (PowerShell)：将 $(pwd) 替换为 ${PWD}；Windows (cmd.exe)：将 $(pwd) 替换为 %cd%
-```
-
-镜像已包含内置嵌入器。`--bind 0.0.0.0:9876` 标志和 `MNEM_HTTP_ALLOW_NON_LOOPBACK=1` 环境变量是 Docker 内运行的必要配置，确保端口映射（`-p 9876:9876`）生效；默认回环绑定在宿主机上无法访问。在容器内运行 `mnem mcp` 可使用 MCP 服务器接口。
-
-> **全新卷（无历史数据）：** 如果挂载的 `/data` 目录中没有 `.mnem/`，`mnem http` 会在首次启动时自动初始化新图谱，无需手动执行 `mnem init`。后续重启时将复用现有图谱。
-
-> **镜像标签固定：** `ghcr.io/uranid/mnem:latest` 始终指向最新发布版本。生产部署时，建议固定到具体版本标签（如 `ghcr.io/uranid/mnem:v0.1.0`），以避免意外升级。
-
-> **⚠️ 默认无身份验证：** 上述示例将 API 暴露在无令牌保护的状态下。任何能访问 9876 端口的人都可以读写你的图谱。在绑定到非回环地址之前，请在服务端设置 `MNEM_HTTP_AUTH_TOKEN`，并在客户端使用 `--token-env`，参见 `mnem push`/`mnem pull` 下的身份验证说明。
-
-</details>
-
-<details>
-<summary><b>从源码构建</b></summary>
-
-```bash
-# 链接内置 ONNX Runtime 需要 C++ 标准库（仅限 Linux）
-sudo apt-get install g++          # Debian / Ubuntu / WSL
-# sudo dnf install gcc-c++        # Fedora / RHEL
-```
-
-```bash
-git clone https://github.com/Uranid/mnem
-cd mnem
-cargo install --path crates/mnem-cli --features bundled-embedder
-```
-
-需要 Rust 1.95+。如有需要：`rustup install 1.95 && rustup default 1.95`。
-
-</details>
-
-```bash
-mnem --version
-mnem doctor        # 检测嵌入器、存储和配置，输出绿/黄/红状态清单
-```
 
 完整安装矩阵：[`docs/src/install.md`](docs/src/install.md)。
 

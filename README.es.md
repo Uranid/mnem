@@ -134,9 +134,12 @@ Metodología, artefactos brutos, desglose por benchmark: [`benchmarks/`](benchma
 | MCP nativo | ✅ | ~ | ✅ | ✗ | ✅ | ~ | ✅ | ✅ |
 | Licencia | Apache-2.0 | Apache-2.0 | MIT | MIT | MIT | Apache-2.0 | Apache-2.0 | Apache-2.0 |
 
+<details>
+<summary>Notas al pie y comparaciones detalladas</summary>
+
 <sup><strong>+</strong> Direccionamiento por contenido: los mismos bytes siempre obtienen el mismo ID; los hechos idénticos se deduplican automáticamente &nbsp;·&nbsp; **Recuperación híbrida** aquí significa vector + dispersa + grafo en una sola pasada &nbsp;·&nbsp; **Hermes** es un runtime de agente, no un almacén de memoria; mnem se conecta como plugin `MemoryProvider` y las filas reflejan solo la memoria nativa de Hermes (`MEMORY.md` acotada + registro de sesión FTS5) &nbsp;·&nbsp; **mem0** v2 (abril 2026) eliminó los backends de grafo del SDK OSS &nbsp;·&nbsp; **Graphiti** requiere clave LLM + backend de grafo (Neo4j / FalkorDB / Kuzu / Neptune); incluye servidor MCP &nbsp;·&nbsp; **Letta** "MCP" = cliente MCP (los agentes Letta *llaman* a servidores MCP) &nbsp;·&nbsp; **MemPalace** usa ChromaDB por defecto (backend modular) &nbsp;·&nbsp; **Supermemory** self-host requiere Cloudflare + Postgres + OpenAI &nbsp;·&nbsp; **Cognee** requiere clave LLM para extracción de grafos; servidor MCP de primera parte desde v0.3.5 &nbsp;·&nbsp; verificado 2026-05-19</sup>
 
-Comparaciones más detalladas:
+Análisis en profundidad:
 
 - [mnem vs mem0](docs/src/comparisons/mem0.md) - capa de memoria para agentes, líder en OSS
 - [mnem vs MemPalace](docs/src/comparisons/mempalace.md) - par metodológico en benchmarks
@@ -148,23 +151,37 @@ Comparaciones más detalladas:
 
 Matriz completa: [`docs/src/comparisons/README.md`](docs/src/comparisons/README.md).
 
+</details>
+
 <hr>
 
 ## Instalación
-
-**Requisitos previos:** Comprueba lo que tienes: `python --version` / `node --version` / `cargo --version`. ¿No tienes ninguno? [Instala Python](https://www.python.org/downloads) o [Instala Node.js](https://nodejs.org/en/download) - ambos son gratuitos e incluyen pip/npm. Para Cargo: [Instala Rust via rustup](https://rustup.rs/) (gratuito, también instala `cargo`).
-
-> **¿Usas Python para llamar a mnem desde tu propia app?** `pip install mnem-cli` te da el comando `mnem` en la línea de comandos. Para importar mnem desde código Python (`import pymnem`), usa `pip install mnem-py` en su lugar - ver [API de Python](#api-de-python-mnem-py).
 
 **Elige una** (pip es la opción recomendada si tienes Python):
 
 **pip (Python) - recomendado** · binario precompilado, embedder incluido, funciona de inmediato
 
+<details>
+<summary>¿Aún no tienes pip?</summary>
+
+[Instala Python](https://www.python.org/downloads/) (gratuito; pip viene incluido con Python 3.4+). Verifícalo con `python --version`.
+
+</details>
+
 ```bash
 pip install mnem-cli
 ```
 
+> **¿Usas Python para llamar a mnem desde tu propia app?** `pip install mnem-cli` te da el comando `mnem` en la línea de comandos. Para importar mnem desde código Python (`import pymnem`), usa `pip install mnem-py` en su lugar - ver [API de Python](#api-de-python-mnem-py).
+
 **npm (Node.js)** · binario precompilado, embedder incluido, funciona de inmediato
+
+<details>
+<summary>¿Aún no tienes npm?</summary>
+
+[Instala Node.js](https://nodejs.org/en/download) (gratuito; npm viene incluido, se requiere Node 18+). Verifícalo con `node --version`.
+
+</details>
 
 ```bash
 npm install -g mnem-cli
@@ -172,9 +189,32 @@ npm install -g mnem-cli
 
 **Cargo (Rust)** · compila desde el código fuente, ~5-15 min la primera vez
 
+<details>
+<summary>¿Aún no tienes Cargo?</summary>
+
+[Instala mediante rustup](https://rustup.rs/) (gratuito; también instala `rustc`). Verifícalo con `cargo --version`.
+
+</details>
+
 ```bash
 # Solo Linux: sudo apt-get install g++ (Debian/Ubuntu/WSL)  o  sudo dnf install gcc-c++ (Fedora/RHEL)
 cargo install --locked mnem-cli --features bundled-embedder
+```
+
+**Desde el código fuente** · la rama `main` sin publicar, para cambios locales o commits previos a una release
+
+<details>
+<summary>Cuándo elegir esto en lugar de <code>cargo install</code></summary>
+
+Úsalo si necesitas un commit que aún no se ha publicado en crates.io, o si estás haciendo cambios locales. De lo contrario, prefiere la ruta del crate publicado de arriba. Requiere Rust 1.95+ (`rustup install 1.95 && rustup default 1.95` si es necesario).
+
+</details>
+
+```bash
+# Solo Linux: sudo apt-get install g++ (Debian/Ubuntu/WSL)  o  sudo dnf install gcc-c++ (Fedora/RHEL)
+git clone https://github.com/Uranid/mnem
+cd mnem
+cargo install --path crates/mnem-cli --features bundled-embedder
 ```
 
 **Docker** · ejecuta el servidor HTTP; no requiere instalación local
@@ -186,157 +226,13 @@ docker run --rm -p 9876:9876 -e MNEM_HTTP_ALLOW_NON_LOOPBACK=1 \
 
 ```bash
 mnem --version    # confirmar instalación
+mnem doctor       # verifica el embedder + almacenamiento + configuración; imprime una lista con marcadores verde/amarillo/rojo
 ```
 
 > **Si aparece `mnem: command not found`:** Primero intenta abrir una nueva terminal (los cambios de PATH solo tienen efecto en sesiones nuevas). En Linux, pip instala en `~/.local/bin` - si eso no está en tu PATH, ejecuta `export PATH="$HOME/.local/bin:$PATH"` y luego añade esa misma línea a `~/.bashrc` (es una corrección de una sola vez; el cambio en el archivo lo hace permanente). En Windows: 1. Ejecuta `pip show mnem-cli`. 2. Copia el valor de `Location` (p. ej. `C:\Users\tu_usuario\AppData\Roaming\Python\Python312\site-packages`). 3. Reemplaza `site-packages` con `Scripts` para obtener la ruta a la carpeta Scripts. 4. Abre Propiedades del sistema -> Variables de entorno -> Path -> Editar -> Nuevo -> pega la ruta de Scripts -> Aceptar. 5. Abre un nuevo Símbolo del sistema - los cambios de PATH requieren una ventana nueva para tener efecto.
 
 > [!NOTE]
 > `--locked` fija las versiones exactas de dependencias probadas. `--features bundled-embedder` empaqueta el embedder (~40 MB) en el binario para que `mnem retrieve` funcione de inmediato sin configuración adicional. **Este flag es exclusivo de Cargo**; pip y npm ya incluyen el embedder. Sin él (y sin configurar otro proveedor en `config.toml`), `mnem retrieve` falla con "embedder not configured".
-
-<details>
-<summary>Ejemplo de <code>.mnem/config.toml</code> (ejemplo con Ollama)</summary>
-
-```toml
-[embed]
-provider = "ollama"
-model    = "nomic-embed-text"
-base_url = "http://localhost:11434"
-```
-
-Lista completa de claves de configuración: [`docs/src/configuration.md`](docs/src/configuration.md).
-
-</details>
-
-<details>
-<summary><b>macOS / Linux</b></summary>
-
-¿No tienes Cargo? [Instala mediante rustup](https://rustup.rs/) (también instala `rustc`).
-
-```bash
-# Se requiere stdlib de C++ para enlazar el ONNX Runtime incluido (solo Linux)
-sudo apt-get install g++          # Debian / Ubuntu / WSL
-# sudo dnf install gcc-c++        # Fedora / RHEL
-```
-
-```bash
-cargo install --locked mnem-cli --features bundled-embedder
-
-# Embedder acelerado por CUDA (Linux, GPU NVIDIA)
-cargo install --locked mnem-cli --features bundled-embedder-cuda
-```
-
-Si `mnem` no se encuentra tras la instalación, `~/.cargo/bin` no está en `$PATH`.
-
-**Instalación con rustup**: carga el entorno (o abre una nueva terminal):
-```bash
-source ~/.cargo/env
-```
-
-**Rust del sistema (apt/dnf)**: añade a PATH de forma permanente:
-```bash
-echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-```
-
-</details>
-
-<details>
-<summary><b>Windows</b></summary>
-
-¿No tienes Cargo? [Instala mediante rustup](https://rustup.rs/) (también instala `rustc`).
-
-```powershell
-cargo install --locked mnem-cli --features bundled-embedder
-
-# Embedder acelerado por DirectML (cualquier proveedor de GPU en Windows)
-cargo install --locked mnem-cli --features bundled-embedder-directml
-```
-
-</details>
-
-<details>
-<summary><b>npm / Node.js</b></summary>
-
-¿No tienes npm? [Instala Node.js](https://nodejs.org/en/download) (npm viene incluido, se requiere Node 18+).
-
-```bash
-npm install -g mnem-cli
-mnem --version
-
-# o sin instalación global (uso único)
-npx mnem-cli --version
-```
-
-Descarga el binario nativo precompilado para tu plataforma en el momento de la instalación. Se requiere Node 18+. Embedder incluido - no se necesita Ollama ni clave de API.
-
-</details>
-
-<details>
-<summary><b>pip (PyPI)</b></summary>
-
-¿No tienes pip? [Instala Python](https://www.python.org/downloads/) (pip viene incluido con Python 3.4+).
-
-```bash
-pip install mnem-cli
-mnem --version
-```
-
-Distribuye el binario `mnem` como una wheel para manylinux / macOS / Windows con el embedder incluido preintegrado.
-
-</details>
-
-<details>
-<summary><b>Docker</b></summary>
-
-¿No tienes Docker? [Instala Docker Desktop](https://docs.docker.com/get-started/get-docker/).
-
-```bash
-# Efímero (los datos se pierden cuando el contenedor se detiene - solo para pruebas rápidas):
-docker run --rm -p 9876:9876 \
-  -e MNEM_HTTP_ALLOW_NON_LOOPBACK=1 \
-  ghcr.io/uranid/mnem:latest http --bind 0.0.0.0:9876
-
-# Persistente (los datos sobreviven a los reinicios - recomendado para uso real):
-mkdir -p ./mnem-data
-docker run -p 9876:9876 \
-  -v "$(pwd)/mnem-data:/data" -w /data \
-  -e MNEM_HTTP_ALLOW_NON_LOOPBACK=1 \
-  ghcr.io/uranid/mnem:latest http --bind 0.0.0.0:9876
-# Windows (PowerShell): reemplaza $(pwd) con ${PWD}; Windows (cmd.exe): reemplaza $(pwd) con %cd%
-```
-
-La imagen incluye el embedder integrado. El flag `--bind 0.0.0.0:9876` y la variable de entorno `MNEM_HTTP_ALLOW_NON_LOOPBACK=1` son necesarios dentro de Docker para que el mapeo de puertos (`-p 9876:9876`) funcione; el enlace de loopback por defecto no es accesible desde el host. Ejecuta `mnem mcp` dentro del contenedor para acceder a la interfaz del servidor MCP.
-
-> **Volumen nuevo (sin datos previos):** Si el directorio `/data` montado no tiene `.mnem/` presente, `mnem http` inicializa automáticamente un nuevo grafo en el primer arranque - no se necesita ejecutar `mnem init` manualmente. Los reinicios posteriores reutilizan el grafo existente.
-
-> **Fijado de etiqueta de imagen:** `ghcr.io/uranid/mnem:latest` siempre apunta a la versión más reciente. Para despliegues en producción, fija una etiqueta de versión específica (p. ej., `ghcr.io/uranid/mnem:v0.1.0`) para evitar actualizaciones inesperadas.
-
-> **⚠️ Sin autenticación por defecto:** Los ejemplos anteriores exponen la API sin token. Cualquiera que pueda alcanzar el puerto 9876 puede leer y escribir en tu grafo. Antes de enlazar a una dirección que no sea loopback, configura `MNEM_HTTP_AUTH_TOKEN` en el servidor y `--token-env` en el cliente - consulta la sección de autenticación en `mnem push`/`mnem pull`.
-
-</details>
-
-<details>
-<summary><b>Desde el código fuente</b></summary>
-
-```bash
-# Se requiere stdlib de C++ para enlazar el ONNX Runtime incluido (solo Linux)
-sudo apt-get install g++          # Debian / Ubuntu / WSL
-# sudo dnf install gcc-c++        # Fedora / RHEL
-```
-
-```bash
-git clone https://github.com/Uranid/mnem
-cd mnem
-cargo install --path crates/mnem-cli --features bundled-embedder
-```
-
-Requiere Rust 1.95+. Si es necesario: `rustup install 1.95 && rustup default 1.95`.
-
-</details>
-
-```bash
-mnem --version
-mnem doctor        # verifica el embedder + almacenamiento + configuración; imprime una lista con marcadores verde/amarillo/rojo
-```
 
 Matriz de instalación completa: [`docs/src/install.md`](docs/src/install.md).
 
