@@ -6,12 +6,13 @@ All notable changes to mnem.
 
 ### CLI
 
-- **BREAKING:** `mnem stats` now reports the real Prolly edge count as
-  `edges=...`. Previously the slot printed `view().refs.len()` (branch
-  count, typically `1`) under a misleading label - the value as well as
-  the label were wrong. Scripts that parsed `refs=N` from `mnem stats` /
-  `mnem global stats` need to read `edges=N` and treat the number as the
-  graph's edge count.
+- `mnem stats` and `mnem global stats` now print an additional
+  `edges=M` slot with the real Prolly edge count, alongside the
+  pre-existing `refs=N` slot (`view().refs.len()`, the number of
+  branches). The output ordering is `op=... commit=... content=...
+  refs=N edges=M labels=K`. Scripts that grepped `refs=` continue to
+  work unchanged; new consumers should read `edges=`. Additive, not
+  breaking.
 - **BREAKING:** `mnem blame <unknown-uuid>` now exits non-zero with
   `Error: no node with id=<uuid>`. Previously exited 0 with an empty-edges
   table, which could not be distinguished from a node that existed with

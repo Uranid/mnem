@@ -23,6 +23,10 @@ pub(crate) fn run(override_path: Option<&Path>) -> Result<()> {
     } else {
         0
     };
+    // `refs=` preserves the pre-fix one-line output shape for tooling that
+    // grepped the old `view().refs.len()` value; the new `edges=` slot is the
+    // real Prolly edge count and is what consumers should read going forward.
+    let ref_count = r.view().refs.len();
     let head_commit_str = r
         .view()
         .heads
@@ -48,10 +52,11 @@ pub(crate) fn run(override_path: Option<&Path>) -> Result<()> {
     // require walking a Prolly subtree per label; skip here and surface in a
     // future `mnem stats --verbose` instead.
     println!(
-        "op={} commit={} content={} edges={} labels={}",
+        "op={} commit={} content={} refs={} edges={} labels={}",
         r.op_id(),
         head_commit_str,
         content_cid_str,
+        ref_count,
         edge_count,
         label_count
     );
