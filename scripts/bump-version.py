@@ -5,6 +5,9 @@ Updates every file that records the package version.
 
 Files touched:
   1. Cargo.toml                              [workspace.package] version
+                                             + [workspace.dependencies] internal-dep
+                                               `version = "..."` pins (gotcha 9.2
+                                               from the v0.1.6 release playbook)
   2. Cargo.lock                              workspace member versions
   3. crates/mnem-py/pyproject.toml           version = "..."
   4. py-packages/mnem-cli/pyproject.toml     version = "..."
@@ -54,6 +57,26 @@ def bump_cargo_toml(new: str) -> None:
     if n == 0:
         die('Could not find [workspace.package] version in Cargo.toml')
     print(f"  Cargo.toml: workspace.package version -> {new}")
+
+    # Cargo 1.95+ rejects `cargo publish` when an internal path-only dep is
+    # missing a `version = "..."`. The `[workspace.dependencies]` block in
+    # Cargo.toml pins each `mnem-*` internal dep at the current release; we
+    # roll them all forward in one sweep so the publish loop doesn't have
+    # to.  Pre-fix, this was the manual edit recorded as gotcha 9.2 in the
+    # release playbook.  The regex anchors on the `path = "crates/mnem-*"`
+    # left-hand side so we only touch internal deps (third-party deps with
+    # the same `version =` shape aren't matched).
+    new_text, dep_n = re.subn(
+        r'(path\s*=\s*"crates/mnem-[^"]+"\s*,\s*version\s*=\s*")[^"]+(")',
+        lambda m: m.group(1) + new + m.group(2),
+        text,
+    )
+    if dep_n:
+        print(
+            f"  Cargo.toml: {dep_n} workspace.dependencies internal-dep version pin(s) -> {new}"
+        )
+        text = new_text
+
     path.write_text(text, encoding='utf-8')
 
 

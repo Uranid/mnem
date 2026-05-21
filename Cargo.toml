@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 rust-version = "1.95"
 license = "Apache-2.0"
@@ -248,20 +248,20 @@ criterion            = { version = "0.8", default-features = false, features = [
 # `version` is required by `cargo publish` (Cargo 1.95+ rejects path-only
 # internal deps when uploading). bump-version.py keeps these in sync with
 # [workspace.package].version above.
-mnem-ann              = { path = "crates/mnem-ann",              version = "0.1.6", default-features = false }
-mnem-backend-redb     = { path = "crates/mnem-backend-redb",     version = "0.1.6" }
-mnem-bench            = { path = "crates/mnem-bench",            version = "0.1.6", default-features = false }
-mnem-core             = { path = "crates/mnem-core",             version = "0.1.6" }
+mnem-ann              = { path = "crates/mnem-ann",              version = "0.1.7", default-features = false }
+mnem-backend-redb     = { path = "crates/mnem-backend-redb",     version = "0.1.7" }
+mnem-bench            = { path = "crates/mnem-bench",            version = "0.1.7", default-features = false }
+mnem-core             = { path = "crates/mnem-core",             version = "0.1.7" }
 mnem-core-testutils   = { path = "crates/mnem-core-testutils" }                       # publish=false; path only so it's stripped from published manifests
-mnem-embed-providers  = { path = "crates/mnem-embed-providers",  version = "0.1.6" }
-mnem-extract          = { path = "crates/mnem-extract",          version = "0.1.6" }
-mnem-graphrag         = { path = "crates/mnem-graphrag",         version = "0.1.6" }
-mnem-http             = { path = "crates/mnem-http",             version = "0.1.6" }
-mnem-ingest           = { path = "crates/mnem-ingest",           version = "0.1.6" }
-mnem-llm-providers    = { path = "crates/mnem-llm-providers",    version = "0.1.6" }
-mnem-mcp              = { path = "crates/mnem-mcp",              version = "0.1.6", default-features = false }
-mnem-ner-providers    = { path = "crates/mnem-ner-providers",    version = "0.1.6" }
-mnem-rerank-providers = { path = "crates/mnem-rerank-providers", version = "0.1.6" }
-mnem-sparse-providers = { path = "crates/mnem-sparse-providers", version = "0.1.6" }
-mnem-transport        = { path = "crates/mnem-transport",        version = "0.1.6" }
+mnem-embed-providers  = { path = "crates/mnem-embed-providers",  version = "0.1.7" }
+mnem-extract          = { path = "crates/mnem-extract",          version = "0.1.7" }
+mnem-graphrag         = { path = "crates/mnem-graphrag",         version = "0.1.7" }
+mnem-http             = { path = "crates/mnem-http",             version = "0.1.7" }
+mnem-ingest           = { path = "crates/mnem-ingest",           version = "0.1.7" }
+mnem-llm-providers    = { path = "crates/mnem-llm-providers",    version = "0.1.7" }
+mnem-mcp              = { path = "crates/mnem-mcp",              version = "0.1.7", default-features = false }
+mnem-ner-providers    = { path = "crates/mnem-ner-providers",    version = "0.1.7" }
+mnem-rerank-providers = { path = "crates/mnem-rerank-providers", version = "0.1.7" }
+mnem-sparse-providers = { path = "crates/mnem-sparse-providers", version = "0.1.7" }
+mnem-transport        = { path = "crates/mnem-transport",        version = "0.1.7" }
 

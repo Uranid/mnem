@@ -4,6 +4,8 @@ All notable changes to mnem.
 
 ## Unreleased
 
+## 0.1.7 - 2026-05-21
+
 ### CLI
 
 - `mnem ingest` now reports the real edge count in the `N edges` slot

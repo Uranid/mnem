@@ -2057,7 +2057,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-ann"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "bytes",
  "instant-distance",
@@ -2070,7 +2070,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-backend-redb"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "bytes",
  "criterion",
@@ -2084,7 +2084,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-bench"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2106,7 +2106,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-cli"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2144,7 +2144,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-core"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "blake3",
  "bytes",
@@ -2167,14 +2167,14 @@ dependencies = [
 
 [[package]]
 name = "mnem-core-testutils"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "mnem-core",
 ]
 
 [[package]]
 name = "mnem-embed-providers"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "blake3",
  "bytes",
@@ -2192,7 +2192,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-extract"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "mnem-core",
  "mnem-embed-providers",
@@ -2208,7 +2208,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-graphrag"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "blake3",
  "mnem-core",
@@ -2219,7 +2219,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-http"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "axum",
@@ -2254,7 +2254,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-ingest"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "bytes",
  "httpmock",
@@ -2294,7 +2294,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-llm-providers"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "mnem-core",
  "serde",
@@ -2306,7 +2306,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-mcp"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2325,7 +2325,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-ner-providers"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -2333,7 +2333,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-py"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "bytes",
  "ipld-core",
@@ -2344,7 +2344,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-rerank-providers"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "hf-hub",
  "mnem-core",
@@ -2360,7 +2360,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-sparse-providers"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "hf-hub",
  "mnem-core",
@@ -2376,7 +2376,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-transport"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "async-stream",
  "bloomfilter",

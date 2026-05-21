@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "mnem-cli"
 # Kept in sync with [workspace.package].version in ../../Cargo.toml.
 # The release workflow updates this via sed before publishing.
-version = "0.1.6"
+version = "0.1.7"
 description = "Git for AI Agent Knowledge - pip installer for the mnem CLI binary."
 readme = "README.md"
 requires-python = ">=3.9"
