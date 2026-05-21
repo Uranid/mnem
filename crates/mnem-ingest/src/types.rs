@@ -180,7 +180,10 @@ impl Default for IngestConfig {
 /// every `Node` added (the Doc root, one per chunk, one per unique
 /// entity). `entity_count` and `relation_count` report extraction
 /// output before dedup. `chunk_count` reports the number of chunks
-/// produced by the chunker stage.
+/// produced by the chunker stage. `edge_count` reports the total number
+/// of edges written by the run (structural `chunk_of`, entity
+/// `chunk_mentions`, and extractor-found relations all included);
+/// `relation_count` is a strict subset covering only the third group.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IngestResult {
     /// Commit produced by the run, if any.
@@ -191,8 +194,15 @@ pub struct IngestResult {
     pub chunk_count: u64,
     /// Number of entity nodes created (deduplicated across the run).
     pub entity_count: u64,
-    /// Number of relation edges created.
+    /// Number of relation edges created (LLM-extracted subject-object
+    /// triples only). Strict subset of [`Self::edge_count`].
     pub relation_count: u64,
+    /// Total number of edges written: structural (`chunk_of`), entity
+    /// mentions (`chunk_mentions`), and extracted relations combined.
+    /// Single-chunk ingests produce at least one edge (the `chunk_of`
+    /// link between the chunk and its Doc parent) even when the
+    /// extractor finds zero relations.
+    pub edge_count: u64,
     /// Wall-clock elapsed time in milliseconds.
     pub elapsed_ms: u64,
 }

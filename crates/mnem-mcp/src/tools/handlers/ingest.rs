@@ -197,6 +197,7 @@ pub(super) fn ingest_impl(
     out.push_str(&format!("  chunk_count:    {}\n", result.chunk_count));
     out.push_str(&format!("  entity_count:   {}\n", result.entity_count));
     out.push_str(&format!("  relation_count: {}\n", result.relation_count));
+    out.push_str(&format!("  edge_count:     {}\n", result.edge_count));
     out.push_str(&format!("  elapsed_ms:     {}\n", result.elapsed_ms));
     #[cfg(feature = "summarize")]
     out.push_str(&format!("  embed_count:    {embed_count}\n"));

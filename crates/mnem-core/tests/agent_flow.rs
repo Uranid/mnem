@@ -226,6 +226,117 @@ fn tombstone_excludes_node_and_include_tombstoned_surfaces_it() {
 }
 
 #[test]
+fn anchor_excluded_from_retrieve_by_default_and_surfaced_under_include_system() {
+    // Contract: a node whose id matches the system anchor must NOT
+    // appear in a default retrieve, no matter what other live nodes
+    // are present. `include_system(true)` restores it for audit.
+    //
+    // Repros the user-reported bug where the `mnem init` anchor
+    // (node id 00000000-0000-7000-8000-6d6e656d0001) showed up with
+    // a low score in every retrieve after the first ingest.
+    use mnem_core::anchor::anchor_node_id;
+    use mnem_core::objects::Node;
+
+    let repo = fresh_repo();
+    let mut tx = repo.start_transaction();
+    let anchor = Node::new(anchor_node_id(), "Meta");
+    tx.add_node(&anchor).expect("add anchor");
+    let real_id = tx
+        .commit_memory("Note", "live content the user actually wrote", [])
+        .unwrap();
+    let repo = tx.commit("agent", "init + content").unwrap();
+
+    // Default retrieve: anchor is hidden, real note is visible.
+    let result = repo
+        .retrieve()
+        .label("Note")
+        .execute()
+        .expect("retrieve ok");
+    let ids: Vec<_> = result.items.iter().map(|i| i.node.id).collect();
+    assert!(
+        !ids.contains(&anchor_node_id()),
+        "anchor must be excluded by default, got ids={ids:?}"
+    );
+    assert!(
+        ids.contains(&real_id),
+        "live note must still surface, got ids={ids:?}"
+    );
+
+    // Also check the Meta-labelled retrieve directly: the anchor is a
+    // Meta node so without the system filter it would dominate the
+    // results. With the filter on (default) we expect zero hits.
+    let result_meta = repo.retrieve().label("Meta").execute().expect("retrieve ok");
+    let ids_meta: Vec<_> = result_meta.items.iter().map(|i| i.node.id).collect();
+    assert!(
+        ids_meta.is_empty(),
+        "default retrieve of label=Meta must drop the anchor entirely, got ids={ids_meta:?}"
+    );
+
+    // Audit path: include_system(true) brings it back.
+    let result = repo
+        .retrieve()
+        .label("Meta")
+        .include_system(true)
+        .execute()
+        .expect("retrieve ok");
+    let ids: Vec<_> = result.items.iter().map(|i| i.node.id).collect();
+    assert!(
+        ids.contains(&anchor_node_id()),
+        "include_system(true) must surface the anchor for audit, got ids={ids:?}"
+    );
+}
+
+#[test]
+fn query_excludes_anchor_by_default_and_surfaces_under_include_system() {
+    // Same contract as the retriever test above, but at the Query
+    // level (the structured `mnem query` / MCP `mnem_list_nodes`
+    // surface). Two filter sites in `Query::execute` need to agree:
+    // the indexed-label cursor path and the streaming-fallback path.
+    use mnem_core::anchor::anchor_node_id;
+    use mnem_core::objects::Node;
+
+    let repo = fresh_repo();
+    let mut tx = repo.start_transaction();
+    tx.add_node(&Node::new(anchor_node_id(), "Meta"))
+        .expect("add anchor");
+    let _real = tx
+        .commit_memory("Note", "user-authored fact", [])
+        .unwrap();
+    let repo = tx.commit("agent", "init + content").unwrap();
+
+    // Default Query for ntype=Meta: zero hits (only the anchor lives
+    // under that label, and the system filter drops it).
+    let hits = repo.query().label("Meta").execute().expect("query ok");
+    let ids: Vec<_> = hits.iter().map(|h| h.node.id).collect();
+    assert!(
+        ids.is_empty(),
+        "default Query for label=Meta must drop the anchor, got ids={ids:?}"
+    );
+
+    // include_system(true) restores it.
+    let hits = repo
+        .query()
+        .label("Meta")
+        .include_system(true)
+        .execute()
+        .expect("query ok");
+    let ids: Vec<_> = hits.iter().map(|h| h.node.id).collect();
+    assert!(
+        ids.contains(&anchor_node_id()),
+        "include_system(true) must surface the anchor, got ids={ids:?}"
+    );
+
+    // No-label streaming fallback: same guarantee on the alternate
+    // execute branch.
+    let hits = repo.query().execute().expect("query ok");
+    let ids: Vec<_> = hits.iter().map(|h| h.node.id).collect();
+    assert!(
+        !ids.contains(&anchor_node_id()),
+        "default no-label Query must also drop the anchor, got ids={ids:?}"
+    );
+}
+
+#[test]
 fn edge_between_two_notes_surfaces_on_incoming_edges() {
     // Contract: an edge added between two commit_memory-written
     // nodes is reachable via the dual-adjacency back-index

@@ -283,6 +283,17 @@ pub(crate) fn run(override_path: Option<&Path>, args: Args) -> Result<()> {
             skipped_already_embedded += 1;
             continue;
         }
+        // Skip the `mnem init` anchor: it carries no summary, no
+        // content, and no agent-meaningful text. The fallback path in
+        // `reindex_text_of` would otherwise embed it from its
+        // ntype/props (the "label+props fallback" docstring), which
+        // means every retrieve thereafter surfaces the anchor as
+        // low-score noise. `mnem_core::anchor::is_system_node` is the
+        // canonical predicate; if more system nodes are added later,
+        // the skip extends automatically.
+        if mnem_core::anchor::is_system_node(&node) {
+            continue;
+        }
         candidates.push((node_cid, node));
     }
 
@@ -403,6 +414,15 @@ fn run_lift_legacy_extra(
         if let Some(lbl) = &args.label
             && &node.ntype != lbl
         {
+            continue;
+        }
+
+        // Belt-and-suspenders skip for the system anchor: if an
+        // operator ever sets `extra["embed"]` on it during repo
+        // surgery, the lift would otherwise propagate that into the
+        // sidecar and re-introduce the noise this whole filter
+        // chain exists to prevent.
+        if mnem_core::anchor::is_system_node(&node) {
             continue;
         }
 
@@ -527,6 +547,11 @@ fn run_lift_legacy_sparse(
         if let Some(lbl) = &args.label
             && &node.ntype != lbl
         {
+            continue;
+        }
+
+        // Same belt-and-suspenders skip as the dense lift above.
+        if mnem_core::anchor::is_system_node(&node) {
             continue;
         }
 

@@ -132,12 +132,12 @@ pub(crate) fn init_mnem_dir(parent: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Fixed UUID for the Meta anchor node so `content_cid` is deterministic
-/// across any two fresh repos that ingest the same user data.
-/// audit-2026-04-25 P0-1 fix: using new_v7() here made every init produce a
-/// different node ID, which propagated into the node-tree root CID and
-/// ultimately into content_cid, breaking the determinism invariant.
-const ANCHOR_NODE_ID: &str = "00000000-0000-7000-8000-6d6e656d0001";
+// The anchor UUID itself lives in `mnem_core::anchor` so the same
+// identity is shared by `mnem init` (the writer), `mnem reindex` (the
+// skip filter), and `Query`/`Retriever` (the read-time filters).
+// Re-export the parsed form locally so the rest of this file reads
+// the same way it did before the move.
+use mnem_core::anchor::ANCHOR_NODE_UUID as ANCHOR_NODE_ID;
 
 /// Fixed change-id for the anchor commit so the commit CID is byte-identical
 /// across all fresh repos. BUG-56: without this, the anchor commit produced by
@@ -154,10 +154,19 @@ const ANCHOR_TIME_MICROS: u64 = 0;
 
 /// Commit a minimal anchor node to a freshly-initialised repo.
 /// Non-fatal: store or embed failures are silently swallowed so they
-/// never block `mnem init` or `mnem integrate`. The node gives the
-/// embedder a warm-up write and makes the graph non-empty from the
-/// first second, so `mnem global retrieve` has something to return
-/// without a manual `mnem reindex` run.
+/// never block `mnem init` or `mnem integrate`. The node makes the
+/// graph non-empty from the first second so commit-history operations
+/// (`log`, `blame`, `push`, `pull`) have a shared ancestor to anchor
+/// against.
+///
+/// The anchor is structural only: it has no summary, no content, and
+/// is filtered from `mnem retrieve` / `mnem query` results by default
+/// (see [`mnem_core::anchor::is_system_node`] and the
+/// `include_system(true)` audit opt-in on
+/// [`mnem_core::index::query::Query`] /
+/// [`mnem_core::retrieve::retriever::Retriever`]). The reindex
+/// candidate collector also skips it, so it never accumulates a
+/// fallback vector that would surface as noise in retrieve.
 ///
 /// The anchor commit is fully deterministic (fixed node-id, change-id,
 /// and timestamp) so every `mnem init` produces the same anchor commit

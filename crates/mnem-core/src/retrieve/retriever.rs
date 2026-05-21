@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use ipld_core::ipld::Ipld;
 
+use crate::anchor::is_anchor_node_id;
 use crate::error::{Error, RepoError};
 use crate::id::NodeId;
 use crate::index::{PropPredicate, VectorIndex};
@@ -64,6 +65,11 @@ pub struct Retriever<'a> {
     /// filter out by default, matching the agent-facing "forget"
     /// semantics documented in SPEC §4.10.
     include_tombstoned: bool,
+    /// When `true`, system-reserved nodes (today: the `mnem init`
+    /// anchor) are kept in the result set. Defaults to `false` so
+    /// `mnem retrieve` never surfaces graph bookkeeping. Mirrors
+    /// [`Self::include_tombstoned`] for audit / admin opt-in.
+    include_system: bool,
     /// Optional temporal-range filter against the reserved props
     /// `mnem:created_at` / `mnem:updated_at` stamped by
     /// [`crate::repo::Transaction::commit_memory`]. See
@@ -153,6 +159,7 @@ impl<'a> Retriever<'a> {
             graph_expand: None,
             adjacency_index: None,
             include_tombstoned: false,
+            include_system: false,
             temporal_filter: None,
             community_filter_cfg: CommunityFilterCfg::default(),
             community_lookup: None,
@@ -267,6 +274,19 @@ impl<'a> Retriever<'a> {
     #[must_use]
     pub const fn include_tombstoned(mut self, include: bool) -> Self {
         self.include_tombstoned = include;
+        self
+    }
+
+    /// Include system-reserved nodes (today: the `mnem init` anchor)
+    /// in the result set. Off by default so agent-facing retrieval
+    /// never surfaces graph bookkeeping. Audit / admin callers opt in
+    /// the same way they opt into tombstones; the filter passes
+    /// through to the inner [`crate::index::query::Query`] and also
+    /// applies at the prefetched, ranked, and graph-expand-neighbor
+    /// stages so a system node can't sneak in via any path.
+    #[must_use]
+    pub const fn include_system(mut self, include: bool) -> Self {
+        self.include_system = include;
         self
     }
 
@@ -501,6 +521,7 @@ impl<'a> Retriever<'a> {
             vector_index_override,
             sparse_index_override,
             include_tombstoned,
+            include_system,
             temporal_filter,
             community_filter_cfg,
             community_lookup,
@@ -654,7 +675,10 @@ impl<'a> Retriever<'a> {
         } else {
             // Filter-only mode: the structured query already returns
             // hits that carry the decoded `Node`, so reuse those.
-            let mut q = repo.query().include_tombstoned(include_tombstoned);
+            let mut q = repo
+                .query()
+                .include_tombstoned(include_tombstoned)
+                .include_system(include_system);
             if let Some(lbl) = &label {
                 q = q.label(lbl.clone());
             }
@@ -674,6 +698,17 @@ impl<'a> Retriever<'a> {
         // expand are filtered a second time further down.
         if !include_tombstoned && !repo.view().tombstones.is_empty() {
             prefetched.retain(|(id, _, _)| !repo.is_tombstoned(id));
+        }
+
+        // --- System-node filter (anchor) ---
+        // Default: drop the `mnem init` anchor from the candidate pool.
+        // It carries no content, has no agent-meaningful embedding, and
+        // would otherwise appear as low-score noise in every retrieve.
+        // `include_system(true)` opts back in for audit / repair flows.
+        // Mirrors the tombstone filter shape so future system-reserved
+        // nodes get the same treatment without code churn.
+        if !include_system {
+            prefetched.retain(|(id, _, _)| !is_anchor_node_id(id));
         }
 
         // --- Temporal-range filter (agent-support track, mnem/0.3+) ---
@@ -760,10 +795,13 @@ impl<'a> Retriever<'a> {
                     .then_with(|| a.0.cmp(&b.0))
             });
             // Filter out seeds (they're already in prefetched) and
-            // tombstoned nodes (unless the audit override is on).
+            // tombstoned / system nodes (unless the audit override is on).
             ranked.retain(|(id, _)| !seen.contains(id));
             if !include_tombstoned {
                 ranked.retain(|(id, _)| !repo.is_tombstoned(id));
+            }
+            if !include_system {
+                ranked.retain(|(id, _)| !is_anchor_node_id(id));
             }
             ranked.truncate(ge.max_expand);
             for (nbr_id, score) in ranked {
@@ -933,12 +971,16 @@ impl<'a> Retriever<'a> {
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then_with(|| a.0.cmp(&b.0))
             });
-            // Tombstone filter BEFORE truncate: filtering after truncate
-            // would let tombstoned high-scoring neighbors crowd out live
-            // lower-scoring ones, hiding usable results under the cap.
-            // Opt out via `include_tombstoned(true)` for audit callers.
+            // Tombstone / system filter BEFORE truncate: filtering
+            // after truncate would let unwanted high-scoring neighbors
+            // crowd out live lower-scoring ones, hiding usable results
+            // under the cap. Opt out via `include_tombstoned(true)` /
+            // `include_system(true)` for audit callers.
             if !include_tombstoned {
                 ranked.retain(|(nbr_id, _)| !repo.is_tombstoned(nbr_id));
+            }
+            if !include_system {
+                ranked.retain(|(nbr_id, _)| !is_anchor_node_id(nbr_id));
             }
             ranked.truncate(ge.max_expand);
             for (nbr_id, score) in ranked {

@@ -266,12 +266,23 @@ impl Ingester {
         tx.add_node(&doc).map_err(Error::commit)?;
         let mut node_count: u64 = 1;
         let mut relation_count: u64 = 0;
+        // `edge_count` is the total number of edges this run writes:
+        // every `chunk_of` (one per chunk), every `chunk_mentions` (one
+        // per entity mention), and every extracted relation. It's
+        // exposed on `IngestResult` so the CLI's "edges=N" slot reports
+        // the real on-disk count instead of just `relation_count`,
+        // which under-reported by an order of magnitude on single-text
+        // ingests where the extractor finds nothing.
+        let mut edge_count: u64 = 0;
 
         let mut entity_registry: BTreeMap<(String, String), NodeId> = BTreeMap::new();
 
         for (chunk_idx, c) in chunks.iter().enumerate() {
             let chunk_id = self.commit_chunk(tx, c, doc_id, created_at_micros, source_kind_str)?;
             node_count += 1;
+            // commit_chunk writes the chunk node and a single
+            // `chunk_of` edge linking it to the Doc root.
+            edge_count += 1;
             if let Some(cb) = &self.progress {
                 cb();
             }
@@ -305,6 +316,7 @@ impl Ingester {
 
                     let mention = Edge::new(EdgeId::new_v7(), "chunk_mentions", chunk_id, ent_id);
                     tx.add_edge(&mention).map_err(Error::commit)?;
+                    edge_count += 1;
                     ents_for_chunk.push((e, ent_id));
                 }
 
@@ -319,6 +331,7 @@ impl Ingester {
                     let rel_edge = Edge::new(EdgeId::new_v7(), r.kind.clone(), subj_id, obj_id);
                     tx.add_edge(&rel_edge).map_err(Error::commit)?;
                     relation_count += 1;
+                    edge_count += 1;
                 }
             }
         }
@@ -333,6 +346,7 @@ impl Ingester {
             chunk_count,
             entity_count,
             relation_count,
+            edge_count,
             elapsed_ms,
         })
     }
@@ -537,6 +551,18 @@ mod tests {
         assert!(result.chunk_count >= 1, "got {result:?}");
         assert!(result.node_count >= 2, "expected doc + chunks + entities");
         assert!(result.entity_count >= 1, "expected at least one entity");
+        // edge_count must include every structural edge (one chunk_of
+        // per chunk), every chunk_mentions edge, AND every extractor-
+        // found relation. Floor: chunk_count + 1 covers the chunk_of
+        // edges alone. relation_count is a strict subset.
+        assert!(
+            result.edge_count >= result.chunk_count,
+            "edge_count must include all chunk_of edges, got {result:?}"
+        );
+        assert!(
+            result.edge_count >= result.relation_count,
+            "edge_count must be a superset of relation_count, got {result:?}"
+        );
     }
 
     #[test]
@@ -552,6 +578,35 @@ mod tests {
 
         assert!(result.node_count >= 2);
         assert!(result.chunk_count >= 1);
+    }
+
+    #[test]
+    fn ingest_single_text_with_no_entities_still_reports_one_edge() {
+        // Repros the user-reported bug: `mnem ingest --text "..."`
+        // with text that has no extractable entities printed "0 edges"
+        // even though the chunk_of edge was on disk. With the fix,
+        // edge_count must be >= 1 (the chunk_of edge linking the lone
+        // chunk to its Doc parent) even when relation_count is 0.
+        let repo = test_repo();
+        let mut tx = repo.start_transaction();
+        let ing = Ingester::new(IngestConfig::default());
+
+        // Single-word text: the default extractor finds no named
+        // entities and no subject-object relations.
+        let body = "x";
+        let result = ing
+            .ingest(&mut tx, body.as_bytes(), SourceKind::Text)
+            .expect("ingest ok");
+
+        assert_eq!(result.chunk_count, 1, "expected exactly one chunk");
+        assert_eq!(
+            result.relation_count, 0,
+            "expected zero LLM-extracted relations"
+        );
+        assert!(
+            result.edge_count >= 1,
+            "single chunk must produce at least the chunk_of edge, got {result:?}"
+        );
     }
 
     #[test]

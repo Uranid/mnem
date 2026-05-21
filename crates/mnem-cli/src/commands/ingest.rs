@@ -396,7 +396,7 @@ pub(crate) fn run(override_path: Option<&Path>, a: Args) -> Result<()> {
     let elapsed_ms = started.elapsed().as_millis();
     println!(
         "ingested {file_count} files, {} chunks, {} nodes, {} edges in {}ms",
-        totals.chunk_count, totals.node_count, totals.relation_count, elapsed_ms
+        totals.chunk_count, totals.node_count, totals.edge_count, elapsed_ms
     );
     println!(" op_id {}", new_r.op_id());
     if let Some(head) = new_r.view().heads.first() {
@@ -450,6 +450,7 @@ struct Totals {
     chunk_count: u64,
     entity_count: u64,
     relation_count: u64,
+    edge_count: u64,
 }
 
 impl Totals {
@@ -458,6 +459,7 @@ impl Totals {
         self.chunk_count = self.chunk_count.saturating_add(r.chunk_count);
         self.entity_count = self.entity_count.saturating_add(r.entity_count);
         self.relation_count = self.relation_count.saturating_add(r.relation_count);
+        self.edge_count = self.edge_count.saturating_add(r.edge_count);
     }
 }
 

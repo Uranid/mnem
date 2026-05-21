@@ -6,6 +6,16 @@ All notable changes to mnem.
 
 ### CLI
 
+- `mnem ingest` now reports the real edge count in the `N edges` slot
+  of its summary line (`ingested K files, J chunks, N nodes, E edges
+  in T ms`). Previously this slot was wired to the extractor's
+  `relation_count`, so a single-text ingest with no LLM-found
+  relations printed `0 edges` even though the structural `chunk_of`
+  edge was on disk. The new `IngestResult::edge_count` field covers
+  every edge written (`chunk_of` + `chunk_mentions` + relations);
+  `relation_count` stays available as a strict subset. The same
+  field surfaces in the HTTP ingest JSON response and the MCP
+  `mnem_ingest` text output.
 - `mnem stats` and `mnem global stats` now print an additional
   `edges=M` slot with the real Prolly edge count, alongside the
   pre-existing `refs=N` slot (`view().refs.len()`, the number of
@@ -41,6 +51,28 @@ All notable changes to mnem.
   behavior with the new `Query::include_tombstoned(true)` builder method.
 - New library API: `mnem_core::index::query::Query::include_tombstoned(bool)`
   for explicit opt-in to tombstoned nodes.
+- `Query` and `Retriever` now hide the `mnem init` system anchor
+  (node id `00000000-0000-7000-8000-6d6e656d0001`) by default,
+  matching the tombstone-filter shape. The anchor is structural - it
+  exists for the BUG-56 fast-forward-pull guarantee and as a graph-
+  history root - and carries no agent-meaningful content. Previously,
+  the post-ingest reindex pass embedded it via the label-fallback
+  path in `reindex_text_of`, then surfaced it as low-score noise in
+  every subsequent `mnem retrieve` / `mnem query --where ntype=Meta`.
+  New opt-in builders for audit / repair: `Query::include_system(true)`
+  and `Retriever::include_system(true)`. The `mnem reindex` candidate
+  collector, the dense / sparse legacy-lift paths, and the HNSW
+  build all skip system nodes too so a corrupt anchor can't slip
+  back into any vector index.
+- New library API: `mnem_core::anchor` module exposing
+  `ANCHOR_NODE_UUID`, `anchor_node_id()`, `is_anchor_node_id(&NodeId)`,
+  and `is_system_node(&Node)`. Single source of truth for the
+  anchor's identity, shared by `mnem init` (writer), `mnem reindex`
+  (skip filter), and `Query` / `Retriever` (read-time filters).
+- New ingest field: `mnem_ingest::IngestResult::edge_count` reports the
+  total number of edges written by a run (structural + mentions +
+  relations). `relation_count` keeps its narrower meaning as a
+  strict subset (LLM-extracted subject-object triples only).
 
 ### Integrations
 

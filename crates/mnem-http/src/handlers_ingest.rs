@@ -442,6 +442,7 @@ fn run_ingest(
         "chunk_count":    result.chunk_count,
         "entity_count":   result.entity_count,
         "relation_count": result.relation_count,
+        "edge_count":     result.edge_count,
         "elapsed_ms":     result.elapsed_ms,
     })))
 }

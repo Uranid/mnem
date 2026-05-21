@@ -6,6 +6,7 @@ use std::collections::HashSet;
 
 use ipld_core::ipld::Ipld;
 
+use crate::anchor::is_system_node;
 use crate::error::{Error, RepoError};
 use crate::objects::{Edge, IndexSet, Node};
 use crate::prolly::{self, Cursor, ProllyKey};
@@ -125,6 +126,11 @@ pub struct Query<'a> {
     limit: Option<usize>,
     adjacency_cap: usize,
     include_tombstoned: bool,
+    /// When `true`, system-reserved nodes (today: the `mnem init`
+    /// anchor) are kept in the result set. Defaults to `false` so
+    /// agent-facing queries never surface bookkeeping noise.
+    /// Audit / admin callers opt back in via [`Self::include_system`].
+    include_system: bool,
 }
 
 impl<'a> Query<'a> {
@@ -153,6 +159,7 @@ impl<'a> Query<'a> {
             limit: None,
             adjacency_cap: Self::DEFAULT_ADJACENCY_CAP,
             include_tombstoned: false,
+            include_system: false,
         }
     }
 
@@ -229,6 +236,19 @@ impl<'a> Query<'a> {
     #[must_use]
     pub const fn include_tombstoned(mut self, include: bool) -> Self {
         self.include_tombstoned = include;
+        self
+    }
+
+    /// Include system-reserved nodes (today: the `mnem init` anchor)
+    /// in results. Defaults to false so agent-facing surfaces never
+    /// see graph bookkeeping. Flip to true for audit / admin flows
+    /// that need to inspect or repair the anchor.
+    ///
+    /// Mirrors [`Self::include_tombstoned`]: both filters live in the
+    /// same execute branches, both default to "hide", both opt-in.
+    #[must_use]
+    pub const fn include_system(mut self, include: bool) -> Self {
+        self.include_system = include;
         self
     }
 
@@ -346,6 +366,7 @@ impl<'a> Query<'a> {
                         if node.ntype == *label
                             && node.props.get(prop) == Some(value)
                             && (self.include_tombstoned || !self.repo.is_tombstoned(&node.id))
+                            && (self.include_system || !is_system_node(&node))
                         {
                             hits.push(build_hit(node, indexes.as_ref())?);
                         }
@@ -360,6 +381,9 @@ impl<'a> Query<'a> {
                         let (_k, node_cid) = entry?;
                         let node: Node = decode_from_store(&*bs, &node_cid)?;
                         if !self.include_tombstoned && self.repo.is_tombstoned(&node.id) {
+                            continue;
+                        }
+                        if !self.include_system && is_system_node(&node) {
                             continue;
                         }
                         // Index already guarantees the label matches; no
@@ -379,6 +403,9 @@ impl<'a> Query<'a> {
                     let (_k, node_cid) = entry?;
                     let node: Node = decode_from_store(&*bs, &node_cid)?;
                     if !self.include_tombstoned && self.repo.is_tombstoned(&node.id) {
+                        continue;
+                    }
+                    if !self.include_system && is_system_node(&node) {
                         continue;
                     }
                     if let Some(ref lbl) = self.label

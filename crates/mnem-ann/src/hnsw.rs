@@ -198,6 +198,15 @@ impl HnswVectorIndex {
             if repo.is_tombstoned(&node.id) {
                 continue;
             }
+            // Same reasoning for the system anchor: it has no
+            // agent-meaningful embedding and must not enter the HNSW
+            // index. Latent today (reindex skips embedding the
+            // anchor) but kept here for parity with the tombstone
+            // skip - the HNSW index has no repo access at search
+            // time, so the build is the only gate.
+            if mnem_core::anchor::is_system_node(&node) {
+                continue;
+            }
 
             // Sidecar is the only source. The bucket may exist but
             // lack `model`; that is indistinguishable from a missing

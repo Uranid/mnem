@@ -61,6 +61,7 @@
 #![deny(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+pub mod anchor;
 pub mod codec;
 pub mod error;
 pub mod guard;
