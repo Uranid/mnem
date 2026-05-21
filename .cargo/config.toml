@@ -5,3 +5,26 @@ install-mnem = "install --path crates/mnem-cli --features bundled-embedder"
 
 # Same without bundled embedder (bring your own via .mnem/config.toml).
 install-mnem-bare = "install --path crates/mnem-cli"
+
+[build]
+# Cap the default parallel job count at 2.
+#
+# Why: a full `--release` build with the `bundled-embedder` feature
+# pulls in 11 tree-sitter parsers (each with a C compile step) and
+# LLVM's release-mode codegen. On Windows / 16-thread laptops the
+# default (`-j <num_logical_cpus>`) spins up 12-16 concurrent rustc
+# / clang / link.exe processes, each bursting to 2-4 GB during LLVM
+# codegen, and the OS hits its virtual-address-space limit before
+# the build finishes. The failure mode is a cryptic cascade of
+# `STATUS_STACK_BUFFER_OVERRUN`, `found invalid metadata files for
+# crate 'core'`, and `os error 1455 (paging file too small)` -
+# all symptoms of the same root cause: the system ran out of memory.
+#
+# `-j 2` caps peak memory at ~8 GB which fits comfortably on any
+# laptop. The trade-off is a longer wall-clock build (8-15 min for a
+# clean release build vs. 4-7 min unconstrained), but a build that
+# completes beats one that crashes halfway through.
+#
+# Override with `cargo build -j N` on machines with more headroom -
+# the command-line flag wins over this default.
+jobs = 2

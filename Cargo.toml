@@ -186,12 +186,23 @@ large_enum_variant = "allow"
 
 # Release profile - optimized binaries for local `cargo build --release`.
 # Distribution profile (with LTO + strip) lives in crates/mnem-cli/Cargo.toml.
+#
+# debug / strip combo here is tuned for memory headroom during the
+# build rather than for after-the-fact debuggability of the binary:
+# the previous `debug = "line-tables-only"` + `strip = false` defaults
+# kept enough DWARF data around that LLVM's per-process working set
+# was a sizable share of why a parallel release build on a 16-thread
+# Windows laptop ran the page file dry (see the comment on `[build]
+# jobs = 2` in .cargo/config.toml for the failure shape). The
+# downstream `mnem-cli` distribution profile re-enables LTO and a
+# stricter strip for shipped binaries; this is the everyday local
+# release profile.
 [profile.release]
 opt-level = 3
-debug = "line-tables-only"
+debug = false
 codegen-units = 16
 lto = false
-strip = false
+strip = "debuginfo"
 
 # Dev profile is default - fast incremental builds.
 
