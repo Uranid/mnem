@@ -198,6 +198,19 @@ npm install -g mnem-cli
 cargo install --locked mnem-cli --features bundled-embedder
 ```
 
+<details>
+<summary>Sáltate la compilación (<code>cargo binstall</code>)</summary>
+
+`cargo install` compila desde el código fuente (los ~5-15 min de arriba). Si prefieres el mismo binario precompilado que usan pip y npm, instala [cargo-binstall](https://github.com/cargo-bins/cargo-binstall) una vez y luego:
+
+```bash
+cargo binstall mnem-cli
+```
+
+Descarga el archivo del release de GitHub en segundos. Mismos bytes, mismas features (`bundled-embedder` ya incluido). Usa `cargo install` solo cuando necesites un set de features personalizado (p. ej. `--features bundled-embedder-cuda`).
+
+</details>
+
 **Desde el código fuente** · la rama `main` sin publicar, para cambios locales o commits previos a una release
 
 <details>

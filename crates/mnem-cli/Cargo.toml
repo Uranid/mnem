@@ -58,12 +58,29 @@ bundled-embedder-directml = ["mnem-embed-providers/onnx-bundled-directml", "mnem
 
 # cargo-binstall metadata: lets `cargo binstall mnem-cli` fetch the
 # prebuilt archive from the GitHub release instead of compiling from
-# source. The URL template matches the archive names produced by
-# `.github/workflows/release.yml` (`binaries` job).
+# source. The URL template + archive layout matches the artifact
+# produced by `.github/workflows/release.yml` (`binaries` job), so
+# pip / npm / `cargo binstall` / a raw GH-release download all end
+# up with byte-identical binaries.
+#
+# Archive layout the release workflow produces (and pip/npm
+# wrappers expect):
+#
+#   mnem-<triple>/
+#     bin/<exe>
+#     lib/<libonnxruntime>
+#     README.md
+#     LICENSE
+#
+# `bin-dir` MUST include the `bin/` subdir; pre-fix it pointed at
+# the archive root and binstall silently fell back to a source
+# compile because the bin path didn't resolve, defeating the whole
+# point of the fast path.
+#
 # See https://github.com/cargo-bins/cargo-binstall for the spec.
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/mnem-{ target }.{ archive-format }"
-bin-dir = "mnem-{ target }/{ bin }{ binary-ext }"
+bin-dir = "mnem-{ target }/bin/{ bin }{ binary-ext }"
 pkg-fmt = "tgz"
 
 [package.metadata.binstall.overrides.x86_64-pc-windows-msvc]

@@ -103,6 +103,30 @@ function fileHash(path) {
 }
 
 function extract(archive, dest) {
+  // Windows always gets a .zip per the TRIPLES map. PATH on a user's
+  // machine can resolve `tar` to two very different binaries:
+  //
+  //   * native bsdtar (C:\Windows\System32\tar.exe, Win10 1803+) which
+  //     does auto-detect zips - but interprets a leading drive letter
+  //     like `C:\...` as `host:path` and errors out with
+  //     `tar: Cannot connect to C: resolve failed`; needs --force-local.
+  //   * GNU tar (1.35+) from MSYS2 / MINGW / Git Bash which has the
+  //     opposite problem - it doesn't treat `C:` as a host but also
+  //     doesn't read zip format at all (`tar: This does not look like
+  //     a tar archive`).
+  //
+  // Rather than detect which tar we have, always shell out to
+  // PowerShell on Windows. Expand-Archive ships in every Win10+ and
+  // doesn't care about PATH ordering. Linux / macOS still get .tar.gz
+  // which tar handles uniformly across both GNU and BSD variants.
+  if (process.platform === 'win32' && archive.toLowerCase().endsWith('.zip')) {
+    const r = spawnSync('powershell', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      `Expand-Archive -Path '${archive}' -DestinationPath '${dest}' -Force`,
+    ], { stdio: 'inherit' });
+    if (r.status !== 0) throw new Error(`Expand-Archive failed (status ${r.status})`);
+    return;
+  }
   const r = spawnSync('tar', ['-xf', archive, '-C', dest], { stdio: 'inherit' });
   if (r.status !== 0) throw new Error(`Extraction failed (status ${r.status})`);
 }

@@ -199,6 +199,19 @@ npm install -g mnem-cli
 cargo install --locked mnem-cli --features bundled-embedder
 ```
 
+<details>
+<summary>跳过源码编译（<code>cargo binstall</code>）</summary>
+
+`cargo install` 会从源码编译（上面那 5-15 分钟）。如果你想直接拿到与 pip 和 npm 相同的预编译二进制，安装一次 [cargo-binstall](https://github.com/cargo-bins/cargo-binstall) 后运行：
+
+```bash
+cargo binstall mnem-cli
+```
+
+几秒钟就能从 GitHub Release 拉到对应归档。字节完全一致，特性集相同（已内置 `bundled-embedder`）。当你需要自定义特性组合时（如 `--features bundled-embedder-cuda`），再回到 `cargo install` 即可。
+
+</details>
+
 **从源码构建** · 未发布的 `main` 分支，适用于本地修改或预发布提交
 
 <details>
