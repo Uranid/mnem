@@ -114,6 +114,13 @@ def bump_pyproject(rel_path: str, new: str) -> None:
 
 
 def bump_init_py(new: str) -> None:
+    # The pre-v0.1.8 wrapper held an `_VERSION = "..."` constant used to
+    # build the GitHub-release download URL at runtime. After the
+    # cross-platform refactor, the binary ships inside the wheel and no
+    # URL needs constructing, so the constant is gone. Keep this
+    # function as a no-op-if-absent helper rather than removing it
+    # outright; that way an older wrapper checked out at an old commit
+    # still bumps cleanly when this script runs against it.
     rel = 'py-packages/mnem-cli/mnem_cli/__init__.py'
     path = REPO / rel
     text = path.read_text(encoding='utf-8')
@@ -124,25 +131,64 @@ def bump_init_py(new: str) -> None:
         count=1,
     )
     if n == 0:
-        die(f'Could not find _VERSION = "..." in {rel}')
+        return  # no _VERSION present in the new wrapper, nothing to bump
     print(f"  {rel}: _VERSION -> {new}")
     path.write_text(new_text, encoding='utf-8')
 
 
 def bump_package_json(new: str) -> None:
-    rel = 'npm-packages/mnem-cli/package.json'
-    path = REPO / rel
-    text = path.read_text(encoding='utf-8')
-    new_text, n = re.subn(
-        r'("version"\s*:\s*")[^"]+(")',
-        lambda m: m.group(1) + new + m.group(2),
-        text,
-        count=1,
-    )
-    if n == 0:
-        die(f'Could not find "version": "..." in {rel}')
-    print(f"  {rel}: version -> {new}")
-    path.write_text(new_text, encoding='utf-8')
+    """Bump npm package versions.
+
+    Touches both the umbrella `mnem-cli/package.json` and every
+    per-platform sub-package directory `mnem-cli-<plat>-<arch>/`.
+    The umbrella additionally carries an `optionalDependencies` block
+    that pins each sub-package to an EXACT version; those pins must
+    track the workspace version too, or a partial publish would leave
+    the umbrella resolving to a stale sub-package. The exact-version
+    regex anchors on the `mnem-cli-` prefix to avoid touching any
+    unrelated third-party dep that happens to have the same shape.
+    """
+    npm_dir = REPO / 'npm-packages'
+    pkg_dirs = sorted(d for d in npm_dir.iterdir() if d.is_dir())
+    if not pkg_dirs:
+        die(f'No npm packages found under {npm_dir}')
+    for pkg_dir in pkg_dirs:
+        path = pkg_dir / 'package.json'
+        if not path.exists():
+            continue
+        text = path.read_text(encoding='utf-8')
+
+        # 1. Top-level `"version": "..."`. count=1 anchors on the first
+        #    occurrence, which is the package's own version (a future
+        #    "version" key under another object would not be hit).
+        new_text, n_top = re.subn(
+            r'("version"\s*:\s*")[^"]+(")',
+            lambda m: m.group(1) + new + m.group(2),
+            text,
+            count=1,
+        )
+        if n_top == 0:
+            die(f'Could not find "version": "..." in {path.relative_to(REPO)}')
+
+        # 2. optionalDependencies / dependencies pins on the sibling
+        #    sub-packages: `"mnem-cli-linux-x64": "0.1.7"` -> `... "0.1.8"`.
+        #    The `mnem-cli-` name anchor keeps this from touching any
+        #    unrelated dep that happens to have a matching string shape.
+        new_text, n_dep = re.subn(
+            r'("mnem-cli-[a-z0-9-]+"\s*:\s*")[^"]+(")',
+            lambda m: m.group(1) + new + m.group(2),
+            new_text,
+        )
+
+        path.write_text(new_text, encoding='utf-8')
+        rel = path.relative_to(REPO).as_posix()
+        if n_dep:
+            print(
+                f"  {rel}: version -> {new} "
+                f"({n_dep} sub-package pin(s) also bumped)"
+            )
+        else:
+            print(f"  {rel}: version -> {new}")
 
 
 def main() -> None:

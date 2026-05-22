@@ -1,0 +1,30 @@
+{
+  "name": "mnem-cli-linux-x64",
+  "version": "0.1.7",
+  "description": "Prebuilt mnem binary for Linux x64. Do not install directly; use mnem-cli.",
+  "author": "mnem contributors",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Uranid/mnem#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Uranid/mnem.git"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

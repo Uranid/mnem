@@ -21,28 +21,21 @@
   "bin": {
     "mnem": "bin/mnem.js"
   },
-  "os": [
-    "darwin",
-    "linux",
-    "win32"
-  ],
-  "cpu": [
-    "x64",
-    "arm64"
-  ],
+  "optionalDependencies": {
+    "mnem-cli-darwin-arm64": "0.1.7",
+    "mnem-cli-linux-arm64": "0.1.7",
+    "mnem-cli-linux-x64": "0.1.7",
+    "mnem-cli-win32-x64": "0.1.7"
+  },
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
   "files": [
     "bin/mnem.js",
-    "scripts/",
     "README.md",
     "LICENSE"
   ],
-  "scripts": {
-    "postinstall": "node scripts/postinstall.js"
-  },
   "engines": {
     "node": ">=18"
   }

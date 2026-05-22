@@ -1,0 +1,6 @@
+# Placeholder so the _vendor/ directory exists in the source tree.
+#
+# release.yml stages the per-platform binary into _vendor/bin/ and shared
+# libraries into _vendor/lib/ before invoking `python -m build --wheel`.
+# Do NOT commit any actual binaries here; the directory should only ever
+# contain this .gitkeep in source control.

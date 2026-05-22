@@ -7,17 +7,23 @@ pip install mnem-cli
 mnem --version
 ```
 
-On first run `mnem` downloads the correct prebuilt binary for your platform
-from the [GitHub release](https://github.com/Uranid/mnem/releases) and caches
-it in `~/.mnem_cli/`. Subsequent calls run the cached binary directly.
+`pip` resolves to the per-platform wheel for your OS and architecture; the
+prebuilt `mnem` binary and its bundled onnxruntime ship inside the wheel and
+are invoked directly. No first-run download, no extra cache directory, no
+network required after `pip install`.
 
-## Supported platforms
+## Supported wheels
 
-| Platform | Architecture |
-|---|---|
-| Linux | x86_64, aarch64 |
-| macOS | arm64 (Apple Silicon), x86_64 (via Rosetta 2) |
-| Windows | x86_64 |
+| Platform | Architecture | Wheel tag |
+|---|---|---|
+| Windows | x86_64 | `win_amd64` |
+| Linux   | x86_64 | `manylinux_2_17_x86_64.manylinux2014_x86_64` |
+| Linux   | aarch64 | `manylinux_2_17_aarch64.manylinux2014_aarch64` |
+| macOS   | arm64 (Apple Silicon) | `macosx_11_0_arm64` |
+
+Installing from sdist (or on an unsupported platform) succeeds, but invoking
+`mnem` exits with a hint to use `cargo install --locked mnem-cli` or download
+a prebuilt binary from [Releases](https://github.com/Uranid/mnem/releases).
 
 ## Alternatives
 

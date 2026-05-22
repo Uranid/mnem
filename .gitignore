@@ -123,5 +123,19 @@ chroma_mem0_financebench/
 py-packages/mnem-cli/dist/
 tmp_palace_src.txt
 
+# Per-platform native artifacts staged by the release pipeline at build
+# time. Source-tracked dirs ship only an empty `.gitkeep`; the actual
+# binary + libonnxruntime get dropped in by `.github/workflows/release.yml`
+# (binaries job) per-triple, then bundled into the wheel / npm sub-pkg.
+# Never commit these by hand - they're version-, target-, and ABI-specific
+# and bloat the source tree by ~70 MB per triple.
+py-packages/mnem-cli/mnem_cli/_vendor/bin/
+py-packages/mnem-cli/mnem_cli/_vendor/lib/
+!py-packages/mnem-cli/mnem_cli/_vendor/.gitkeep
+npm-packages/mnem-cli-*/bin/
+npm-packages/mnem-cli-*/lib/
+!npm-packages/mnem-cli-*/bin/.gitkeep
+!npm-packages/mnem-cli-*/lib/.gitkeep
+
 # Local work-in-progress directories (not project files)
 .translations-wip/

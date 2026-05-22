@@ -1,128 +1,71 @@
-"""Binary wrapper for mnem-cli: downloads the prebuilt binary on first use."""
+"""Binary launcher for mnem-cli.
 
-import hashlib
+This module is the console-script entry point installed as `mnem`. The actual
+mnem binary plus any required shared libraries are vendored inside this
+package under `_vendor/` by the per-platform wheel build (see
+release.yml + hatch_build.py). At runtime we locate the vendored binary
+via importlib.resources, set the right dynamic-loader path so the bundled
+onnxruntime libs are found, and exec it with the caller's argv.
+
+If `_vendor/bin/mnem(.exe)` is missing (the sdist case), we exit with a
+clean message pointing the user at cargo or the GitHub releases page.
+"""
+
+from __future__ import annotations
+
 import os
-import platform
-import shutil
 import subprocess
 import sys
-import tarfile
-import tempfile
-import urllib.request
-import zipfile
+from importlib.resources import files
 from pathlib import Path
 from typing import Optional
 
-try:
-    from importlib.metadata import version as _pkg_version
-    _VERSION = _pkg_version("mnem-cli")
-except Exception:
-    _VERSION = "0.1.7"
 
-# Maps (system, machine) to (triple, archive-ext, exe-name).
-# darwin/x86_64 falls back to the aarch64 binary which runs via Rosetta 2.
-_TRIPLES = {
-    ("darwin",  "arm64"):  ("aarch64-apple-darwin",      "tar.gz", "mnem"),
-    ("darwin",  "x86_64"): ("aarch64-apple-darwin",      "tar.gz", "mnem"),
-    ("linux",   "aarch64"): ("aarch64-unknown-linux-gnu", "tar.gz", "mnem"),
-    ("linux",   "x86_64"): ("x86_64-unknown-linux-gnu",  "tar.gz", "mnem"),
-    ("windows", "amd64"):  ("x86_64-pc-windows-msvc",    "zip",    "mnem.exe"),
-    ("windows", "x86_64"): ("x86_64-pc-windows-msvc",    "zip",    "mnem.exe"),
-}
-
-_BASE_URL = "https://github.com/Uranid/mnem/releases/download/v{version}"
-_BIN_DIR = Path.home() / ".mnem_cli" / "bin"
+def _exe_name() -> str:
+    return "mnem.exe" if sys.platform == "win32" else "mnem"
 
 
-def _target():
-    sys_name = platform.system().lower()
-    machine = platform.machine().lower()
-    if machine in ("arm64", "aarch64"):
-        machine = "arm64"
-    elif machine in ("amd64", "x86_64"):
-        machine = "x86_64"
-    return _TRIPLES.get((sys_name, machine))
+def _vendor_root() -> Path:
+    # importlib.resources.files returns a Traversable; for a regular
+    # filesystem-backed package this is a Path. We treat it as Path
+    # since wheels are unpacked on install.
+    return Path(str(files("mnem_cli"))) / "_vendor"
 
 
-def _ensure_binary():
-    # type: () -> Optional[Path]
-    target = _target()
-    if target is None:
-        return None
-    triple, ext, exe = target
-    bin_path = _BIN_DIR / exe
-    if bin_path.exists():
-        return bin_path
-
-    base = _BASE_URL.format(version=_VERSION)
-    archive_name = f"mnem-{triple}.{ext}"
-    archive_url = f"{base}/{archive_name}"
-    sha_url = f"{archive_url}.sha256"
-
-    sys.stderr.write(f"mnem: downloading {archive_name}...\n")
-
-    with tempfile.TemporaryDirectory() as tmp:
-        archive_path = os.path.join(tmp, archive_name)
-        urllib.request.urlretrieve(archive_url, archive_path)
-
-        with urllib.request.urlopen(sha_url) as resp:
-            sha_line = resp.read().decode().strip()
-        expected = sha_line.split()[0]
-
-        with open(archive_path, "rb") as f:
-            actual = hashlib.sha256(f.read()).hexdigest()
-        if actual != expected:
-            raise RuntimeError(f"SHA256 mismatch: expected {expected}, got {actual}")
-
-        extract_dir = os.path.join(tmp, "extracted")
-        os.makedirs(extract_dir)
-        if ext == "tar.gz":
-            with tarfile.open(archive_path) as tf:
-                extract_kwargs = {}
-                if sys.version_info >= (3, 12):
-                    extract_kwargs["filter"] = "data"
-                tf.extractall(extract_dir, **extract_kwargs)
-        else:
-            with zipfile.ZipFile(archive_path) as zf:
-                zf.extractall(extract_dir)
-
-        _BIN_DIR.mkdir(parents=True, exist_ok=True)
-        src = os.path.join(extract_dir, f"mnem-{triple}", "bin", exe)
-        shutil.copy2(src, bin_path)
-        if sys.platform != "win32":
-            os.chmod(bin_path, 0o755)
-
-        # Copy the bundled onnxruntime so `mnem http serve` works out of the box.
-        lib_src = os.path.join(extract_dir, f"mnem-{triple}", "lib")
-        lib_dir = _BIN_DIR.parent / "lib"
-        lib_dir.mkdir(parents=True, exist_ok=True)
-        if os.path.isdir(lib_src):
-            for name in os.listdir(lib_src):
-                shutil.copy2(os.path.join(lib_src, name), lib_dir / name)
-
-    sys.stderr.write(f"mnem: installed to {bin_path}\n")
-    return bin_path
+def _find_binary() -> Optional[Path]:
+    candidate = _vendor_root() / "bin" / _exe_name()
+    if candidate.is_file():
+        return candidate
+    return None
 
 
-def main():
-    # type: () -> None
-    bin_path = _ensure_binary()
-    if bin_path is None:
+def _augment_library_path(env: dict[str, str], lib_dir: Path) -> None:
+    if not lib_dir.is_dir():
+        return
+    lib_str = str(lib_dir)
+    if sys.platform.startswith("linux"):
+        var = "LD_LIBRARY_PATH"
+    elif sys.platform == "darwin":
+        var = "DYLD_LIBRARY_PATH"
+    else:
+        # Windows resolves DLLs from the binary's own directory; no env tweak needed.
+        return
+    existing = env.get(var, "")
+    env[var] = os.pathsep.join(p for p in (lib_str, existing) if p)
+
+
+def main() -> None:
+    binary = _find_binary()
+    if binary is None:
         sys.stderr.write(
-            "mnem: unsupported platform.\n"
+            "mnem: no prebuilt mnem-cli wheel for this platform.\n"
             "Install via: cargo install --locked mnem-cli\n"
             "Or download from: https://github.com/Uranid/mnem/releases\n"
         )
         sys.exit(1)
 
     env = os.environ.copy()
-    lib_dir = str(_BIN_DIR.parent / "lib")
-    if sys.platform.startswith("linux"):
-        existing = env.get("LD_LIBRARY_PATH", "")
-        env["LD_LIBRARY_PATH"] = ":".join(x for x in [lib_dir, existing] if x)
-    elif sys.platform == "darwin":
-        existing = env.get("DYLD_LIBRARY_PATH", "")
-        env["DYLD_LIBRARY_PATH"] = ":".join(x for x in [lib_dir, existing] if x)
+    _augment_library_path(env, _vendor_root() / "lib")
 
-    result = subprocess.run([str(bin_path)] + sys.argv[1:], env=env)
+    result = subprocess.run([str(binary), *sys.argv[1:]], env=env)
     sys.exit(result.returncode)
