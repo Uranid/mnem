@@ -20,6 +20,18 @@
 
 <hr>
 
+**mnem is Git for AI Agent Knowledge.** A persistent, versioned knowledge layer for AI agents, with best-or-tied recall on every public benchmark we tested.
+
+Drop in source code, PDFs, Markdown docs, conversation exports, or whole directories and mnem parses, chunks, and indexes them in one command. File types are auto-detected: heading-aware chunking for Markdown, function- and class-level parsing for source code across many languages, sliding-window extraction for PDFs. No LLM call at ingest, so the same input always produces the same graph; re-ingesting an unchanged file is a no-op.
+
+Skills, decisions, and conventions live as nodes and typed edges in a queryable knowledge graph inside your project's `.mnem/` directory. Commit it alongside your code and every teammate's agents start from the same baseline; branch, diff, merge, or roll back any write the same way you would source. Forgetting is first-class: revoke a fact and every retrieval path filters it out automatically, with the audit trail preserved.
+
+Retrieval fuses vector, keyword, and graph traversal in a single pass and reports exactly how many tokens were spent and what was dropped at the budget; nothing gets silently truncated. Optional multi-hop graph expansion stitches answers together across linked documents.
+
+One binary, no server, no external database, fully offline; the same engine runs as a CLI, an HTTP server, an MCP server, or a Python library, and in the browser via WebAssembly. Wire it into Claude Code, Cursor, Gemini CLI, or any MCP host with one command. Zero-config out of the box; swap the embedder provider in one line of config when you outgrow the default.
+
+<hr>
+
 <div align="center">
 
 https://github.com/user-attachments/assets/bd744a7e-8e89-4531-bd96-fdee0030c390
@@ -29,20 +41,19 @@ https://github.com/user-attachments/assets/bd744a7e-8e89-4531-bd96-fdee0030c390
 <hr>
 
 1. [The Problem](#the-problem)
-2. [What is mnem](#what-is-mnem)
-3. [Benchmarks](#benchmarks)
-4. [vs others](#compared-to-others)
-5. [Install](#install)
-6. [Quickstart](#quickstart)
-7. [Integrate / Unintegrate](#mnem-integrate---wire-into-any-agent-host)
-8. [Commands](#commands)
-9. [MCP Tools](#mcp-tools)
-10. [Python API](#python-api-mnem-py)
-11. [GraphRAG](#graphrag)
-12. [What you get](#what-you-get)
-13. [When NOT to use](#when-not-to-use-mnem)
-14. [Docs](#documentation)
-15. [Contributing](#contributing)
+2. [Benchmarks](#benchmarks)
+3. [vs others](#compared-to-others)
+4. [Install](#install)
+5. [Quickstart](#quickstart)
+6. [Integrate / Unintegrate](#mnem-integrate---wire-into-any-agent-host)
+7. [Commands](#commands)
+8. [MCP Tools](#mcp-tools)
+9. [Python API](#python-api-mnem-py)
+10. [GraphRAG](#graphrag)
+11. [What you get](#what-you-get)
+12. [When NOT to use](#when-not-to-use-mnem)
+13. [Docs](#documentation)
+14. [Contributing](#contributing)
 
 <hr>
 
@@ -59,20 +70,6 @@ https://github.com/user-attachments/assets/bd744a7e-8e89-4531-bd96-fdee0030c390
 > Your codebase has git. Your agent's knowledge doesn't.
 
 <hr>
-
-## What is mnem
-
-> **Not familiar with git or version control?** Git is software that saves numbered snapshots of your files over time - so you can track changes, undo mistakes, and collaborate. mnem does the same thing for your AI agent's knowledge: every write is a saved snapshot you can branch, diff, merge, or revert.
-
-**Git for AI Agent Knowledge.** A persistent, versioned knowledge layer for AI agents - with best or tied recall on every benchmark we tested (recall = fraction of correct results returned; higher is better).
-
-A **knowledge graph** is a searchable store of facts where entries can link to each other - think of it as a smart notebook your AI agent can write to and read from. For example: write "the deploy window is Tuesdays 10-11 AM UTC", link it to your release checklist, and later retrieve it by asking "what's our deploy schedule?" in plain English. (For those who want the technical term: facts are stored as nodes connected by typed relationship edges - `part_of`, `relates_to`, `depends_on`, etc.)
-
-Skills, decisions, and context live in a queryable graph stored in your project folder. Commit the `.mnem/` directory and it moves with your code. Replace stale `.cursorrules` (Cursor's project-rules file) and `AGENTS.md` files with something your whole team can version, diff, and merge.
-
-Retrieval combines vector search (finds results by meaning, not just exact words - e.g. "deploy schedule" finds "deploy window"), keyword search (exact terms), and graph traversal (following links between entries) in one pass. Every query reports exactly how many tokens were consumed and what was filtered out - nothing is silently dropped. One binary (a single executable file), no server to run. Wire into Claude Code, Cursor, Gemini CLI, or any MCP (Model Context Protocol - a standard for giving AI tools access to external capabilities) host in one command; use it from the CLI, HTTP, or Python.
-
-> **For teams:** Commit `.mnem/` alongside your code and every teammate's agents start from the same knowledge baseline. See [mnem push / mnem pull](#10-mnem-push--mnem-pull--mnem-clone---sync-with-a-remote) for CI sync.
 
 ## Benchmarks
 

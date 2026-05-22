@@ -20,6 +20,18 @@
 
 <hr>
 
+**mnem es Git para el conocimiento de agentes de IA.** Una capa de conocimiento persistente y versionada para agentes de IA, con la mejor o igual recuperación en todos los benchmarks públicos que probamos.
+
+Suelta código fuente, PDFs, documentos Markdown, exportaciones de conversación o directorios enteros, y mnem los analiza, los fragmenta y los indexa con un solo comando. El tipo de archivo se autodetecta: fragmentación por encabezados para Markdown, análisis por función y por clase para código fuente en muchos lenguajes, extracción por ventana deslizante para PDFs. Sin llamada a LLM durante la ingestión, así que el mismo input siempre produce el mismo grafo; re-ingerir un archivo sin cambios es una operación nula.
+
+Habilidades, decisiones y convenciones viven como nodos y aristas tipadas en un grafo de conocimiento consultable dentro del directorio `.mnem/` de tu proyecto. Haz commit junto a tu código y los agentes de cada compañero parten de la misma base; ramifica, compara, fusiona o revierte cualquier escritura igual que harías con el código fuente. El olvido es de primera clase: revoca un hecho y todas las rutas de recuperación lo filtran automáticamente, conservando el rastro de auditoría.
+
+La recuperación fusiona búsqueda vectorial, búsqueda por palabras clave y recorrido de grafo en una sola pasada, e informa exactamente cuántos tokens se consumieron y qué se descartó al alcanzar el presupuesto; nada se trunca en silencio. La expansión opcional multi-hop del grafo enlaza respuestas a través de documentos conectados.
+
+Un único binario, sin servidor, sin base de datos externa, totalmente offline; el mismo motor corre como CLI, servidor HTTP, servidor MCP o biblioteca de Python, e incluso en el navegador mediante WebAssembly. Conéctalo a Claude Code, Cursor, Gemini CLI o cualquier host MCP con un solo comando. Listo para usar sin configuración; cambia el proveedor de embeddings con una línea de configuración cuando superes el predeterminado.
+
+<hr>
+
 <div align="center">
 
 https://github.com/user-attachments/assets/bd744a7e-8e89-4531-bd96-fdee0030c390
@@ -29,20 +41,19 @@ https://github.com/user-attachments/assets/bd744a7e-8e89-4531-bd96-fdee0030c390
 <hr>
 
 1. [El problema](#el-problema)
-2. [Qué es mnem](#qué-es-mnem)
-3. [Benchmarks](#benchmarks)
-4. [vs otros](#comparación-con-otros)
-5. [Instalación](#instalación)
-6. [Inicio rápido](#inicio-rápido)
-7. [Integrar / Desintegrar](#mnem-integrate---integrar-en-cualquier-host-de-agente)
-8. [Comandos](#comandos)
-9. [Herramientas MCP](#herramientas-mcp)
-10. [API de Python](#api-de-python-mnem-py)
-11. [GraphRAG](#graphrag)
-12. [Qué obtienes](#qué-obtienes)
-13. [Cuándo NO usar](#cuándo-no-usar-mnem)
-14. [Documentación](#documentación)
-15. [Contribuir](#contribuir)
+2. [Benchmarks](#benchmarks)
+3. [vs otros](#comparación-con-otros)
+4. [Instalación](#instalación)
+5. [Inicio rápido](#inicio-rápido)
+6. [Integrar / Desintegrar](#mnem-integrate---integrar-en-cualquier-host-de-agente)
+7. [Comandos](#comandos)
+8. [Herramientas MCP](#herramientas-mcp)
+9. [API de Python](#api-de-python-mnem-py)
+10. [GraphRAG](#graphrag)
+11. [Qué obtienes](#qué-obtienes)
+12. [Cuándo NO usar](#cuándo-no-usar-mnem)
+13. [Documentación](#documentación)
+14. [Contribuir](#contribuir)
 
 <hr>
 
@@ -59,20 +70,6 @@ https://github.com/user-attachments/assets/bd744a7e-8e89-4531-bd96-fdee0030c390
 > Tu código tiene git. El conocimiento de tu agente no.
 
 <hr>
-
-## Qué es mnem
-
-> **¿No estás familiarizado con git o el control de versiones?** Git es un software que guarda instantáneas numeradas de tus archivos a lo largo del tiempo, para que puedas rastrear cambios, deshacer errores y colaborar. mnem hace lo mismo para el conocimiento de tu agente de IA: cada escritura es una instantánea guardada que puedes ramificar, comparar, fusionar o revertir.
-
-**Git para el conocimiento de agentes de IA.** Una capa de conocimiento persistente y versionada para agentes de IA, con el mejor o igual nivel de recuperación en todos los benchmarks que probamos (recuperación = fracción de resultados correctos devueltos; cuanto mayor, mejor).
-
-Un **grafo de conocimiento** es un almacén de hechos donde las entradas pueden enlazarse entre sí - piénsalo como un cuaderno inteligente en el que tu agente de IA puede escribir y del que puede leer. Por ejemplo: escribe "la ventana de despliegue es los martes de 10 a 11 AM UTC", enlázalo a tu lista de verificación de lanzamiento, y más tarde recupéralo preguntando "¿cuál es nuestro horario de despliegue?" en lenguaje natural. (Para los que quieran el término técnico: los hechos se almacenan como nodos conectados por aristas de relación tipada - `part_of`, `relates_to`, `depends_on`, etc.)
-
-Las habilidades, decisiones y contexto viven en un grafo consultable almacenado en la carpeta de tu proyecto. Haz commit del directorio `.mnem/` y se moverá con tu código. Reemplaza los archivos `.cursorrules` (el archivo de reglas de proyecto de Cursor) y `AGENTS.md` caducos con algo que todo tu equipo pueda versionar, comparar y fusionar.
-
-La recuperación combina búsqueda vectorial (encuentra resultados por significado, no solo palabras exactas - p. ej., "horario de despliegue" encuentra "ventana de despliegue"), búsqueda por palabras clave (términos exactos) y recorrido de grafo (siguiendo enlaces entre entradas) en un solo paso. Cada consulta reporta exactamente cuántos tokens se consumieron y qué se filtró; nada se descarta silenciosamente. Un único binario (un solo ejecutable), sin servidor que ejecutar. Conéctalo a Claude Code, Cursor, Gemini CLI o cualquier host MCP (Model Context Protocol - un estándar para dar a las herramientas de IA acceso a capacidades externas) con un solo comando; úsalo desde la CLI, HTTP o Python.
-
-> **Para equipos:** Haz commit de `.mnem/` junto a tu código y los agentes de cada compañero parten de la misma base de conocimiento. Consulta [mnem push / mnem pull](#10-mnem-push--mnem-pull--mnem-clone---sincronizar-con-un-remoto) para sincronización en CI.
 
 ## Benchmarks
 
