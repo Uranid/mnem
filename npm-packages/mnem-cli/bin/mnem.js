@@ -50,12 +50,18 @@ const lib = path.join(subPkgDir, 'lib');
 // Point the dynamic linker at the sub-package's `lib/` so the binary can find
 // its sibling shared libraries (e.g. onnxruntime). Windows uses the directory
 // the .exe lives in by default, so no equivalent env var is needed.
+//
+// macOS uses DYLD_FALLBACK_LIBRARY_PATH (not DYLD_LIBRARY_PATH): SIP strips
+// DYLD_* from processes spawned from SIP-protected binaries, including the
+// Apple-shipped node at /usr/bin/node. The FALLBACK variant survives the SIP
+// scrub and is only consulted when the binary couldn't resolve the lib via
+// its own @rpath / install-name, so the load order remains correct.
 const env = { ...process.env };
 if (PLATFORM === 'linux') {
   env.LD_LIBRARY_PATH = [lib, env.LD_LIBRARY_PATH].filter(Boolean).join(':');
 }
 if (PLATFORM === 'darwin') {
-  env.DYLD_LIBRARY_PATH = [lib, env.DYLD_LIBRARY_PATH].filter(Boolean).join(':');
+  env.DYLD_FALLBACK_LIBRARY_PATH = [lib, env.DYLD_FALLBACK_LIBRARY_PATH].filter(Boolean).join(':');
 }
 
 const r = spawnSync(native, process.argv.slice(2), { env, stdio: 'inherit' });

@@ -14,6 +14,33 @@ name: release
 # marked as GitHub "pre-release" automatically.
 #
 # To release: git tag -a v0.1.5 -m "mnem v0.1.5" && git push origin v0.1.5
+#
+# -----------------------------------------------------------------------------
+# Distribution architecture (post-refactor; commit 9f824a7):
+#
+# pip:
+#   - Per-platform wheels are built inside each `binaries` matrix arm.
+#     The wheel build is driven by `MNEM_CLI_PLAT_TAG` (e.g. `win_amd64`,
+#     `macosx_11_0_arm64`, `manylinux_2_17_x86_64.manylinux2014_x86_64`,
+#     `manylinux_2_17_aarch64.manylinux2014_aarch64`). The native binary
+#     and onnxruntime get staged into `mnem_cli/_vendor/{bin,lib}/` before
+#     `python -m build --wheel`. Source tree only has `.gitkeep`.
+#   - `publish-pypi` downloads all 4 per-triple wheel artifacts plus the
+#     sdist (no embedded binary; serves as helpful-error fallback) and
+#     publishes via the PyPI Trusted Publisher (OIDC).
+#
+# npm:
+#   - Umbrella package `npm-packages/mnem-cli/` declares all 4 native
+#     sub-packages under `optionalDependencies` pinned to the exact
+#     version. Sub-packages are `npm-packages/mnem-cli-<plat>-<arch>/`
+#     for {win32-x64, linux-x64, linux-arm64, darwin-arm64}. Each
+#     sub-package's `bin/` and `lib/` are tracked with `.gitkeep` and
+#     populated inside the `binaries` arm before publishing.
+#   - Publish order is strict: `publish-npm-subpackages` (matrix) must
+#     finish FIRST, then `publish-npm-umbrella` runs LAST. This way an
+#     end-user `npm install mnem-cli` never resolves the umbrella's
+#     optionalDependencies to versions that have not been published yet.
+# -----------------------------------------------------------------------------
 
 on:
   push:
@@ -124,6 +151,8 @@ jobs:
             use_cross: false
             ort_url: 'https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-1.20.1.tgz'
             ort_lib_glob: 'libonnxruntime.so.1.20.1'
+            npm_pkg: mnem-cli-linux-x64
+            py_plat_tag: 'manylinux_2_17_x86_64.manylinux2014_x86_64'
           # aarch64 Linux via cross-rs so we don't have to maintain a
           # self-hosted arm runner. Docker-based cross uses a
           # manylinux-compatible toolchain so the wheel works on
@@ -134,6 +163,8 @@ jobs:
             use_cross: true
             ort_url: 'https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-aarch64-1.20.1.tgz'
             ort_lib_glob: 'libonnxruntime.so.1.20.1'
+            npm_pkg: mnem-cli-linux-arm64
+            py_plat_tag: 'manylinux_2_17_aarch64.manylinux2014_aarch64'
           # x86_64-apple-darwin dropped: macos-13 runners have near-zero
           # availability on GitHub's free tier. Intel Mac users can
           # cargo install or use the aarch64 binary via Rosetta 2.
@@ -143,12 +174,16 @@ jobs:
             use_cross: false
             ort_url: 'https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-osx-arm64-1.20.1.tgz'
             ort_lib_glob: 'libonnxruntime.1.20.1.dylib'
+            npm_pkg: mnem-cli-darwin-arm64
+            py_plat_tag: 'macosx_11_0_arm64'
           - triple: x86_64-pc-windows-msvc
             runner: windows-latest
             archive: zip
             use_cross: false
             ort_url: 'https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-win-x64-1.20.1.zip'
             ort_lib_glob: 'onnxruntime.dll'
+            npm_pkg: mnem-cli-win32-x64
+            py_plat_tag: 'win_amd64'
     steps:
       - uses: actions/checkout@v6
 
@@ -351,6 +386,135 @@ jobs:
             dist/mnem-${{ matrix.triple }}.${{ matrix.archive }}.sha256
           prerelease: ${{ needs.release.outputs.prerelease == 'true' }}
 
+      # ---------------------------------------------------------------
+      # Stage the just-built native binary + onnxruntime into the npm
+      # sub-package directory for this triple. Sub-package layout is
+      # `npm-packages/<npm_pkg>/{bin,lib}/`; only `.gitkeep` lives there
+      # in source control. The sub-package is then tarred for transport
+      # to the publish-npm-subpackages job.
+      # ---------------------------------------------------------------
+      - name: Stage npm sub-package (Unix)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          set -euo pipefail
+          NPM_DIR="npm-packages/${{ matrix.npm_pkg }}"
+          NAME="mnem-${{ matrix.triple }}"
+          mkdir -p "$NPM_DIR/bin" "$NPM_DIR/lib"
+          cp "dist/$NAME/bin/mnem" "$NPM_DIR/bin/"
+          cp "dist/$NAME/lib/${{ matrix.ort_lib_glob }}" "$NPM_DIR/lib/"
+          ls -la "$NPM_DIR/bin" "$NPM_DIR/lib"
+
+      # Intel Mac users get the aarch64 binary via the same staging path;
+      # macOS Rosetta 2 transparently translates arm64 -> x86_64. Without
+      # this, `npm install` on an Intel Mac resolves zero optionalDeps
+      # and the umbrella fires the "unsupported platform" message even
+      # though we *do* have a runnable binary.
+      - name: Stage npm darwin-x64 (Rosetta fallback)
+        if: matrix.triple == 'aarch64-apple-darwin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          NPM_DIR="npm-packages/mnem-cli-darwin-x64"
+          NAME="mnem-${{ matrix.triple }}"
+          mkdir -p "$NPM_DIR/bin" "$NPM_DIR/lib"
+          cp "dist/$NAME/bin/mnem" "$NPM_DIR/bin/"
+          cp "dist/$NAME/lib/${{ matrix.ort_lib_glob }}" "$NPM_DIR/lib/"
+          ls -la "$NPM_DIR/bin" "$NPM_DIR/lib"
+
+      - name: Stage npm sub-package (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $NpmDir = "npm-packages/${{ matrix.npm_pkg }}"
+          $Name   = "mnem-${{ matrix.triple }}"
+          New-Item -ItemType Directory -Force -Path "$NpmDir/bin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$NpmDir/lib" | Out-Null
+          Copy-Item -Path "dist/$Name/bin/mnem.exe" -Destination "$NpmDir/bin/" -Force
+          Copy-Item -Path "dist/$Name/lib/${{ matrix.ort_lib_glob }}" -Destination "$NpmDir/lib/" -Force
+          Get-ChildItem "$NpmDir/bin", "$NpmDir/lib"
+
+      # ---------------------------------------------------------------
+      # Stage the same payload into py-packages/mnem-cli/mnem_cli/_vendor/
+      # and run `python -m build --wheel` with MNEM_CLI_PLAT_TAG set so
+      # the hatchling custom hook (hatch_build.py) tags the wheel
+      # platform-specifically (e.g. `mnem_cli-<v>-py3-none-<plat>.whl`).
+      # ---------------------------------------------------------------
+      - name: Stage pip _vendor + build wheel (Unix)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        env:
+          MNEM_CLI_PLAT_TAG: ${{ matrix.py_plat_tag }}
+        run: |
+          set -euo pipefail
+          VENDOR="py-packages/mnem-cli/mnem_cli/_vendor"
+          NAME="mnem-${{ matrix.triple }}"
+          mkdir -p "$VENDOR/bin" "$VENDOR/lib"
+          cp "dist/$NAME/bin/mnem" "$VENDOR/bin/"
+          cp "dist/$NAME/lib/${{ matrix.ort_lib_glob }}" "$VENDOR/lib/"
+          python -m pip install --upgrade pip
+          python -m pip install build hatchling
+          ( cd py-packages/mnem-cli && python -m build --wheel )
+          ls -la py-packages/mnem-cli/dist/
+
+      - name: Stage pip _vendor + build wheel (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        env:
+          MNEM_CLI_PLAT_TAG: ${{ matrix.py_plat_tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Vendor = "py-packages/mnem-cli/mnem_cli/_vendor"
+          $Name   = "mnem-${{ matrix.triple }}"
+          New-Item -ItemType Directory -Force -Path "$Vendor/bin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$Vendor/lib" | Out-Null
+          Copy-Item -Path "dist/$Name/bin/mnem.exe" -Destination "$Vendor/bin/" -Force
+          Copy-Item -Path "dist/$Name/lib/${{ matrix.ort_lib_glob }}" -Destination "$Vendor/lib/" -Force
+          python -m pip install --upgrade pip
+          python -m pip install build hatchling
+          Push-Location py-packages/mnem-cli
+          python -m build --wheel
+          Pop-Location
+          Get-ChildItem py-packages/mnem-cli/dist/
+
+      # ---------------------------------------------------------------
+      # Per-triple artifacts handed off to the publish jobs:
+      #   - cli-npm-<triple>:   the fully staged sub-package directory
+      #   - cli-wheel-<triple>: the built wheel ONLY (no sdist; that is
+      #                         built once inside publish-pypi)
+      # ---------------------------------------------------------------
+      - name: Upload npm sub-package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-npm-${{ matrix.triple }}
+          path: npm-packages/${{ matrix.npm_pkg }}/
+          if-no-files-found: error
+          retention-days: 7
+
+      # Companion to the Rosetta-fallback staging above: ship the
+      # darwin-x64 sub-package as its own artifact so the
+      # publish-npm-subpackages matrix can pick it up under the
+      # standard `cli-npm-<key>` naming scheme. Key is
+      # `aarch64-apple-darwin-x64` to avoid colliding with the real
+      # aarch64-apple-darwin artifact.
+      - name: Upload darwin-x64 (Rosetta fallback) artifact
+        if: matrix.triple == 'aarch64-apple-darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-npm-aarch64-apple-darwin-x64
+          path: npm-packages/mnem-cli-darwin-x64/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-wheel-${{ matrix.triple }}
+          path: py-packages/mnem-cli/dist/*.whl
+          if-no-files-found: error
+          retention-days: 7
+
   # -----------------------------------------------------------------
   # SLSA v1.0 build-provenance. Reuses the SLSA framework's generic
   # generator (pinned to @v2.0.0 via release-slsa.yml) to mint an
@@ -549,16 +713,17 @@ jobs:
             done
           done
 
-  # Build + upload the Python wheel to PyPI. maturin-action runs a
-  # manylinux2014 Docker image (Linux), native toolchain (macOS +
-  # Windows). abi3-py39 means one wheel per (triple) works for
-  # 3.9 through 3.13.
+  # Build + upload the Python wheel to PyPI for the `mnem-py` compiled
+  # pyo3 extension (separate distribution from `mnem-cli`).
+  # maturin-action runs a manylinux2014 Docker image (Linux), native
+  # toolchain (macOS + Windows). abi3-py39 means one wheel per (triple)
+  # works for 3.9 through 3.13.
   #
   # Requires either:
   #   - PyPI "Trusted Publisher" configured for this repo + environment `pypi`, OR
   #   - `PYPI_API_TOKEN` repo secret (fallback)
-  publish-pypi:
-    name: publish PyPI (${{ matrix.triple }})
+  publish-pypi-mnem-py:
+    name: build PyPI mnem-py (${{ matrix.triple }})
     needs: [release, test]
     if: needs.release.outputs.prerelease == 'false'
     runs-on: ${{ matrix.runner }}
@@ -596,17 +761,16 @@ jobs:
           manylinux: ${{ matrix.manylinux }}
           sccache: "true"
       - name: Upload wheel artifact
-        # v5+ artifacts are immutable per run. Each matrix job uploads
-        # to a unique name (`wheel-${{ matrix.triple }}`), so no name
-        # collision and no need for `overwrite: true`.
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.triple }}
+          name: mnem-py-wheel-${{ matrix.triple }}
           path: target/wheels/*.whl
+          if-no-files-found: error
+          retention-days: 7
 
-  publish-pypi-upload:
-    name: upload wheels to PyPI
-    needs: [release, publish-pypi]
+  publish-pypi-mnem-py-upload:
+    name: upload mnem-py wheels to PyPI
+    needs: [release, publish-pypi-mnem-py]
     if: needs.release.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -614,11 +778,69 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: wheel-*
+          pattern: mnem-py-wheel-*
           merge-multiple: true
+      - name: Publish to PyPI (Trusted Publisher / OIDC)
+        # Auth via PyPI Trusted Publisher (OIDC). No password / token
+        # required: pypa/gh-action-pypi-publish exchanges the workflow
+        # OIDC token for a short-lived publish credential. Configure
+        # the project on PyPI: Account Settings -> Publishing ->
+        # owner=Uranid, repo=mnem, workflow=release.yml, environment=production.
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  # -----------------------------------------------------------------
+  # publish-pypi (mnem-cli)
+  #
+  # New post-refactor flow: the `binaries` matrix already built one
+  # per-platform wheel for `mnem-cli` per triple, each tagged via
+  # `MNEM_CLI_PLAT_TAG` so hatchling emits e.g.
+  #   mnem_cli-<v>-py3-none-win_amd64.whl
+  #   mnem_cli-<v>-py3-none-macosx_11_0_arm64.whl
+  #   mnem_cli-<v>-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+  #   mnem_cli-<v>-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+  # This job downloads all four, also builds the sdist (no embedded
+  # binary; serves as helpful-error fallback for `pip install` on an
+  # unsupported platform), and uploads everything together via PyPI
+  # Trusted Publisher (OIDC).
+  # -----------------------------------------------------------------
+  publish-pypi:
+    name: publish PyPI (mnem-cli)
+    needs: [release, binaries]
+    if: needs.release.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Sync versions from tag
+        run: python scripts/bump-version.py "${{ needs.release.outputs.tag }}"
+
+      - name: Download per-triple cli wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: cli-wheel-*
+          merge-multiple: true
+
+      - name: Build sdist (no embedded binary; helpful-error fallback)
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install build hatchling
+          ( cd py-packages/mnem-cli && python -m build --sdist --outdir ../../dist/ )
+          ls -la dist/
+
       - name: Publish to PyPI (Trusted Publisher / OIDC)
         # Auth via PyPI Trusted Publisher (OIDC). No password / token
         # required: pypa/gh-action-pypi-publish exchanges the workflow
@@ -809,15 +1031,95 @@ jobs:
           installers-regex: 'mnem-x86_64-pc-windows-msvc\.zip$'
 
   # -----------------------------------------------------------------
-  # npm package (mnem-cli). Postinstall downloads the platform
-  # binary from the GitHub release; the tarball contains only the
-  # JS shim and postinstall script (no native binary committed).
+  # npm sub-packages (mnem-cli-<plat>-<arch>).
   #
-  # Requires: NPM_TOKEN repo secret (Automation token from npmjs.com).
+  # Each sub-package carries the native binary + onnxruntime for one
+  # triple. They are matrix-published in parallel so the umbrella job
+  # can publish AFTER all four have landed on the npm registry.
+  # Publish ordering is critical: if the umbrella is published while
+  # any sub-package is still in flight, end users `npm install mnem-cli`
+  # would resolve `optionalDependencies` against a missing version.
+  #
+  # Each sub-package's `bin/` + `lib/` directories were staged inside
+  # the `binaries` matrix arm and uploaded as `cli-npm-<triple>`.
+  # Here we download just that artifact (no checkout / no rebuild)
+  # then `npm publish` from the staged directory.
   # -----------------------------------------------------------------
-  publish-npm:
-    name: publish npm (mnem-cli)
+  publish-npm-subpackages:
+    name: publish npm sub-package (${{ matrix.npm_pkg }})
     needs: [release, binaries]
+    if: needs.release.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write   # required for npm OIDC trusted publishing (no token needed)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - triple: x86_64-unknown-linux-gnu
+            npm_pkg: mnem-cli-linux-x64
+          - triple: aarch64-unknown-linux-gnu
+            npm_pkg: mnem-cli-linux-arm64
+          - triple: aarch64-apple-darwin
+            npm_pkg: mnem-cli-darwin-arm64
+          # Intel Mac entry: the binaries job stages the aarch64-apple-
+          # darwin binary into the darwin-x64 sub-package as well, so
+          # Rosetta 2 picks it up at runtime. The artifact name here
+          # differs from `triple` so the existing cli-npm-<triple>
+          # download in the steps below still resolves correctly.
+          - triple: aarch64-apple-darwin-x64
+            npm_pkg: mnem-cli-darwin-x64
+          - triple: x86_64-pc-windows-msvc
+            npm_pkg: mnem-cli-win32-x64
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'   # OIDC publishing requires Node 22+ / npm 11.5.1+
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Sync versions from tag
+        run: python scripts/bump-version.py "${{ needs.release.outputs.tag }}"
+
+      - name: Download staged sub-package
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-npm-${{ matrix.triple }}
+          path: npm-packages/${{ matrix.npm_pkg }}/
+
+      - name: Inspect staged sub-package
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la "npm-packages/${{ matrix.npm_pkg }}"
+          ls -la "npm-packages/${{ matrix.npm_pkg }}/bin"
+          ls -la "npm-packages/${{ matrix.npm_pkg }}/lib"
+
+      - name: Publish
+        run: npm publish --access public --provenance
+        working-directory: npm-packages/${{ matrix.npm_pkg }}
+        # No NODE_AUTH_TOKEN - uses npm OIDC trusted publishing.
+        # Requires the sub-package to exist on npmjs.com (first publish
+        # is manual) and this workflow registered as a trusted publisher
+        # in the npm package settings.
+
+  # -----------------------------------------------------------------
+  # npm umbrella package (mnem-cli).
+  #
+  # Runs LAST: depends on `publish-npm-subpackages` so all four native
+  # sub-packages are already live before the umbrella's
+  # `optionalDependencies` references are exposed to end users. The
+  # umbrella ships only a tiny JS shim that selects the correct
+  # sub-package at runtime via `process.platform` + `process.arch`.
+  # -----------------------------------------------------------------
+  publish-npm-umbrella:
+    name: publish npm umbrella (mnem-cli)
+    needs: [release, publish-npm-subpackages]
     if: needs.release.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     environment: production
@@ -831,48 +1133,18 @@ jobs:
         with:
           node-version: '22'   # OIDC publishing requires Node 22+ / npm 11.5.1+
           registry-url: 'https://registry.npmjs.org'
-      - name: Sync versions from Cargo.toml
-        run: python scripts/bump-version.py "${{ needs.release.outputs.tag }}"
-      - name: Publish
-        run: npm publish --provenance
-        working-directory: npm-packages/mnem-cli
-        # No NODE_AUTH_TOKEN - uses npm OIDC trusted publishing.
-        # Requires mnem-cli to exist on npmjs.com (first publish is manual)
-        # and this workflow registered as a trusted publisher in the npm package settings.
-
-  # -----------------------------------------------------------------
-  # pip package (mnem-cli). Pure-Python wrapper that downloads the
-  # platform binary from the GitHub release on first invocation.
-  # Mirrors the npm-packages/mnem-cli/ pattern; no compiled extension.
-  #
-  # Requires: PyPI "Trusted Publisher" configured for this repo +
-  # environment `production`, with package name `mnem-cli`.
-  # -----------------------------------------------------------------
-  publish-pip-cli:
-    name: publish PyPI (mnem-cli)
-    needs: [release, binaries]
-    if: needs.release.outputs.prerelease == 'false'
-    runs-on: ubuntu-latest
-    environment: production
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Sync versions from Cargo.toml
+      - name: Sync versions from tag
         run: python scripts/bump-version.py "${{ needs.release.outputs.tag }}"
-      - name: Build wheel + sdist
-        run: |
-          pip install build
-          cd py-packages/mnem-cli
-          python -m build --outdir ../../dist/
-      - name: Publish to PyPI (Trusted Publisher / OIDC)
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: dist/
+      - name: Publish umbrella
+        run: npm publish --access public --provenance
+        working-directory: npm-packages/mnem-cli
+        # No NODE_AUTH_TOKEN - uses npm OIDC trusted publishing.
+        # Requires `mnem-cli` to exist on npmjs.com (first publish is
+        # manual) and this workflow registered as a trusted publisher
+        # in the npm package settings.
 
   # -----------------------------------------------------------------
   # Scoop (Windows) bucket update. Assumes a separate

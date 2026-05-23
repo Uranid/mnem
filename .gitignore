@@ -129,11 +129,19 @@ tmp_palace_src.txt
 # (binaries job) per-triple, then bundled into the wheel / npm sub-pkg.
 # Never commit these by hand - they're version-, target-, and ABI-specific
 # and bloat the source tree by ~70 MB per triple.
-py-packages/mnem-cli/mnem_cli/_vendor/bin/
-py-packages/mnem-cli/mnem_cli/_vendor/lib/
+#
+# File-level globs (`bin/*`, not `bin/`) because git refuses to re-include
+# a tracked file (`!.gitkeep`) that lives inside an excluded directory.
+# Excluding the dir outright also masks the .gitkeep allowlist, so a
+# fresh `git clone` would not have the directory at all and `npm pack`
+# / `python -m build` would fail at the staging step.
+py-packages/mnem-cli/mnem_cli/_vendor/bin/*
+py-packages/mnem-cli/mnem_cli/_vendor/lib/*
+!py-packages/mnem-cli/mnem_cli/_vendor/bin/.gitkeep
+!py-packages/mnem-cli/mnem_cli/_vendor/lib/.gitkeep
 !py-packages/mnem-cli/mnem_cli/_vendor/.gitkeep
-npm-packages/mnem-cli-*/bin/
-npm-packages/mnem-cli-*/lib/
+npm-packages/mnem-cli-*/bin/*
+npm-packages/mnem-cli-*/lib/*
 !npm-packages/mnem-cli-*/bin/.gitkeep
 !npm-packages/mnem-cli-*/lib/.gitkeep
 

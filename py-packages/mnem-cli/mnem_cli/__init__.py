@@ -46,7 +46,13 @@ def _augment_library_path(env: dict[str, str], lib_dir: Path) -> None:
     if sys.platform.startswith("linux"):
         var = "LD_LIBRARY_PATH"
     elif sys.platform == "darwin":
-        var = "DYLD_LIBRARY_PATH"
+        # macOS System Integrity Protection strips `DYLD_LIBRARY_PATH`
+        # from processes spawned from SIP-protected binaries (most of
+        # /usr/bin, including the Apple-shipped python3). Use the
+        # `DYLD_FALLBACK_*` variant: it's checked only when the binary
+        # didn't already resolve the library via @rpath / install-name,
+        # and SIP leaves it intact across exec boundaries.
+        var = "DYLD_FALLBACK_LIBRARY_PATH"
     else:
         # Windows resolves DLLs from the binary's own directory; no env tweak needed.
         return

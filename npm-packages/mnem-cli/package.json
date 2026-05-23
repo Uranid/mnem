@@ -23,6 +23,7 @@
   },
   "optionalDependencies": {
     "mnem-cli-darwin-arm64": "0.1.7",
+    "mnem-cli-darwin-x64": "0.1.7",
     "mnem-cli-linux-arm64": "0.1.7",
     "mnem-cli-linux-x64": "0.1.7",
     "mnem-cli-win32-x64": "0.1.7"
