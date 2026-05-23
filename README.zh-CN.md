@@ -155,35 +155,7 @@ bash benchmarks/harness/run_bench.sh
 
 ## 安装
 
-**选择一种**（如果你有 Python，推荐使用 pip）：
-
-**pip (Python) - 推荐** · 预构建二进制，内置嵌入器，即装即用
-
-<details>
-<summary>还没有 pip？</summary>
-
-[安装 Python](https://www.python.org/downloads/)（免费；pip 随 Python 3.4+ 一同提供）。可通过 `python --version` 验证。
-
-</details>
-
-```bash
-pip install mnem-cli
-```
-
-> **想用 Python 从自己的应用调用 mnem？** `pip install mnem-cli` 给你提供的是 `mnem` 命令行工具。如果要在 Python 代码中导入 mnem（`import pymnem`），请改用 `pip install mnem-py`，参见 [Python API](#python-api-mnem-py)。
-
-**npm (Node.js)** · 预构建二进制，内置嵌入器，即装即用
-
-<details>
-<summary>还没有 npm？</summary>
-
-[安装 Node.js](https://nodejs.org/en/download)（免费；npm 已内置，需要 Node 18+）。可通过 `node --version` 验证。
-
-</details>
-
-```bash
-npm install -g mnem-cli
-```
+**选择一种：**
 
 **Cargo (Rust)** · 从源码编译，首次运行约需 5-15 分钟
 
@@ -202,7 +174,7 @@ cargo install --locked mnem-cli --features bundled-embedder
 <details>
 <summary>跳过源码编译（<code>cargo binstall</code>）</summary>
 
-`cargo install` 会从源码编译（上面那 5-15 分钟）。如果你想直接拿到与 pip 和 npm 相同的预编译二进制，安装一次 [cargo-binstall](https://github.com/cargo-bins/cargo-binstall) 后运行：
+`cargo install` 会从源码编译（上面那 5-15 分钟）。如果你想直接获取预编译二进制，安装一次 [cargo-binstall](https://github.com/cargo-bins/cargo-binstall) 后运行：
 
 ```bash
 cargo binstall mnem-cli
@@ -211,6 +183,40 @@ cargo binstall mnem-cli
 几秒钟就能从 GitHub Release 拉到对应归档。字节完全一致，特性集相同（已内置 `bundled-embedder`）。当你需要自定义特性组合时（如 `--features bundled-embedder-cuda`），再回到 `cargo install` 即可。
 
 </details>
+
+~~**pip (Python)**~~ ~~· 预构建二进制，内置嵌入器，即装即用~~
+
+> [!CAUTION]
+> **macOS 二进制尚未发布。** `pip install mnem-cli` 当前安装的是 v0.1.7，该版本使用运行时下载器，在 macOS 上会失败。面向各平台的 wheel 包（Linux · Windows · macOS）将随 v0.1.8 发布 — 在此之前请使用上方的 `cargo install`。
+
+<details>
+<summary>还没有 pip？</summary>
+
+[安装 Python](https://www.python.org/downloads/)（免费；pip 随 Python 3.4+ 一同提供）。可通过 `python --version` 验证。
+
+</details>
+
+```bash
+pip install mnem-cli
+```
+
+> **想用 Python 从自己的应用调用 mnem？** `pip install mnem-cli` 给你提供的是 `mnem` 命令行工具。如果要在 Python 代码中导入 mnem（`import pymnem`），请改用 `pip install mnem-py`，参见 [Python API](#python-api-mnem-py)。
+
+~~**npm (Node.js)**~~ ~~· 预构建二进制，内置嵌入器，即装即用~~
+
+> [!CAUTION]
+> **macOS 支持待发布。** `npm install -g mnem-cli` 当前安装的是 v0.1.7，该版本使用运行时下载器，在 macOS 上可能失败。面向各平台的子包将随 v0.1.8 发布 — 在此之前请使用上方的 `cargo install`。
+
+<details>
+<summary>还没有 npm？</summary>
+
+[安装 Node.js](https://nodejs.org/en/download)（免费；npm 已内置，需要 Node 18+）。可通过 `node --version` 验证。
+
+</details>
+
+```bash
+npm install -g mnem-cli
+```
 
 **从源码构建** · 未发布的 `main` 分支，适用于本地修改或预发布提交
 

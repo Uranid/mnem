@@ -154,35 +154,7 @@ Matriz completa: [`docs/src/comparisons/README.md`](docs/src/comparisons/README.
 
 ## Instalación
 
-**Elige una** (pip es la opción recomendada si tienes Python):
-
-**pip (Python) - recomendado** · binario precompilado, embedder incluido, funciona de inmediato
-
-<details>
-<summary>¿Aún no tienes pip?</summary>
-
-[Instala Python](https://www.python.org/downloads/) (gratuito; pip viene incluido con Python 3.4+). Verifícalo con `python --version`.
-
-</details>
-
-```bash
-pip install mnem-cli
-```
-
-> **¿Usas Python para llamar a mnem desde tu propia app?** `pip install mnem-cli` te da el comando `mnem` en la línea de comandos. Para importar mnem desde código Python (`import pymnem`), usa `pip install mnem-py` en su lugar - ver [API de Python](#api-de-python-mnem-py).
-
-**npm (Node.js)** · binario precompilado, embedder incluido, funciona de inmediato
-
-<details>
-<summary>¿Aún no tienes npm?</summary>
-
-[Instala Node.js](https://nodejs.org/en/download) (gratuito; npm viene incluido, se requiere Node 18+). Verifícalo con `node --version`.
-
-</details>
-
-```bash
-npm install -g mnem-cli
-```
+**Elige una:**
 
 **Cargo (Rust)** · compila desde el código fuente, ~5-15 min la primera vez
 
@@ -201,7 +173,7 @@ cargo install --locked mnem-cli --features bundled-embedder
 <details>
 <summary>Sáltate la compilación (<code>cargo binstall</code>)</summary>
 
-`cargo install` compila desde el código fuente (los ~5-15 min de arriba). Si prefieres el mismo binario precompilado que usan pip y npm, instala [cargo-binstall](https://github.com/cargo-bins/cargo-binstall) una vez y luego:
+`cargo install` compila desde el código fuente (los ~5-15 min de arriba). Para obtener el binario precompilado directamente, instala [cargo-binstall](https://github.com/cargo-bins/cargo-binstall) una vez y luego:
 
 ```bash
 cargo binstall mnem-cli
@@ -210,6 +182,40 @@ cargo binstall mnem-cli
 Descarga el archivo del release de GitHub en segundos. Mismos bytes, mismas features (`bundled-embedder` ya incluido). Usa `cargo install` solo cuando necesites un set de features personalizado (p. ej. `--features bundled-embedder-cuda`).
 
 </details>
+
+~~**pip (Python)**~~ ~~· binario precompilado, embedder incluido, funciona de inmediato~~
+
+> [!CAUTION]
+> **Los binarios para macOS no se han publicado aún.** `pip install mnem-cli` instala v0.1.7, que usa un descargador en tiempo de ejecución que falla en macOS. Las wheels por plataforma (Linux · Windows · macOS) se publican en v0.1.8 — usa `cargo install` arriba mientras tanto.
+
+<details>
+<summary>¿Aún no tienes pip?</summary>
+
+[Instala Python](https://www.python.org/downloads/) (gratuito; pip viene incluido con Python 3.4+). Verifícalo con `python --version`.
+
+</details>
+
+```bash
+pip install mnem-cli
+```
+
+> **¿Usas Python para llamar a mnem desde tu propia app?** `pip install mnem-cli` te da el comando `mnem` en la línea de comandos. Para importar mnem desde código Python (`import pymnem`), usa `pip install mnem-py` en su lugar - ver [API de Python](#api-de-python-mnem-py).
+
+~~**npm (Node.js)**~~ ~~· binario precompilado, embedder incluido, funciona de inmediato~~
+
+> [!CAUTION]
+> **Soporte para macOS pendiente.** `npm install -g mnem-cli` instala v0.1.7, que usa un descargador en tiempo de ejecución que puede fallar en macOS. Los sub-paquetes por plataforma se publican en v0.1.8 — usa `cargo install` arriba mientras tanto.
+
+<details>
+<summary>¿Aún no tienes npm?</summary>
+
+[Instala Node.js](https://nodejs.org/en/download) (gratuito; npm viene incluido, se requiere Node 18+). Verifícalo con `node --version`.
+
+</details>
+
+```bash
+npm install -g mnem-cli
+```
 
 **Desde el código fuente** · la rama `main` sin publicar, para cambios locales o commits previos a una release
 
