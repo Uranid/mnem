@@ -88,7 +88,7 @@ tracing              = { workspace = true }
 ipld-core            = { workspace = true }
 bytes                = { workspace = true }
 serde_json           = "1"
-pulldown-cmark       = { version = "0.12", default-features = false }
+pulldown-cmark       = { version = "0.13", default-features = false }
 unicode-segmentation = "1.12"
 # Pure-Rust PDF text extraction; no C deps, always on.
 pdf-extract          = "0.7"
