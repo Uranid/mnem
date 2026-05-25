@@ -119,7 +119,7 @@ async fn main() -> Result<()> {
     let app = mnem_http::app_with_options(
         &cli.repo,
         mnem_http::AppOptions {
-            allow_labels: None,
+            allow_labels: Some(true),
             in_memory: cli.in_memory,
             metrics_enabled,
             push_token: None,
@@ -130,7 +130,8 @@ async fn main() -> Result<()> {
     // audit-2026-04-25 P2-7: enumerate every mounted route from the
     // single source of truth (mnem_http::route_table) so the banner
     // and the router can never drift apart again.
-    for (method, path, brief) in mnem_http::route_table(metrics_enabled) {
+    let global_enabled = mnem_http::global_graph_dir().join(".mnem").exists();
+    for (method, path, brief) in mnem_http::route_table(metrics_enabled, global_enabled) {
         println!("  {method:<10} {path:<32} {brief}");
     }
 

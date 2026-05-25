@@ -23,10 +23,13 @@ use axum::extract::{Path, Query, State};
 use axum::http::header::CONTENT_TYPE;
 use axum::response::IntoResponse;
 use ipld_core::ipld::Ipld;
-use mnem_core::codec::{from_canonical_bytes, json_to_ipld};
-use mnem_core::id::{EdgeId, NodeId};
+use mnem_core::codec::{from_canonical_bytes, json_to_ipld, to_canonical_bytes};
+use mnem_core::id::{Cid, EdgeId, NodeId};
 use mnem_core::index::PropPredicate;
-use mnem_core::objects::{Commit, Edge, Node, Operation};
+use mnem_core::objects::{Commit, Edge, Node, Operation, View};
+use mnem_core::prolly::tree::{TreeChunk, build_tree, load_tree_chunk};
+use mnem_core::prolly::{DiffEntry, Cursor, diff as prolly_diff};
+use mnem_core::store::blockstore::recompute_cid;
 use mnem_core::retrieve::Lane;
 use mnem_core::{HEADS_PREFIX, TAGS_PREFIX};
 // BENCH-1 (C4): trait import is required so `MockEmbedder::embed`
@@ -35,6 +38,7 @@ use mnem_core::{HEADS_PREFIX, TAGS_PREFIX};
 use mnem_embed_providers::Embedder as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use std::fmt::Write as _;
 
 use crate::auth::RequireBearer;
 use crate::error::Error;
@@ -93,6 +97,98 @@ pub(crate) const MAX_VECTOR_CAP: usize = 100_000;
 /// usually pick 50-100.
 pub(crate) const MAX_RERANK_TOP_K: usize = 500;
 
+/// Maximum byte length for caller-supplied `author` fields across
+/// all mutating endpoints. Matches the branch/tag name cap. An
+/// unbounded author is a DoS vector: it is stored verbatim in every
+/// commit object and re-emitted in every `GET /v1/log` response.
+pub(crate) const MAX_AUTHOR_LEN: usize = 255;
+
+/// Maximum byte length for caller-supplied `etype` fields on edge creation.
+pub(crate) const MAX_ETYPE_LEN: usize = 255;
+
+/// Maximum byte length for caller-supplied `message` fields. 2 000
+/// characters is generous for a commit description while keeping
+/// per-commit storage predictable.
+pub(crate) const MAX_MESSAGE_LEN: usize = 2_000;
+
+/// Maximum byte length for caller-supplied `summary` fields on node
+/// creation. Matches `DEFAULT_RENDER_SUMMARY_CAP_CHARS` in mnem-core
+/// so a summary that fits within the HTTP cap always renders cleanly.
+/// An unbounded summary is a DoS vector via embedding and retrieval.
+pub(crate) const MAX_SUMMARY_LEN: usize = 8_192;
+
+/// Maximum byte length for the free-text `text` query on `POST /v1/retrieve`.
+/// Guards the embedder and retriever from arbitrarily large inputs.
+pub(crate) const MAX_QUERY_TEXT_LEN: usize = 8_192;
+
+/// Maximum byte length for caller-supplied `content` fields on node
+/// creation. 1 MiB is generous for inline text blobs; large files
+/// should use `POST /v1/ingest` which has its own 32 MiB cap and
+/// dedicated chunking infrastructure.
+pub(crate) const MAX_CONTENT_LEN: usize = 1024 * 1024;
+
+/// Maximum value for `multi_query` on `POST /v1/retrieve`. Each
+/// variant triggers an LLM call + a full vector retrieval, so an
+/// unbounded value is a direct DoS amplification vector. 10 mirrors
+/// the practical CLI limit (the prompt template already caps at the
+/// requested count, but CLI users can't send arbitrary JSON).
+pub(crate) const MAX_MULTI_QUERY: usize = 10;
+
+/// Maximum number of nodes accepted in a single `POST /v1/nodes/bulk`
+/// request. 10,000 is ~3x the largest documented benchmark corpus
+/// (3,633 nodes); large ingest jobs beyond this should be split into
+/// multiple requests or use `POST /v1/ingest` with chunking.
+pub(crate) const MAX_BULK_NODES: usize = 10_000;
+
+/// Maximum dimension of a caller-supplied `vector` on `POST /v1/retrieve`.
+/// 4096 covers the largest public dense embedders (e.g. text-embedding-3-large
+/// at 3072 dims); anything larger is almost certainly a client error or an
+/// attempt to exhaust memory in the BruteForce index.
+pub(crate) const MAX_VECTOR_DIM: usize = 4_096;
+
+/// Maximum `ppr_iter` on `POST /v1/retrieve`. PPR power-iteration is
+/// O(edges × iter); an unbounded value is a CPU DoS amplifier. 100 is
+/// well past any empirically useful stopping point (convergence is
+/// typically <20 iterations).
+pub(crate) const MAX_PPR_ITER: u32 = 100;
+
+/// Maximum `community_expand_seeds` on `POST /v1/retrieve`. The expander
+/// runs a community lookup per seed; 100 seeds × community size is plenty
+/// for any practical query.
+pub(crate) const MAX_COMMUNITY_EXPAND_SEEDS: usize = 100;
+
+/// Maximum `community_max_per` on `POST /v1/retrieve`. Caps how many
+/// additional community members can be pulled in per seed community.
+pub(crate) const MAX_COMMUNITY_MAX_PER: usize = 500;
+
+/// Maximum number of entries in the `graph_etype` filter Vec on
+/// `POST /v1/retrieve`. An unbounded list is a DoS vector (each entry
+/// is compared against every edge during graph expansion).
+pub(crate) const MAX_GRAPH_ETYPE_COUNT: usize = 100;
+
+/// Maximum `graph_expand` budget on `POST /v1/retrieve`. Caps the total
+/// number of graph-neighbour nodes pulled in beyond the seed set.
+pub(crate) const MAX_GRAPH_EXPAND: usize = 1000;
+
+/// Maximum `graph_depth` on `POST /v1/retrieve`. BFS beyond depth 4
+/// produces exponential fan-out; the CLI internally clamps to 4 too.
+pub(crate) const MAX_GRAPH_DEPTH: usize = 4;
+
+/// Maximum `graph_max_per_seed` on `POST /v1/retrieve`. Caps the
+/// per-seed out-edge cap used during graph expansion.
+pub(crate) const MAX_GRAPH_MAX_PER_SEED: usize = 500;
+
+/// Maximum `limit` on `GET /v1/query` and `POST /v1/query`.
+pub(crate) const MAX_QUERY_LIMIT: usize = 1_000;
+
+/// Maximum `limit` on `GET /v1/nodes/{id}/edges`.
+pub(crate) const MAX_EDGE_LIMIT: usize = 1_000;
+
+/// Maximum `summarize_k` on `POST /v1/retrieve`. Mirrors
+/// `MAX_RETRIEVE_LIMIT` — the caller cannot request more summary
+/// sentences than total retrieved items.
+pub(crate) const MAX_SUMMARIZE_K: usize = MAX_RETRIEVE_LIMIT;
+
 /// Reject an oversized `limit` / `vector_cap` / `rerank_top_k` with
 /// a 400 and a specific message that tells the caller which knob
 /// and which cap.
@@ -107,6 +203,74 @@ fn clamp_or_reject(name: &'static str, value: Option<usize>, cap: usize) -> Resu
     Ok(())
 }
 
+/// `clamp_or_reject` variant for `u32` params (e.g. `ppr_iter`).
+fn clamp_or_reject_u32(name: &'static str, value: Option<u32>, cap: u32) -> Result<(), Error> {
+    if let Some(n) = value
+        && n > cap
+    {
+        return Err(Error::bad_request(format!(
+            "{name}={n} exceeds max of {cap}; lower the value or split the request"
+        )));
+    }
+    Ok(())
+}
+
+/// Reject a Vec that exceeds `max_len` entries.
+fn reject_vec_too_long<T>(name: &'static str, value: &Option<Vec<T>>, max_len: usize) -> Result<(), Error> {
+    if let Some(v) = value
+        && v.len() > max_len
+    {
+        return Err(Error::bad_request(format!(
+            "{name} has {} entries, exceeds max of {max_len}",
+            v.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Validate `author` from a JSON body field typed `Option<String>`.
+/// Trims, rejects blank, enforces `MAX_AUTHOR_LEN`. Returns the
+/// trimmed author string on success.
+fn require_author(opt: Option<&str>) -> Result<String, Error> {
+    let a = opt
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| Error::bad_request("author is required"))?;
+    if a.len() > MAX_AUTHOR_LEN {
+        return Err(Error::bad_request(format!(
+            "author exceeds maximum length of {MAX_AUTHOR_LEN} bytes"
+        )));
+    }
+    Ok(a.to_string())
+}
+
+/// Validate `author` from a query-param or body field typed `&str` /
+/// `String` (already non-optional — caller extracted it from the request).
+fn validate_author(author: &str) -> Result<(), Error> {
+    if author.trim().is_empty() {
+        return Err(Error::bad_request("author is required"));
+    }
+    if author.len() > MAX_AUTHOR_LEN {
+        return Err(Error::bad_request(format!(
+            "author exceeds maximum length of {MAX_AUTHOR_LEN} bytes"
+        )));
+    }
+    Ok(())
+}
+
+/// Validate optional `message` field. Enforces `MAX_MESSAGE_LEN`.
+fn validate_message(message: Option<&str>) -> Result<(), Error> {
+    if let Some(msg) = message {
+        if msg.len() > MAX_MESSAGE_LEN {
+            return Err(Error::bad_request(format!(
+                "message exceeds maximum length of {MAX_MESSAGE_LEN} bytes"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[tracing::instrument]
 pub(crate) async fn healthz() -> Json<Value> {
     Json(json!({
     "schema": "mnem.v1.healthz",
@@ -116,6 +280,13 @@ pub(crate) async fn healthz() -> Json<Value> {
     }))
 }
 
+/// Fallback for any `/v1/*` path that does not match a registered route.
+/// Returns `404 Not Found` with the canonical `mnem.v1.err` envelope so
+/// clients always see structured JSON rather than axum's plain-text 404.
+pub(crate) async fn fallback_404(uri: axum::http::Uri) -> impl axum::response::IntoResponse {
+    Error::not_found(format!("no route for {uri}"))
+}
+
 // ---------- GET /v1/stats ----------
 
 pub(crate) async fn stats(State(s): State<AppState>) -> Result<Json<Value>, Error> {
@@ -123,11 +294,60 @@ pub(crate) async fn stats(State(s): State<AppState>) -> Result<Json<Value>, Erro
     let op_id = repo.op_id().to_string();
     let head = repo.view().heads.first().map(ToString::to_string);
     let refs = repo.view().refs.len();
+    let commit: Option<mnem_core::objects::Commit> = repo.head_commit().cloned();
+    let bs = repo.blockstore().clone();
+    drop(repo);
+
+    let (content_cid, node_count, edge_count, label_count) = match commit.as_ref() {
+        None => (None::<String>, 0usize, 0usize, 0usize),
+        Some(c) => {
+            let cc = c
+                .content_cid()
+                .map(|cid| cid.to_string())
+                .unwrap_or_else(|_| "<encode-error>".into());
+            let nodes = {
+                let cursor = Cursor::new(&*bs, &c.nodes)
+                    .map_err(|e| Error::internal(format!("node cursor: {e}")))?;
+                let mut count = 0usize;
+                for entry in cursor {
+                    entry.map_err(|e| Error::internal(format!("node cursor entry: {e}")))?;
+                    count += 1;
+                }
+                count
+            };
+            let edges = {
+                let cursor = Cursor::new(&*bs, &c.edges)
+                    .map_err(|e| Error::internal(format!("edge cursor: {e}")))?;
+                let mut count = 0usize;
+                for entry in cursor {
+                    entry.map_err(|e| Error::internal(format!("edge cursor entry: {e}")))?;
+                    count += 1;
+                }
+                count
+            };
+            let labels = c
+                .indexes
+                .as_ref()
+                .and_then(|idx_cid| bs.get(idx_cid).ok().flatten())
+                .and_then(|bytes| {
+                    from_canonical_bytes::<mnem_core::objects::IndexSet>(&bytes)
+                        .ok()
+                        .map(|set| set.nodes_by_label.len())
+                })
+                .unwrap_or(0);
+            (Some(cc), nodes, edges, labels)
+        }
+    };
+
     Ok(Json(json!({
     "schema": "mnem.v1.stats",
     "op_id": op_id,
     "head_commit": head,
+    "content_cid": content_cid,
     "refs": refs,
+    "nodes": node_count,
+    "edges": edge_count,
+    "labels": label_count,
     })))
 }
 
@@ -161,20 +381,74 @@ pub(crate) struct PostNodeBody {
     /// string parseable by `NodeId::parse_uuid`.
     #[serde(default)]
     pub id: Option<String>,
+    /// Skip embedding even if the server has an embedder configured.
+    /// Mirrors `mnem add node --no-embed`. Useful for bulk imports
+    /// where embedding is batched separately via `mnem reindex`.
+    #[serde(default)]
+    pub no_embed: bool,
+    /// Resolve-or-create mode: anchor the node on this property instead of
+    /// always creating a new one. Format: `"key=value"`.
+    /// If a node with `(label, key=value)` already exists in the graph its
+    /// UUID is reused; otherwise a new node is created with that property.
+    /// Additional `props` set extra properties on the resolved or newly-created
+    /// node. Mirrors `mnem add node --canonical KEY=VALUE`.
+    /// Conflicts with `id` and `deterministic`.
+    #[serde(default)]
+    pub canonical: Option<String>,
+    /// Derive the node UUID deterministically from `(label, sorted props)` via
+    /// blake3 truncation instead of generating a fresh UUIDv7. Two callers
+    /// passing the same `label` and `props` produce byte-identical `NodeId`s
+    /// (and therefore the same content_cid), which is required by
+    /// distributed-replay and content-addressable archive flows.
+    /// Mirrors `mnem add node --deterministic`. Conflicts with `id` and
+    /// `canonical`.
+    #[serde(default)]
+    pub deterministic: bool,
+    /// Optional one-sentence framing hint stored on the node.
+    /// Mirrors `mnem add node --context "..."`. Participates in the node CID.
+    #[serde(default)]
+    pub context_sentence: Option<String>,
 }
 
 #[derive(Serialize)]
 pub(crate) struct PostNodeResp {
     schema: &'static str,
     id: String,
+    cid: String,
     label: String,
     op_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_sentence: Option<String>,
+    content_bytes: usize,
+    props: serde_json::Value,
+    has_embedding: bool,
+    tombstoned: bool,
 }
 
 pub(crate) async fn post_node(
+    _auth: RequireBearer,
     State(s): State<AppState>,
     Json(body): Json<PostNodeBody>,
 ) -> Result<Json<PostNodeResp>, Error> {
+    // Validate conflicting field combinations up front.
+    if body.canonical.is_some() && body.id.is_some() {
+        return Err(Error::bad_request(
+            "`canonical` and `id` are mutually exclusive",
+        ));
+    }
+    if body.canonical.is_some() && body.deterministic {
+        return Err(Error::bad_request(
+            "`canonical` and `deterministic` are mutually exclusive",
+        ));
+    }
+    if body.deterministic && body.id.is_some() {
+        return Err(Error::bad_request(
+            "`deterministic` and `id` are mutually exclusive",
+        ));
+    }
+
     // Two-step label resolution:
     // 1. If the server was not launched with `MNEM_BENCH=1`
     // (`s.allow_labels == false`), we *ignore* any caller-supplied
@@ -187,25 +461,187 @@ pub(crate) async fn post_node(
     } else {
         Node::DEFAULT_NTYPE.to_string()
     };
-    let author = body
-        .author
-        .as_deref()
-        .map(str::trim)
-        .filter(|a| !a.is_empty())
-        .map(str::to_string);
-    let author = match author {
-        Some(a) => a,
-        None => return Err(Error::bad_request("author is required")),
+    let author = require_author(body.author.as_deref())?;
+    validate_message(body.message.as_deref())?;
+    if let Some(sum) = body.summary.as_deref() {
+        if sum.len() > MAX_SUMMARY_LEN {
+            return Err(Error::bad_request(format!(
+                "summary exceeds maximum length of {MAX_SUMMARY_LEN} bytes"
+            )));
+        }
+    }
+    if let Some(content) = body.content.as_deref() {
+        if content.len() > MAX_CONTENT_LEN {
+            return Err(Error::bad_request(format!(
+                "content exceeds maximum length of {MAX_CONTENT_LEN} bytes"
+            )));
+        }
+    }
+
+    // ---------- canonical (resolve-or-create) path ----------
+    //
+    // Mirrors `mnem add node --canonical KEY=VALUE`. Finds an existing
+    // node with (label, key=value); if absent creates one. Extra `props`
+    // are layered on top. Returns the resolved node's UUID.
+    if let Some(ref canonical_str) = body.canonical {
+        let (prop_name, anchor_value) = parse_canonical_kv(canonical_str).map_err(|e| {
+            Error::bad_request(format!(
+                "`canonical` expects KEY=VALUE format, got `{canonical_str}`: {e}"
+            ))
+        })?;
+
+        // Parse any extra props from the JSON map.
+        let extra_props: Vec<(String, ipld_core::ipld::Ipld)> =
+            if let Some(ref props_map) = body.props {
+                props_map
+                    .iter()
+                    .map(|(k, v)| {
+                        json_to_ipld(v)
+                            .map(|ipld| (k.clone(), ipld))
+                            .map_err(|e| Error::bad_request(e.to_string()))
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?
+            } else {
+                Vec::new()
+            };
+
+        let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
+        let mut tx = guard.start_transaction();
+
+        // resolve_or_create_node returns the existing id or creates a new node.
+        let node_id = tx
+            .resolve_or_create_node(&label, &prop_name, anchor_value.clone())
+            .map_err(|e| Error::internal(e.to_string()))?;
+
+        // Build the full node by loading the existing node (if any) and
+        // layering the anchor prop + extra props + summary + content on top.
+        let mut node = match tx
+            .base()
+            .lookup_node(&node_id)
+            .map_err(|e| Error::internal(e.to_string()))?
+        {
+            Some(existing) => existing,
+            None => Node::new(node_id, &label),
+        };
+        node.ntype = label.clone();
+        node = node.with_prop(prop_name, anchor_value);
+        if let Some(ref sum) = body.summary {
+            node = node.with_summary(sum);
+        }
+        for (k, v) in extra_props {
+            node = node.with_prop(k, v);
+        }
+        if let Some(ref ctx) = body.context_sentence {
+            node = node.with_context_sentence(ctx);
+        }
+        if let Some(c) = body.content {
+            node = node.with_content(bytes::Bytes::from(c.into_bytes()));
+        }
+
+        // Embed (same silent-on-failure semantics as the plain path).
+        let text_for_embed: Option<String> = node
+            .summary
+            .as_ref()
+            .filter(|t| !t.trim().is_empty())
+            .cloned();
+        let mut pending_dense: Option<(String, mnem_core::objects::Embedding)> = None;
+        let mut pending_sparse: Option<(String, mnem_core::sparse::SparseEmbed)> = None;
+        if !body.no_embed {
+            if let Some(text) = text_for_embed {
+                if let Some(pc) = &s.embed_cfg
+                    && let Ok(embedder) = mnem_embed_providers::open(pc)
+                    && let Ok(v) = embedder.embed(&text)
+                {
+                    let emb = mnem_embed_providers::to_embedding(embedder.model(), &v);
+                    pending_dense = Some((embedder.model().to_string(), emb));
+                }
+                if let Some(sc) = &s.sparse_cfg
+                    && let Ok(sparser) = mnem_sparse_providers::open(sc)
+                    && let Ok(se) = sparser.encode(&text)
+                {
+                    pending_sparse = Some((sparser.vocab_id().to_string(), se));
+                }
+            }
+        }
+
+        let resolved_id = node.id;
+        let has_embedding = pending_dense.is_some();
+        let cid = tx
+            .add_node(&node)
+            .map_err(|e| Error::internal(e.to_string()))?;
+        let cid_str = cid.to_string();
+        if let Some((model, emb)) = pending_dense {
+            tx.set_embedding(cid.clone(), model, emb)
+                .map_err(|e| Error::internal(e.to_string()))?;
+        }
+        if let Some((vocab_id, se)) = pending_sparse {
+            tx.set_sparse_embedding(cid, vocab_id, se)
+                .map_err(|e| Error::internal(e.to_string()))?;
+        }
+        let commit_start = std::time::Instant::now();
+        let new_repo = tx.commit(
+            &author,
+            body.message
+                .as_deref()
+                .unwrap_or("mnem http resolve-or-create node"),
+        )?;
+        s.metrics
+            .commit_duration
+            .observe(commit_start.elapsed().as_secs_f64());
+        let op_id = new_repo.op_id().to_string();
+        *guard = new_repo;
+        let mut props_map = serde_json::Map::new();
+        for (k, v) in &node.props {
+            props_map.insert(k.clone(), ipld_to_json(v));
+        }
+        return Ok(Json(PostNodeResp {
+            schema: "mnem.v1.node-created",
+            id: resolved_id.to_uuid_string(),
+            cid: cid_str,
+            label,
+            op_id,
+            summary: node.summary.clone(),
+            context_sentence: node.context_sentence.clone(),
+            content_bytes: node.content.as_ref().map_or(0, bytes::Bytes::len),
+            props: serde_json::Value::Object(props_map),
+            has_embedding,
+            tombstoned: false,
+        }));
+    }
+
+    // ---------- deterministic node-id path ----------
+    //
+    // Mirrors `mnem add node --deterministic`. Derives the NodeId from
+    // blake3(label + sorted props) so two callers with identical inputs
+    // produce the same node UUID and content_cid.
+    let node_id = if body.deterministic {
+        derive_deterministic_node_id_http(&label, body.props.as_ref()).map_err(|e| {
+            Error::bad_request(format!("could not derive deterministic id: {e}"))
+        })?
+    } else {
+        match body.id.as_deref() {
+            Some(s) => NodeId::parse_uuid(s)
+                .map_err(|e| Error::bad_request(format!("invalid caller-supplied id: {e}")))?,
+            None => NodeId::new_v7(),
+        }
     };
 
-    let node_id = match body.id.as_deref() {
-        Some(s) => NodeId::parse_uuid(s)
-            .map_err(|e| Error::bad_request(format!("invalid caller-supplied id: {e}")))?,
-        None => NodeId::new_v7(),
-    };
+    // CLI parity: `mnem add node` (standard path) requires --summary.
+    // Deterministic and caller-supplied-id paths intentionally allow omitting
+    // summary because identity comes from props or the explicit UUID.
+    if !body.deterministic
+        && body.id.is_none()
+        && body.summary.as_deref().map(str::trim).filter(|s| !s.is_empty()).is_none()
+    {
+        return Err(Error::bad_request("summary is required"));
+    }
+
     let mut node = Node::new(node_id, &label);
     if let Some(sum) = &body.summary {
         node = node.with_summary(sum);
+    }
+    if let Some(ref ctx) = body.context_sentence {
+        node = node.with_context_sentence(ctx);
     }
     if let Some(props) = body.props {
         for (k, v) in props {
@@ -233,28 +669,32 @@ pub(crate) async fn post_node(
         .cloned();
     let mut pending_dense: Option<(String, mnem_core::objects::Embedding)> = None;
     let mut pending_sparse: Option<(String, mnem_core::sparse::SparseEmbed)> = None;
-    if let Some(text) = text_for_embed {
-        if let Some(pc) = &s.embed_cfg
-            && let Ok(embedder) = mnem_embed_providers::open(pc)
-            && let Ok(v) = embedder.embed(&text)
-        {
-            let emb = mnem_embed_providers::to_embedding(embedder.model(), &v);
-            pending_dense = Some((embedder.model().to_string(), emb));
+    if !body.no_embed {
+        if let Some(text) = text_for_embed {
+            if let Some(pc) = &s.embed_cfg
+                && let Ok(embedder) = mnem_embed_providers::open(pc)
+                && let Ok(v) = embedder.embed(&text)
+            {
+                let emb = mnem_embed_providers::to_embedding(embedder.model(), &v);
+                pending_dense = Some((embedder.model().to_string(), emb));
+            }
+            if let Some(sc) = &s.sparse_cfg
+                && let Ok(sparser) = mnem_sparse_providers::open(sc)
+                && let Ok(se) = sparser.encode(&text)
+            {
+                pending_sparse = Some((sparser.vocab_id().to_string(), se));
+            }
+            // Silent on failure; the POST path returns an `id` either way.
         }
-        if let Some(sc) = &s.sparse_cfg
-            && let Ok(sparser) = mnem_sparse_providers::open(sc)
-            && let Ok(se) = sparser.encode(&text)
-        {
-            pending_sparse = Some((sparser.vocab_id().to_string(), se));
-        }
-        // Silent on failure; the POST path returns an `id` either way.
     }
 
     let id = node.id;
+    let has_embedding = pending_dense.is_some();
 
     let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
     let mut tx = guard.start_transaction();
     let cid = tx.add_node(&node)?;
+    let cid_str = cid.to_string();
     if let Some((model, emb)) = pending_dense {
         tx.set_embedding(cid.clone(), model, emb)?;
     }
@@ -271,13 +711,81 @@ pub(crate) async fn post_node(
         .observe(commit_start.elapsed().as_secs_f64());
     let op_id = new_repo.op_id().to_string();
     *guard = new_repo;
-
+    let mut props_map = serde_json::Map::new();
+    for (k, v) in &node.props {
+        props_map.insert(k.clone(), ipld_to_json(v));
+    }
     Ok(Json(PostNodeResp {
-        schema: "mnem.v1.post-node",
+        schema: "mnem.v1.node-created",
         id: id.to_uuid_string(),
-        label: body.label,
+        cid: cid_str,
+        label,
         op_id,
+        summary: node.summary.clone(),
+        context_sentence: node.context_sentence.clone(),
+        content_bytes: node.content.as_ref().map_or(0, bytes::Bytes::len),
+        props: serde_json::Value::Object(props_map),
+        has_embedding,
+        tombstoned: false,
     }))
+}
+
+/// Parse a `KEY=VALUE` string as used by the `canonical` field.
+/// The first `=` splits the pair; the value may contain `=` characters.
+fn parse_canonical_kv(s: &str) -> Result<(String, ipld_core::ipld::Ipld), String> {
+    let pos = s
+        .find('=')
+        .ok_or_else(|| format!("no `=` separator found in `{s}`"))?;
+    let key = s[..pos].to_string();
+    if key.is_empty() {
+        return Err(format!("key is empty in `{s}`"));
+    }
+    let raw_val = &s[pos + 1..];
+    // Try to parse as JSON; fall back to plain string.
+    let val = if let Ok(v) = serde_json::from_str::<Value>(raw_val) {
+        json_to_ipld(&v).map_err(|e| e.to_string())?
+    } else {
+        ipld_core::ipld::Ipld::String(raw_val.to_string())
+    };
+    Ok((key, val))
+}
+
+/// Derive a stable `NodeId` from `(label, sorted props)` via blake3 truncation.
+///
+/// Mirrors the `derive_deterministic_node_id` function in the CLI's `add.rs`.
+/// Hash input: `"mnem-c3-2:node:v1\0" || label || "\0" || for (k,v) in sorted_props: k || "=" || dag-cbor(v) || "\0"`.
+fn derive_deterministic_node_id_http(
+    label: &str,
+    props: Option<&Map<String, Value>>,
+) -> Result<NodeId, String> {
+    use mnem_core::id::Multihash;
+
+    let mut kv: std::collections::BTreeMap<String, ipld_core::ipld::Ipld> =
+        std::collections::BTreeMap::new();
+    if let Some(props_map) = props {
+        for (k, v) in props_map {
+            let ipld = json_to_ipld(v).map_err(|e| e.to_string())?;
+            kv.insert(k.clone(), ipld);
+        }
+    }
+
+    let mut buf: Vec<u8> = Vec::with_capacity(64 + label.len() + 16 * kv.len());
+    buf.extend_from_slice(b"mnem-c3-2:node:v1\0");
+    buf.extend_from_slice(label.as_bytes());
+    buf.push(0);
+    for (k, v) in &kv {
+        buf.extend_from_slice(k.as_bytes());
+        buf.push(b'=');
+        let cbor = to_canonical_bytes(v).map_err(|e| e.to_string())?;
+        buf.extend_from_slice(&cbor);
+        buf.push(0);
+    }
+
+    let mh = Multihash::blake3_256(&buf);
+    let digest = mh.digest();
+    let mut bytes16 = [0u8; 16];
+    bytes16.copy_from_slice(&digest[..16]);
+    Ok(NodeId::from_random_bytes(bytes16))
 }
 
 // ---------- GET /v1/nodes/{id} ----------
@@ -292,6 +800,8 @@ pub(crate) async fn get_node(
     let node = repo
         .lookup_node(&id)?
         .ok_or_else(|| Error::not_found(format!("no node with id={id_str}")))?;
+
+    let tombstoned = repo.is_tombstoned(&id);
 
     let mut props_map = Map::new();
     for (k, v) in &node.props {
@@ -319,9 +829,11 @@ pub(crate) async fn get_node(
     "id": node.id.to_uuid_string(),
     "label": node.ntype,
     "summary": node.summary,
+    "context_sentence": node.context_sentence,
     "props": Value::Object(props_map),
     "content_bytes": node.content.as_ref().map_or(0, bytes::Bytes::len),
     "has_embedding": has_embedding,
+    "tombstoned": tombstoned,
     })))
 }
 
@@ -348,7 +860,7 @@ pub(crate) struct GetNodeEmbeddingQuery {
 
 /// Fetch the embedding vector for a node by UUID and model string.
 ///
-/// Returns `200 OK` with the embedding in the `mnem.v1.node_embedding`
+/// Returns `200 OK` with the embedding in the `mnem.v1.node-embedding`
 /// schema, or `404 Not Found` when the node or embedding does not exist.
 pub(crate) async fn get_node_embedding(
     State(s): State<AppState>,
@@ -373,10 +885,21 @@ pub(crate) async fn get_node_embedding(
     })?;
 
     let bytes = emb.vector.as_ref();
+    if bytes.len() % 4 != 0 {
+        return Err(Error::internal(format!(
+            "embedding vector byte length {} is not a multiple of 4; blockstore may be corrupt",
+            bytes.len()
+        )));
+    }
     let vector: Vec<f32> = bytes
         .chunks_exact(4)
-        .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
-        .collect();
+        .map(|c| {
+            let arr: [u8; 4] = c
+                .try_into()
+                .map_err(|_| Error::internal("embedding chunk is not 4 bytes".to_string()))?;
+            Ok(f32::from_le_bytes(arr))
+        })
+        .collect::<Result<Vec<f32>, Error>>()?;
 
     let dtype_str = match emb.dtype {
         mnem_core::objects::Dtype::F32 => "f32",
@@ -386,7 +909,7 @@ pub(crate) async fn get_node_embedding(
     };
 
     Ok(Json(json!({
-        "schema": "mnem.v1.node_embedding",
+        "schema": "mnem.v1.node-embedding",
         "node_id": id_str,
         "model": emb.model,
         "dim": emb.dim,
@@ -414,9 +937,8 @@ pub(crate) async fn delete_node(
 ) -> Result<Json<Value>, Error> {
     let id = NodeId::parse_uuid(&id_str)
         .map_err(|e| Error::bad_request(format!("invalid UUID: {e}")))?;
-    if q.author.trim().is_empty() {
-        return Err(Error::bad_request("author is required"));
-    }
+    validate_author(&q.author)?;
+    validate_message(q.message.as_deref())?;
 
     let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
     let existed = guard.lookup_node(&id)?.is_some();
@@ -425,11 +947,12 @@ pub(crate) async fn delete_node(
             "no node with id={id_str} in current view"
         )));
     }
+    let author = q.author.trim().to_string();
     let mut tx = guard.start_transaction();
     tx.remove_node(id);
     let commit_start = std::time::Instant::now();
     let new_repo = tx.commit(
-        &q.author,
+        &author,
         q.message.as_deref().unwrap_or("mnem http delete node"),
     )?;
     s.metrics
@@ -439,7 +962,7 @@ pub(crate) async fn delete_node(
     *guard = new_repo;
 
     Ok(Json(json!({
-    "schema": "mnem.v1.delete-node",
+    "schema": "mnem.v1.node-deleted",
     "id": id_str,
     "existed": true,
     "op_id": op_id,
@@ -453,20 +976,25 @@ pub(crate) struct TombstoneBody {
     /// Free-form reason string recorded on the tombstone.
     #[serde(default)]
     pub reason: String,
+    /// Optional commit message. Mirrors `mnem tombstone --message`.
+    /// Defaults to `"mnem http tombstone node"`.
+    #[serde(default)]
+    pub message: Option<String>,
     /// Commit author.
     pub author: String,
 }
 
 pub(crate) async fn tombstone_node(
+    _auth: RequireBearer,
     State(s): State<AppState>,
     Path(id_str): Path<String>,
     Json(body): Json<TombstoneBody>,
 ) -> Result<Json<Value>, Error> {
     let id = NodeId::parse_uuid(&id_str)
         .map_err(|e| Error::bad_request(format!("invalid UUID: {e}")))?;
-    if body.author.trim().is_empty() {
-        return Err(Error::bad_request("author is required"));
-    }
+    validate_author(&body.author)?;
+    validate_message(body.message.as_deref())?;
+    let author = body.author.trim().to_string();
     let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
     // 404: the underlying node must exist in the current head. We
     // check before starting a transaction so the error surface is
@@ -483,20 +1011,28 @@ pub(crate) async fn tombstone_node(
             "node {id_str} is already tombstoned"
         )));
     }
+    let commit_msg = body
+        .message
+        .as_deref()
+        .filter(|m| !m.trim().is_empty())
+        .unwrap_or("mnem http tombstone node");
     let mut tx = guard.start_transaction();
     tx.tombstone_node(id, body.reason.clone())?;
     let commit_start = std::time::Instant::now();
-    let new_repo = tx.commit(&body.author, "mnem http tombstone node")?;
+    let new_repo = tx.commit(&author, commit_msg)?;
     s.metrics
         .commit_duration
         .observe(commit_start.elapsed().as_secs_f64());
+    let tombstoned_at = new_repo.operation().time;
     let op_id = new_repo.op_id().to_string();
     *guard = new_repo;
 
     Ok(Json(json!({
-    "schema": "mnem.v1.tombstone",
-    "op_id": op_id,
-    "node_id": id_str,
+        "schema": "mnem.v1.node-tombstoned",
+        "op_id": op_id,
+        "node_id": id_str,
+        "reason": body.reason,
+        "tombstoned_at": tombstoned_at,
     })))
 }
 
@@ -523,7 +1059,7 @@ pub(crate) struct PostEdgeBody {
 
 /// `POST /v1/edges` - commit a new directed edge between two existing nodes.
 ///
-/// Returns `{"schema":"mnem.v1.post-edge","edge_id":"<uuid>","op_id":"<cid>"}`.
+/// Returns `{"schema":"mnem.v1.edge-created","id":"<uuid>","op_id":"<cid>"}`.
 /// Returns 404 if `src` or `dst` does not exist in the current view.
 /// Returns 400 for malformed UUIDs, empty `etype`, or missing `author`.
 pub(crate) async fn post_edge(
@@ -533,11 +1069,15 @@ pub(crate) async fn post_edge(
 ) -> Result<Json<Value>, Error> {
     // Validate required fields.
     let author = body.author.trim();
-    if author.is_empty() {
-        return Err(Error::bad_request("author is required"));
-    }
+    validate_author(author)?;
+    validate_message(body.message.as_deref())?;
     if body.etype.trim().is_empty() {
         return Err(Error::bad_request("etype is required"));
+    }
+    if body.etype.len() > MAX_ETYPE_LEN {
+        return Err(Error::bad_request(format!(
+            "etype exceeds maximum length of {MAX_ETYPE_LEN} characters"
+        )));
     }
 
     // Parse UUIDs.
@@ -562,8 +1102,9 @@ pub(crate) async fn post_edge(
         )));
     }
 
+    let etype = body.etype.trim().to_string();
     let edge_id = EdgeId::new_v7();
-    let mut edge = Edge::new(edge_id, &body.etype, src, dst);
+    let mut edge = Edge::new(edge_id, &etype, src, dst);
     if let Some(props) = body.props {
         for (k, v) in props {
             edge = edge.with_prop(
@@ -574,7 +1115,8 @@ pub(crate) async fn post_edge(
     }
 
     let mut tx = guard.start_transaction();
-    tx.add_edge(&edge)?;
+    let edge_cid = tx.add_edge(&edge)?;
+    let edge_cid_str = edge_cid.to_string();
     let commit_start = std::time::Instant::now();
     let new_repo = tx.commit(
         author,
@@ -587,9 +1129,13 @@ pub(crate) async fn post_edge(
     *guard = new_repo;
 
     Ok(Json(json!({
-        "schema": "mnem.v1.post-edge",
-        "edge_id": edge_id.to_uuid_string(),
+        "schema": "mnem.v1.edge-created",
+        "id": edge_id.to_uuid_string(),
+        "cid": edge_cid_str,
         "op_id": op_id,
+        "etype": etype,
+        "src": src.to_uuid_string(),
+        "dst": dst.to_uuid_string(),
     })))
 }
 
@@ -634,19 +1180,81 @@ pub(crate) struct BulkNodeResp {
 #[derive(Serialize)]
 pub(crate) struct BulkNodeEntry {
     id: String,
+    cid: String,
     label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_sentence: Option<String>,
+    content_bytes: usize,
+    props: serde_json::Value,
+    has_embedding: bool,
+    tombstoned: bool,
 }
 
 pub(crate) async fn post_nodes_bulk(
+    _auth: RequireBearer,
     State(s): State<AppState>,
     Json(body): Json<BulkNodeBody>,
 ) -> Result<Json<BulkNodeResp>, Error> {
-    if body.author.trim().is_empty() {
-        return Err(Error::bad_request("author is required"));
-    }
+    validate_author(&body.author)?;
+    validate_message(body.message.as_deref())?;
     if body.nodes.is_empty() {
         return Err(Error::bad_request("nodes must not be empty"));
     }
+    if body.nodes.len() > MAX_BULK_NODES {
+        return Err(Error::bad_request(format!(
+            "nodes length {} exceeds maximum of {MAX_BULK_NODES}; split into smaller batches",
+            body.nodes.len()
+        )));
+    }
+    for (i, nb) in body.nodes.iter().enumerate() {
+        if nb.canonical.is_some() {
+            return Err(Error::bad_request(format!(
+                "nodes[{i}]: `canonical` is not supported in bulk mode; use POST /v1/nodes"
+            )));
+        }
+        if nb.deterministic {
+            return Err(Error::bad_request(format!(
+                "nodes[{i}]: `deterministic` is not supported in bulk mode; use POST /v1/nodes"
+            )));
+        }
+        if let Some(sum) = nb.summary.as_deref() {
+            if sum.len() > MAX_SUMMARY_LEN {
+                return Err(Error::bad_request(format!(
+                    "nodes[{i}]: summary exceeds maximum length of {MAX_SUMMARY_LEN} bytes"
+                )));
+            }
+        }
+        if let Some(content) = nb.content.as_deref() {
+            if content.len() > MAX_CONTENT_LEN {
+                return Err(Error::bad_request(format!(
+                    "nodes[{i}]: content exceeds maximum length of {MAX_CONTENT_LEN} bytes"
+                )));
+            }
+        }
+        if let Some(a) = nb.author.as_deref() {
+            let a = a.trim();
+            if a.is_empty() {
+                return Err(Error::bad_request(format!(
+                    "nodes[{i}]: per-node `author` must not be blank when supplied"
+                )));
+            }
+            if a.len() > MAX_AUTHOR_LEN {
+                return Err(Error::bad_request(format!(
+                    "nodes[{i}]: per-node `author` exceeds maximum length of {MAX_AUTHOR_LEN} bytes"
+                )));
+            }
+        }
+        if let Some(m) = nb.message.as_deref() {
+            if m.len() > MAX_MESSAGE_LEN {
+                return Err(Error::bad_request(format!(
+                    "nodes[{i}]: per-node `message` exceeds maximum length of {MAX_MESSAGE_LEN} bytes"
+                )));
+            }
+        }
+    }
+    let author = body.author.trim().to_string();
 
     // Resolve the dense embedder + the sparse encoder once so we don't
     // reopen per node. If a provider is configured but opening fails
@@ -685,6 +1293,7 @@ pub(crate) async fn post_nodes_bulk(
     // staged for the sidecar-side `Transaction::set_embedding` call
     // that runs after `add_node` returns the NodeCid.
     type BuiltBulkNode = (
+        String, // effective_author
         Node,
         Option<(String, mnem_core::objects::Embedding)>,
         Option<(String, mnem_core::sparse::SparseEmbed)>,
@@ -713,6 +1322,9 @@ pub(crate) async fn post_nodes_bulk(
         if let Some(sum) = &nb.summary {
             node = node.with_summary(sum);
         }
+        if let Some(ref ctx) = nb.context_sentence {
+            node = node.with_context_sentence(ctx);
+        }
         if let Some(props) = nb.props {
             for (k, v) in props {
                 node = node.with_prop(
@@ -724,6 +1336,14 @@ pub(crate) async fn post_nodes_bulk(
         if let Some(c) = nb.content {
             node = node.with_content(bytes::Bytes::from(c.into_bytes()));
         }
+        let no_embed = nb.no_embed;
+        let effective_author = nb
+            .author
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(author.as_str())
+            .to_string();
         // Dense and sparse vectors stage to their respective sidecars via
         // `Transaction::set_embedding` / `set_sparse_embedding` after the
         // commit loop knows the NodeCid; we collect both here keyed by
@@ -735,54 +1355,84 @@ pub(crate) async fn post_nodes_bulk(
             .cloned();
         let mut pending_dense: Option<(String, mnem_core::objects::Embedding)> = None;
         let mut pending_sparse_item: Option<(String, mnem_core::sparse::SparseEmbed)> = None;
-        if let Some(text) = text_for_embed {
-            if let Some(embedder) = embedder.as_ref() {
-                match embedder.embed(&text) {
-                    Ok(v) => {
-                        let emb = mnem_embed_providers::to_embedding(embedder.model(), &v);
-                        pending_dense = Some((embedder.model().to_string(), emb));
-                        embedded += 1;
-                    }
-                    Err(_) => {
-                        skipped_embed += 1;
+        if !no_embed {
+            if let Some(text) = text_for_embed {
+                if let Some(embedder) = embedder.as_ref() {
+                    match embedder.embed(&text) {
+                        Ok(v) => {
+                            let emb = mnem_embed_providers::to_embedding(embedder.model(), &v);
+                            pending_dense = Some((embedder.model().to_string(), emb));
+                            embedded += 1;
+                        }
+                        Err(_) => {
+                            skipped_embed += 1;
+                        }
                     }
                 }
+                if let Some(sparser) = sparser.as_ref()
+                    && let Ok(se) = sparser.encode(&text)
+                {
+                    pending_sparse_item = Some((sparser.vocab_id().to_string(), se));
+                }
             }
-            if let Some(sparser) = sparser.as_ref()
-                && let Ok(se) = sparser.encode(&text)
-            {
-                pending_sparse_item = Some((sparser.vocab_id().to_string(), se));
-            }
+        }
+        let has_embedding = pending_dense.is_some();
+        let node_cid_str = mnem_core::codec::hash_to_cid(&node)
+            .map(|(_, c)| c.to_string())
+            .unwrap_or_default();
+        let mut props_map = serde_json::Map::new();
+        for (k, v) in &node.props {
+            props_map.insert(k.clone(), ipld_to_json(v));
         }
         results.push(BulkNodeEntry {
             id: node.id.to_uuid_string(),
-            label: nb.label,
+            cid: node_cid_str,
+            label,
+            summary: node.summary.clone(),
+            context_sentence: node.context_sentence.clone(),
+            content_bytes: node.content.as_ref().map_or(0, bytes::Bytes::len),
+            props: serde_json::Value::Object(props_map),
+            has_embedding,
+            tombstoned: false,
         });
-        built.push((node, pending_dense, pending_sparse_item));
+        built.push((effective_author, node, pending_dense, pending_sparse_item));
     }
 
-    // Single commit over all nodes. Index rebuild happens once.
+    // Commit nodes grouped by consecutive effective author. The common
+    // all-same-author case produces a single commit (unchanged behaviour).
+    // When per-node `author` fields introduce different effective authors,
+    // consecutive runs of the same author are batched into one transaction
+    // each, matching what multiple single-node calls would produce.
+    let bulk_message = body.message.as_deref().unwrap_or("mnem http bulk add");
     let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
-    let mut tx = guard.start_transaction();
-    for (node, pending_dense, pending_sparse_item) in &built {
-        let cid = tx.add_node(node)?;
-        if let Some((model, emb)) = pending_dense {
-            tx.set_embedding(cid.clone(), model.clone(), emb.clone())?;
+    let mut op_id = String::new();
+    let mut group_start = 0usize;
+    while group_start < built.len() {
+        let group_author = &built[group_start].0;
+        let group_end = built[group_start..]
+            .iter()
+            .position(|(a, _, _, _)| a != group_author)
+            .map(|rel| group_start + rel)
+            .unwrap_or(built.len());
+        let mut tx = guard.start_transaction();
+        for (_, node, pending_dense, pending_sparse_item) in &built[group_start..group_end] {
+            let cid = tx.add_node(node)?;
+            if let Some((model, emb)) = pending_dense {
+                tx.set_embedding(cid.clone(), model.clone(), emb.clone())?;
+            }
+            if let Some((vocab_id, se)) = pending_sparse_item {
+                tx.set_sparse_embedding(cid, vocab_id.clone(), se.clone())?;
+            }
         }
-        if let Some((vocab_id, se)) = pending_sparse_item {
-            tx.set_sparse_embedding(cid, vocab_id.clone(), se.clone())?;
-        }
+        let commit_start = std::time::Instant::now();
+        let new_repo = tx.commit(group_author, bulk_message)?;
+        s.metrics
+            .commit_duration
+            .observe(commit_start.elapsed().as_secs_f64());
+        op_id = new_repo.op_id().to_string();
+        *guard = new_repo;
+        group_start = group_end;
     }
-    let commit_start = std::time::Instant::now();
-    let new_repo = tx.commit(
-        &body.author,
-        body.message.as_deref().unwrap_or("mnem http bulk add"),
-    )?;
-    s.metrics
-        .commit_duration
-        .observe(commit_start.elapsed().as_secs_f64());
-    let op_id = new_repo.op_id().to_string();
-    *guard = new_repo;
 
     Ok(Json(BulkNodeResp {
         schema: "mnem.v1.post-nodes-bulk",
@@ -795,7 +1445,7 @@ pub(crate) async fn post_nodes_bulk(
 
 // ---------- GET /v1/retrieve ----------
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub(crate) struct RetrieveQuery {
     pub text: Option<String>,
     pub label: Option<String>,
@@ -805,160 +1455,104 @@ pub(crate) struct RetrieveQuery {
     pub limit: Option<usize>,
     /// `KEY=VALUE`; VALUE tried as JSON first, falls back to string.
     pub where_eq: Option<String>,
+
+    // Full-pipeline knobs — mirrors every POST /v1/retrieve field
+    // that can be expressed as a scalar URL parameter.
+    pub vector_cap: Option<usize>,
+    /// Server-side embed model to use for the dense lane.
+    pub vector_model: Option<String>,
+    /// Cross-encoder reranker spec (`PROVIDER:MODEL`).
+    pub rerank: Option<String>,
+    pub rerank_top_k: Option<usize>,
+    /// Enable the community expander (additive, never drops candidates).
+    pub community_filter: Option<bool>,
+    pub community_expand_seeds: Option<usize>,
+    pub community_max_per: Option<usize>,
+    pub community_decay: Option<f32>,
+    pub graph_expand: Option<usize>,
+    pub graph_decay: Option<f32>,
+    /// Comma-separated authored-edge type filter, e.g. `edge:knows,edge:follows`.
+    pub graph_etype: Option<String>,
+    pub graph_depth: Option<usize>,
+    pub graph_max_per_seed: Option<usize>,
+    /// Graph expansion strategy: `"decay"` (default) or `"ppr"`.
+    pub graph_mode: Option<String>,
+    pub ppr_damping: Option<f32>,
+    pub ppr_iter: Option<u32>,
+    pub ppr_opt_in: Option<bool>,
+    pub summarize: Option<bool>,
+    pub summarize_k: Option<usize>,
+    /// HyDE activation — any non-empty string enables it, e.g. `"default"`.
+    pub hyde: Option<String>,
+    pub hyde_max_tokens: Option<u32>,
+    pub hyde_temperature: Option<f32>,
+    pub multi_query: Option<usize>,
+    /// Skip dense/sparse embedding even when a provider is configured.
+    pub no_vector: Option<bool>,
+    /// Comma-separated post-retrieval label (ntype) filter, e.g. `Fact,Entity:Person`.
+    pub labels: Option<String>,
 }
 
+impl RetrieveQuery {
+    fn into_request(self) -> RetrieveRequest {
+        let split_csv = |s: Option<String>| -> Vec<String> {
+            s.as_deref()
+                .map(|v| {
+                    v.split(',')
+                        .map(str::trim)
+                        .filter(|t| !t.is_empty())
+                        .map(String::from)
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        RetrieveRequest {
+            text: self.text,
+            label: self.label,
+            where_eq: self.where_eq,
+            budget: self.budget,
+            limit: self.limit,
+            vector_cap: self.vector_cap,
+            vector_model: self.vector_model,
+            vector: None, // GET callers cannot supply raw embedding vectors
+            rerank: self.rerank,
+            rerank_top_k: self.rerank_top_k,
+            community_filter: self.community_filter,
+            community_min_coverage: None,
+            community_expand_seeds: self.community_expand_seeds,
+            community_max_per: self.community_max_per,
+            community_decay: self.community_decay,
+            graph_expand: self.graph_expand,
+            graph_decay: self.graph_decay,
+            graph_etype: {
+                let v = split_csv(self.graph_etype);
+                if v.is_empty() { None } else { Some(v) }
+            },
+            graph_depth: self.graph_depth,
+            graph_max_per_seed: self.graph_max_per_seed,
+            graph_mode: self.graph_mode,
+            ppr_damping: self.ppr_damping,
+            ppr_iter: self.ppr_iter,
+            ppr_opt_in: self.ppr_opt_in,
+            summarize: self.summarize,
+            summarize_k: self.summarize_k,
+            hyde: self.hyde,
+            hyde_max_tokens: self.hyde_max_tokens,
+            hyde_temperature: self.hyde_temperature,
+            multi_query: self.multi_query,
+            no_vector: self.no_vector,
+            labels: split_csv(self.labels),
+            explain: None,
+        }
+    }
+}
+
+#[tracing::instrument(skip(s))]
 pub(crate) async fn retrieve(
     State(s): State<AppState>,
     Query(q): Query<RetrieveQuery>,
 ) -> Result<Json<Value>, Error> {
-    // Clamp untrusted numeric knobs before we touch the retriever.
-    // See the `MAX_RETRIEVE_LIMIT` / `MAX_VECTOR_CAP` / `MAX_RERANK_TOP_K`
-    // constants at the top of this file for rationale.
-    clamp_or_reject("limit", q.limit, MAX_RETRIEVE_LIMIT)?;
-
-    let repo = s.repo.lock().map_err(|_| Error::locked())?;
-    let mut ret = repo.retrieve();
-    // Honour the caller's label filter only when the server was
-    // launched with `MNEM_BENCH=1`. Otherwise the label field is
-    // simply ignored; the retrieve runs unscoped. See the
-    // `post_node` doc-comment for the full rationale.
-    if s.allow_labels
-        && let Some(l) = &q.label
-    {
-        ret = ret.label(l.clone());
-    }
-    if let Some(w) = &q.where_eq {
-        let (k, v) = parse_kv(w).map_err(Error::bad_request)?;
-        ret = ret.where_prop(k, PropPredicate::Eq(v));
-    }
-    if let Some(b) = q.budget {
-        ret = ret.token_budget(b);
-    }
-    if let Some(n) = q.limit {
-        ret = ret.limit(n);
-    }
-    // Auto-encode the text query through every configured lane
-    // (dense + sparse). there is no in-process lexical
-    // ranker left; a text query with no embedder AND no sparse
-    // provider configured is rejected with 400.
-    let mut vector_model: Option<String> = None;
-    let mut sparse_vocab: Option<String> = None;
-    if let Some(text) = q.text.as_deref()
-        && !text.trim().is_empty()
-    {
-        ret = ret.query_text(text.to_string());
-        // Dense lane.
-        if let Some(pc) = &s.embed_cfg {
-            let embedder = mnem_embed_providers::open(pc)
-                .map_err(|e| Error::internal(format!("embed provider open failed: {e}")))?;
-            let qvec = embedder
-                .embed(text)
-                .map_err(|e| Error::internal(format!("embed call failed: {e}")))?;
-            vector_model = Some(embedder.model().to_string());
-            ret = ret.vector(embedder.model().to_string(), qvec);
-        }
-        // Sparse lane.
-        if let Some(sc) = &s.sparse_cfg {
-            let sparser = mnem_sparse_providers::open(sc)
-                .map_err(|e| Error::bad_request(format!("sparse open failed: {e}")))?;
-            let sq = sparser
-                .encode_query(text)
-                .map_err(|e| Error::bad_request(format!("sparse encode failed: {e}")))?;
-            sparse_vocab = Some(sq.vocab_id.clone());
-            ret = ret.sparse_query(sq);
-        }
-        // BENCH-1 (C4 audit): cold-start fallback. Cells launched on
-        // a fresh `/data` volume have no `[embed]` / `[sparse]`
-        // section in `config.toml`, so AppState resolves both to
-        // `None`. Rather than 400 the caller (which breaks bench
-        // harnesses that exercise retrieve before configuring a
-        // provider), fall back to the deterministic, network-free
-        // `MockEmbedder` (blake3-derived, dim=384). Real providers
-        // still take priority when configured; this branch only
-        // fires when both `embed_cfg` AND `sparse_cfg` are absent.
-        if vector_model.is_none() && sparse_vocab.is_none() {
-            let mock = mnem_embed_providers::MockEmbedder::new("mock:cold-start-384", 384);
-            let qvec = mock
-                .embed(text)
-                .map_err(|e| Error::internal(format!("mock embed failed: {e}")))?;
-            vector_model = Some(mock.model().to_string());
-            ret = ret.vector(mock.model().to_string(), qvec);
-            tracing::warn!(
-                "retrieve: no [embed]/[sparse] configured; using deterministic \
- MockEmbedder fallback (cold-start). Configure a real provider \
- in config.toml for production retrieval quality."
-            );
-        }
-    }
-    {
-        let mut cache = s.indexes.lock().map_err(|_| Error::locked())?;
-        if let Some(model) = &vector_model {
-            let idx = cache.vector_index(&repo, model)?;
-            ret = ret.with_vector_index(idx);
-        }
-        if let Some(vocab) = &sparse_vocab {
-            let idx = cache.sparse_index(&repo, vocab)?;
-            ret = ret.with_sparse_index(idx);
-        }
-    }
-    // Record retrieve-latency histogram around the actual fusion call.
-    // This keeps the sample narrow (excludes JSON serialisation cost)
-    // so operators see the cost of the retrieval pipeline itself.
-    let retrieve_start = std::time::Instant::now();
-    let result = ret.execute()?;
-    s.metrics
-        .retrieve_latency
-        .observe(retrieve_start.elapsed().as_secs_f64());
-
-    let items: Vec<Value> = result
-        .items
-        .iter()
-        .map(|item| {
-            // Per-lane observability: expose as a JSON object keyed by
-            // lane name so API consumers can diagnose "why did this
-            // node rank" without re-running the pipeline locally.
-            let mut lane_obj = Map::new();
-            for (lane, score) in &item.lane_scores {
-                lane_obj.insert(lane_name(*lane).to_string(), json!(score));
-            }
-            json!({
-            "id": item.node.id.to_uuid_string(),
-            "label": item.node.ntype,
-            "score": item.score,
-            "tokens": item.tokens,
-            "summary": item.node.summary,
-            "rendered": item.rendered,
-            "lane_scores": Value::Object(lane_obj),
-            })
-        })
-        .collect();
-
-    // Gap 16: score calibration - scale-free per-query interpretability.
-    // `score_distribution` is a response-level block carrying
-    // min / max / median / iqr + a categorical `shape` label
-    // (long-tail / uniform / bimodal / insufficient-samples). The
-    // shape is promoted to a top-level agent hint per the R2 spec:
-    // agents consume it to decide whether top-1 is a confident match
-    // or whether the dense ranking is inconclusive. Scale-free: works
-    // identically for K=8 or K=1000.
-    let score_dist = {
-        let scores: Vec<f32> = result.items.iter().map(|it| it.score).collect();
-        mnem_graphrag::distribution_shape(&scores, mnem_graphrag::K_MIN)
-    };
-
-    Ok(Json(json!({
-    "schema": "mnem.v1.retrieve",
-    "items": items,
-    "tokens_used": result.tokens_used,
-    "tokens_budget": if result.tokens_budget == u32::MAX {
-    Value::Null
-    } else {
-    Value::from(result.tokens_budget)
-    },
-    "dropped": result.dropped,
-    "candidates_seen": result.candidates_seen,
-    "score_distribution": score_dist,
-    })))
+    retrieve_impl(s, q.into_request())
 }
 
 // ---------- POST /v1/retrieve (full retrieval pipeline) ----------
@@ -995,8 +1589,9 @@ pub(crate) struct RetrieveRequest {
     pub vector_cap: Option<usize>,
 
     // Semantic vector (caller may supply an embedding directly OR
-    // name an embedder configured on the server)
-    #[serde(default)]
+    // name an embedder configured on the server).
+    // `embed_model` is accepted as an alias to match the CLI --embed-model flag.
+    #[serde(default, alias = "embed_model")]
     pub vector_model: Option<String>,
     #[serde(default)]
     pub vector: Option<Vec<f32>>,
@@ -1080,20 +1675,89 @@ pub(crate) struct RetrieveRequest {
     /// `summarize=true` and this field is absent.
     #[serde(default)]
     pub summarize_k: Option<usize>,
+
+    // HyDE (Hypothetical Document Embeddings): when set, an LLM generates
+    // a hypothetical answer to the query and the embedder input becomes
+    // `"{query}\n{passage}"` instead of the raw query. Mirrors `--hyde`.
+    // Value is an optional `PROVIDER:MODEL` override; use `"default"` or
+    // any non-empty string to activate with the server's configured LLM.
+    #[serde(default)]
+    pub hyde: Option<String>,
+    /// Max tokens for the HyDE passage LLM call. Defaults to 200.
+    #[serde(default)]
+    pub hyde_max_tokens: Option<u32>,
+    /// Temperature for the HyDE passage LLM call. Defaults to 0.7.
+    #[serde(default)]
+    pub hyde_temperature: Option<f32>,
+
+    // Multi-query RAG-Fusion: generate N query paraphrases via LLM,
+    // embed each + original, run N+1 sub-retrievals, RRF-fuse. Mirrors
+    // `--multi-query N`. 0 or absent disables; requires `[llm]` + `[embed]`.
+    #[serde(default)]
+    pub multi_query: Option<usize>,
+
+    // Force text-only: skip vector embedding even when an embedder is
+    // configured. Mirrors `--no-vector`. Useful for ablation or when
+    // the caller supplies `where_eq` filters only.
+    #[serde(default)]
+    pub no_vector: Option<bool>,
+
+    // Post-retrieval label (ntype) filter. Mirrors CLI `--label` which
+    // accepts multiple values. Items whose `ntype` is not in this list
+    // are dropped from the response. Applied after all retrieval stages
+    // (HyDE, multi-query, graph expand) to match CLI semantics exactly.
+    // `label` (singular) remains a pre-retrieval filter for backward compat.
+    #[serde(default)]
+    pub labels: Vec<String>,
+
+    // Mirrors CLI `--explain`: when true, each item in the response
+    // includes `lane_scores` (per-retrieval-lane contribution). Absent
+    // or `false` omits `lane_scores` for a cleaner wire.
+    #[serde(default)]
+    pub explain: Option<bool>,
 }
 
+#[tracing::instrument(skip(s, body))]
 pub(crate) async fn retrieve_full(
     State(s): State<AppState>,
     Json(body): Json<RetrieveRequest>,
 ) -> Result<Json<Value>, Error> {
+    retrieve_impl(s, body)
+}
+
+fn retrieve_impl(s: AppState, body: RetrieveRequest) -> Result<Json<Value>, Error> {
     // Clamp untrusted numeric knobs before we touch the retriever.
     // See the `MAX_RETRIEVE_LIMIT` / `MAX_VECTOR_CAP` / `MAX_RERANK_TOP_K`
     // constants at the top of this file for rationale.
     clamp_or_reject("limit", body.limit, MAX_RETRIEVE_LIMIT)?;
     clamp_or_reject("vector_cap", body.vector_cap, MAX_VECTOR_CAP)?;
     clamp_or_reject("rerank_top_k", body.rerank_top_k, MAX_RERANK_TOP_K)?;
+    clamp_or_reject("multi_query", body.multi_query, MAX_MULTI_QUERY)?;
+    clamp_or_reject("community_expand_seeds", body.community_expand_seeds, MAX_COMMUNITY_EXPAND_SEEDS)?;
+    clamp_or_reject("community_max_per", body.community_max_per, MAX_COMMUNITY_MAX_PER)?;
+    clamp_or_reject_u32("ppr_iter", body.ppr_iter, MAX_PPR_ITER)?;
+    clamp_or_reject("graph_expand", body.graph_expand, MAX_GRAPH_EXPAND)?;
+    clamp_or_reject("graph_depth", body.graph_depth, MAX_GRAPH_DEPTH)?;
+    clamp_or_reject("graph_max_per_seed", body.graph_max_per_seed, MAX_GRAPH_MAX_PER_SEED)?;
+    reject_vec_too_long("graph_etype", &body.graph_etype, MAX_GRAPH_ETYPE_COUNT)?;
+    if let Some(v) = &body.vector
+        && v.len() > MAX_VECTOR_DIM
+    {
+        return Err(Error::bad_request(format!(
+            "vector has {} dimensions, exceeds max of {MAX_VECTOR_DIM}",
+            v.len()
+        )));
+    }
+    if let Some(t) = &body.text
+        && t.len() > MAX_QUERY_TEXT_LEN
+    {
+        return Err(Error::bad_request(format!(
+            "text query length {} exceeds maximum of {MAX_QUERY_TEXT_LEN} bytes",
+            t.len()
+        )));
+    }
 
-    let repo = s.repo.lock().map_err(|_| Error::locked())?;
+    let repo = s.repo.lock().map_err(|_| Error::locked())?.clone();
     let mut ret = repo.retrieve();
     let mut skipped: Vec<String> = Vec::new();
     // Gap 14: structural warnings[]. Populated from compile-time
@@ -1125,6 +1789,97 @@ pub(crate) async fn retrieve_full(
         ret = ret.vector_cap(n);
     }
 
+    // Multi-query RAG-Fusion: generate N paraphrase variants via LLM,
+    // embed each + original, run N+1 sub-retrievals, then RRF-fuse.
+    // Mirrors CLI `--multi-query N`. Returns early on success, falls
+    // through to plain retrieve on any error so callers always get a
+    // result.
+    if let Some(n_variants) = body.multi_query
+        && n_variants > 0
+        && let Some(q) = body.text.as_deref()
+        && let Some(lc) = &s.llm_cfg
+        && let Some(pc) = &s.embed_cfg
+    {
+        match run_multi_query_http(&repo, q, n_variants, body.limit, body.budget, body.vector_cap, body.no_vector.unwrap_or(false), lc, pc) {
+            Ok(Some(result)) => {
+                let items_json: Vec<Value> = result
+                    .items
+                    .iter()
+                    .map(|it| {
+                        let mut m = serde_json::json!({
+                            "id":       it.node.id.to_uuid_string(),
+                            "label":    it.node.ntype,
+                            "summary":  it.node.summary,
+                            "rendered": it.rendered,
+                            "score":    it.score,
+                            "tokens":   it.tokens,
+                        });
+                        if let Some(obj) = m.as_object_mut() {
+                            if !it.node.props.is_empty() {
+                                obj.insert(
+                                    "props".into(),
+                                    serde_json::to_value(&it.node.props).unwrap_or(Value::Null),
+                                );
+                            }
+                        }
+                        m
+                    })
+                    .collect();
+                return Ok(Json(serde_json::json!({
+                    "schema":      "mnem.v1.retrieve",
+                    "mode":        "multi_query",
+                    "count":       items_json.len(),
+                    "items":       items_json,
+                    "tokens_used": result.tokens_used,
+                    "dropped":     result.dropped,
+                    "skipped":     skipped,
+                })));
+            }
+            Ok(None) => {
+                skipped.push("multi_query: no variants generated; falling back to plain retrieve".into());
+            }
+            Err(e) => {
+                skipped.push(format!("multi_query error: {e}; falling back to plain retrieve"));
+            }
+        }
+    }
+
+    // HyDE (Hypothetical Document Embeddings): if `hyde` is set (any
+    // non-empty value) AND we have a text query AND an LLM is configured,
+    // ask the LLM to generate a hypothetical answer and replace the
+    // embedder input with `"{query}\n{passage}"`. Mirrors CLI `--hyde`.
+    // LLM failures fall back silently to the plain query text.
+    let mut embedder_text: Option<String> = body.text.clone();
+    if body.hyde.is_some()
+        && let Some(q) = body.text.as_deref()
+        && let Some(lc) = &s.llm_cfg
+    {
+        use mnem_core::llm::{GenOptions, HYDE_PROMPT_TEMPLATE, fill_template};
+        match mnem_llm_providers::open(lc) {
+            Ok(llm) => {
+                let prompt = fill_template(HYDE_PROMPT_TEMPLATE, q);
+                let opts = GenOptions {
+                    n: 1,
+                    max_tokens: Some(body.hyde_max_tokens.unwrap_or(200)),
+                    temperature: Some(body.hyde_temperature.unwrap_or(0.7)),
+                    ..Default::default()
+                };
+                match llm.generate(&prompt, &opts) {
+                    Ok(mut passages) if !passages.is_empty() => {
+                        let passage = passages.remove(0);
+                        embedder_text = Some(format!("{q}\n{passage}"));
+                    }
+                    Ok(_) | Err(_) => {
+                        skipped.push("hyde: empty or failed completion; using plain query".into());
+                    }
+                }
+            }
+            Err(e) => {
+                skipped.push(format!("hyde: LLM open failed ({e}); using plain query"));
+            }
+        }
+    }
+
     // Vector: caller-supplied embedding takes priority over
     // server-side auto-fuse. When no vector is supplied AND the
     // server has an embed provider configured, embed the text
@@ -1134,21 +1889,27 @@ pub(crate) async fn retrieve_full(
     // Post-there is no text ranker left in mnem-core: a
     // `text` query without either (a) a caller-supplied vector or
     // (b) a configured embedder is rejected with 400.
+    let no_vector = body.no_vector.unwrap_or(false);
     let mut vector_model: Option<String> = None;
     let mut sparse_vocab: Option<String> = None;
+    // query_text always uses the original query (text filter / BM25).
     if let Some(text) = body.text.as_deref()
         && !text.trim().is_empty()
     {
         ret = ret.query_text(text.to_string());
     }
-    // Caller-supplied vector wins over auto-embed.
+    // Caller-supplied vector wins over auto-embed and is NOT gated by
+    // no_vector (the caller already did the embedding themselves).
     if let (Some(m), Some(v)) = (&body.vector_model, &body.vector) {
         vector_model = Some(m.clone());
         ret = ret.vector(m.clone(), v.clone());
-    } else if let Some(text) = body.text.as_deref()
+    } else if !no_vector
+        && let Some(text) = embedder_text.as_deref()
         && !text.trim().is_empty()
         && let Some(pc) = &s.embed_cfg
     {
+        // Use embedder_text here so HyDE-extended text is embedded when
+        // `hyde` is set; otherwise embedder_text == body.text.
         let embedder = mnem_embed_providers::open(pc)
             .map_err(|e| Error::bad_request(format!("embed open failed: {e}")))?;
         let qvec = embedder
@@ -1159,8 +1920,9 @@ pub(crate) async fn retrieve_full(
     }
     // Sparse lane: auto-encode via configured provider. Uses the
     // inference-free query path when the adapter overrides
-    // `encode_query` (OpenSearch v3-distill).
-    if let Some(text) = body.text.as_deref()
+    // `encode_query` (OpenSearch v3-distill). Gated by no_vector.
+    if !no_vector
+        && let Some(text) = embedder_text.as_deref()
         && !text.trim().is_empty()
         && let Some(sc) = &s.sparse_cfg
     {
@@ -1179,12 +1941,14 @@ pub(crate) async fn retrieve_full(
     // deterministic `MockEmbedder` (blake3-derived, dim=384) instead
     // of returning 400. Adds a `skipped[]` entry + a structural
     // warning so callers see the degradation in the response.
-    if body.text.as_deref().is_some_and(|t| !t.trim().is_empty())
+    // Skipped entirely when no_vector is set.
+    if !no_vector
+        && embedder_text.as_deref().is_some_and(|t| !t.trim().is_empty())
         && vector_model.is_none()
         && sparse_vocab.is_none()
         && body.vector.is_none()
     {
-        if let Some(text) = body.text.as_deref() {
+        if let Some(text) = embedder_text.as_deref() {
             let mock = mnem_embed_providers::MockEmbedder::new("mock:cold-start-384", 384);
             let qvec = mock
                 .embed(text)
@@ -1412,26 +2176,44 @@ pub(crate) async fn retrieve_full(
             })
             .inc();
     }
-    let items: Vec<Value> = result
-        .items
+    // Post-retrieval label (ntype) filter — mirrors CLI `--label`.
+    // Applied after all retrieval stages so HyDE/multi-query
+    // expansion is unaffected by the label scope.
+    let filtered_items: std::borrow::Cow<'_, [_]> = if body.labels.is_empty() {
+        std::borrow::Cow::Borrowed(&result.items)
+    } else {
+        std::borrow::Cow::Owned(
+            result
+                .items
+                .iter()
+                .filter(|it| body.labels.iter().any(|l| l == &it.node.ntype))
+                .cloned()
+                .collect(),
+        )
+    };
+
+    let want_explain = body.explain.unwrap_or(false);
+    let items: Vec<Value> = filtered_items
         .iter()
         .map(|item| {
-            // Per-lane observability: expose as a JSON object keyed by
-            // lane name so API consumers can diagnose "why did this
-            // node rank" without re-running the pipeline locally.
-            let mut lane_obj = Map::new();
-            for (lane, score) in &item.lane_scores {
-                lane_obj.insert(lane_name(*lane).to_string(), json!(score));
+            let mut obj = json!({
+                "id": item.node.id.to_uuid_string(),
+                "label": item.node.ntype,
+                "score": item.score,
+                "tokens": item.tokens,
+                "summary": item.node.summary,
+                "rendered": item.rendered,
+            });
+            if want_explain && !item.lane_scores.is_empty() {
+                let mut lane_obj = Map::new();
+                for (lane, score) in &item.lane_scores {
+                    lane_obj.insert(lane_name(*lane).to_string(), json!(score));
+                }
+                obj.as_object_mut()
+                    .expect("obj is always a JSON object by construction")
+                    .insert("lane_scores".into(), Value::Object(lane_obj));
             }
-            json!({
-            "id": item.node.id.to_uuid_string(),
-            "label": item.node.ntype,
-            "score": item.score,
-            "tokens": item.tokens,
-            "summary": item.node.summary,
-            "rendered": item.rendered,
-            "lane_scores": Value::Object(lane_obj),
-            })
+            obj
         })
         .collect();
 
@@ -1440,8 +2222,9 @@ pub(crate) async fn retrieve_full(
     // block carries min / max / median / iqr + a categorical `shape`
     // label (long-tail / uniform / bimodal / insufficient-samples) so
     // agents can interpret the dense ranking without a trained scaler.
+    // Use filtered_items so the distribution reflects what is actually returned.
     let score_dist = {
-        let scores: Vec<f32> = result.items.iter().map(|it| it.score).collect();
+        let scores: Vec<f32> = filtered_items.iter().map(|it| it.score).collect();
         mnem_graphrag::distribution_shape(&scores, mnem_graphrag::K_MIN)
     };
 
@@ -1484,8 +2267,8 @@ pub(crate) async fn retrieve_full(
     // * `session_reservoir_ttl_s` = live value of
     // `session_reservoir::IDLE_TTL` in seconds. Mirrors the
     // `mnem_session_reservoir_ttl_effective` gauge.
-    let gap01_confidence = gap01_compute_confidence(&result.items);
-    let gap01_neighbors = gap01_suggested_neighbors(&result.items);
+    let gap01_confidence = gap01_compute_confidence(&filtered_items);
+    let gap01_neighbors = gap01_suggested_neighbors(&filtered_items);
     let gap01_community_density = 0.0_f32;
     let gap01_session_reservoir_ttl_s = mnem_core::retrieve::session_reservoir::IDLE_TTL.as_secs();
 
@@ -1512,7 +2295,8 @@ pub(crate) async fn retrieve_full(
     }
 
     if body.summarize.unwrap_or(false) {
-        let k = body.summarize_k.unwrap_or(3).min(MAX_RETRIEVE_LIMIT);
+        clamp_or_reject("summarize_k", body.summarize_k, MAX_SUMMARIZE_K)?;
+        let k = body.summarize_k.unwrap_or(3);
         // C3 FIX-4: accumulate sentences AND a per-sentence
         // centrality vector in lockstep. When PPR was active
         // (graph_mode="ppr") we reuse the retriever's final item
@@ -1542,7 +2326,7 @@ pub(crate) async fn retrieve_full(
         } else {
             None
         };
-        for it in &result.items {
+        for it in filtered_items.iter() {
             if let Some(summary) = it.node.summary.clone() {
                 sentences.push(summary);
                 let w = if want_ppr {
@@ -1605,6 +2389,125 @@ pub(crate) async fn retrieve_full(
     }
 
     Ok(Json(response))
+}
+
+/// Multi-query RAG-Fusion helper used by `retrieve_full`. Mirrors the
+/// CLI `run_multi_query` function. Generates `n_variants` query
+/// paraphrases via the configured LLM, embeds each + the original,
+/// runs N+1 sub-retrievals, and RRF-fuses the ranked lists.
+///
+/// Returns `Ok(None)` when the LLM produces no usable variants so the
+/// caller can fall through to plain retrieve.
+#[allow(clippy::too_many_arguments)]
+fn run_multi_query_http(
+    repo: &mnem_core::repo::ReadonlyRepo,
+    query: &str,
+    n_variants: usize,
+    limit: Option<usize>,
+    budget: Option<u32>,
+    vector_cap: Option<usize>,
+    no_vector: bool,
+    llm_cfg: &mnem_llm_providers::ProviderConfig,
+    embed_cfg: &mnem_embed_providers::ProviderConfig,
+) -> Result<Option<mnem_core::retrieve::RetrievalResult>, anyhow::Error> {
+    use anyhow::anyhow;
+    use mnem_core::llm::{GenOptions, MULTI_QUERY_PROMPT_TEMPLATE, fill_multi_query_template};
+
+    let llm = mnem_llm_providers::open(llm_cfg).map_err(|e| anyhow!("llm open failed: {e}"))?;
+    let embedder =
+        mnem_embed_providers::open(embed_cfg).map_err(|e| anyhow!("embed open failed: {e}"))?;
+
+    let prompt = fill_multi_query_template(MULTI_QUERY_PROMPT_TEMPLATE, query, n_variants);
+    let opts = GenOptions {
+        n: 1,
+        max_tokens: Some(512),
+        temperature: Some(0.7),
+        ..Default::default()
+    };
+    let completions = llm
+        .generate(&prompt, &opts)
+        .map_err(|e| anyhow!("llm generate failed: {e}"))?;
+    if completions.is_empty() {
+        return Ok(None);
+    }
+    let mut variants: Vec<String> = completions[0]
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(ToString::to_string)
+        .collect();
+    variants.retain(|v| v.as_str() != query);
+    variants.truncate(n_variants);
+    if variants.is_empty() {
+        return Ok(None);
+    }
+
+    let mut all_queries: Vec<String> = vec![query.to_string()];
+    all_queries.extend(variants);
+
+    let mut ranked_lists: Vec<(Vec<mnem_core::id::NodeId>, f32)> = Vec::new();
+    for q in &all_queries {
+        let mut ret = repo.retrieve();
+        ret = ret.query_text(q.clone());
+        if let Some(n) = limit {
+            ret = ret.limit(n.saturating_mul(3).max(30));
+        }
+        if let Some(n) = vector_cap {
+            ret = ret.vector_cap(n);
+        }
+        if !no_vector
+            && let Ok(qvec) = embedder.embed(q)
+        {
+            ret = ret.vector(embedder.model().to_string(), qvec);
+        }
+        let sub = ret.execute().map_err(|e| anyhow!("sub-retrieve failed: {e}"))?;
+        let ids: Vec<mnem_core::id::NodeId> = sub.items.iter().map(|i| i.node.id).collect();
+        ranked_lists.push((ids, 1.0));
+    }
+
+    let fused = mnem_core::retrieve::weighted_reciprocal_rank_fusion(
+        &ranked_lists,
+        mnem_core::retrieve::Retriever::DEFAULT_RRF_K,
+    );
+
+    let cap = limit.unwrap_or(usize::MAX);
+    let budget_val = budget.unwrap_or(u32::MAX);
+    let estimator: std::sync::Arc<dyn mnem_core::retrieve::TokenEstimator> =
+        std::sync::Arc::new(mnem_core::retrieve::HeuristicEstimator);
+    let mut items: Vec<mnem_core::retrieve::RetrievedItem> = Vec::new();
+    let mut tokens_used: u32 = 0;
+    let mut dropped: u32 = 0;
+    let candidates_seen = u32::try_from(fused.len()).unwrap_or(u32::MAX);
+    for (nid, score) in fused {
+        if items.len() >= cap {
+            dropped = dropped.saturating_add(1);
+            continue;
+        }
+        let Some(node) = repo
+            .lookup_node(&nid)
+            .map_err(|e| anyhow!("lookup failed: {e}"))?
+        else {
+            continue;
+        };
+        let rendered = mnem_core::retrieve::render_node(&node);
+        let tokens = estimator.estimate(&rendered);
+        let next = tokens_used.saturating_add(tokens);
+        if next > budget_val {
+            dropped = dropped.saturating_add(1);
+            continue;
+        }
+        tokens_used = next;
+        items.push(mnem_core::retrieve::RetrievedItem::new(
+            node, rendered, tokens, score,
+        ));
+    }
+    Ok(Some(mnem_core::retrieve::RetrievalResult::new(
+        items,
+        tokens_used,
+        budget_val,
+        dropped,
+        candidates_seen,
+    )))
 }
 
 /// Parse a PROVIDER:MODEL rerank spec into a live
@@ -1676,6 +2579,9 @@ fn parse_kv(s: &str) -> Result<(String, Ipld), String> {
     let (k, v) = s
         .split_once('=')
         .ok_or_else(|| format!("expected KEY=VALUE, got `{s}`"))?;
+    if k.is_empty() {
+        return Err(format!("key must not be empty in `{s}`"));
+    }
     let val = match serde_json::from_str::<Value>(v) {
         Ok(json) => json_to_ipld(&json).map_err(|e| e.to_string())?,
         Err(_) => Ipld::String(v.to_string()),
@@ -1872,6 +2778,18 @@ pub(crate) async fn explain(
 
     let repo = s.repo.lock().map_err(|_| Error::locked())?;
 
+    // 404 if seed node does not exist (GAP-06).
+    if repo
+        .lookup_node(&seed)
+        .map_err(|e| Error::internal(e.to_string()))?
+        .is_none()
+    {
+        return Err(Error::not_found(format!(
+            "no node with id={}",
+            body.node_id
+        )));
+    }
+
     // BFS with parent tracking. `nodes[0]` is the seed; every step
     // carries `(parent_idx, to_idx)` into the nodes array.
     let mut nodes: Vec<NodeId> = vec![seed];
@@ -1974,8 +2892,9 @@ pub(crate) async fn explain(
 pub(crate) const MAX_LOG_LIMIT: usize = 500;
 
 /// Default number of log entries returned when `limit` is not specified.
+/// Matches the CLI `mnem log` default of 20.
 fn default_log_limit() -> usize {
-    50
+    20
 }
 
 /// Output format for `GET /v1/log`.
@@ -1994,7 +2913,7 @@ pub(crate) enum LogFormat {
 /// Query parameters for `GET /v1/log`.
 #[derive(serde::Deserialize)]
 pub(crate) struct LogParams {
-    /// Maximum number of entries to return (default 50, max 500).
+    /// Maximum number of entries to return (default 20, max 500). Matches CLI default.
     #[serde(default = "default_log_limit")]
     pub limit: usize,
     /// Output format: `json` (default), `oneline`, or `full`.
@@ -2003,17 +2922,22 @@ pub(crate) struct LogParams {
 }
 
 /// One entry in the JSON log response.
+/// Field names match the CLI `mnem log --format=json` stable wire contract.
 #[derive(serde::Serialize)]
 struct LogEntry {
-    op_id: String,
+    cid: String,
+    time: u64,
     timestamp: String,
     author: String,
-    message: String,
+    description: String,
     parents: Vec<String>,
+    view: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     agent_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host: Option<String>,
 }
 
 /// Produce a short-hex prefix of a CID for `oneline` output.
@@ -2095,7 +3019,7 @@ fn read_op(
 /// `GET /v1/log` - walk the op-log backwards from the current head.
 ///
 /// Query params:
-/// - `limit`: max entries to return (default 50, max 500)
+/// - `limit`: max entries to return (default 20, max 500; matches CLI default)
 /// - `format`: `json` (default) | `oneline` | `full`
 ///
 /// JSON response: `{ "schema": "mnem.v1.log", "entries": [...], "count": N }`
@@ -2104,15 +3028,21 @@ pub(crate) async fn get_log(
     State(s): State<AppState>,
     Query(params): Query<LogParams>,
 ) -> Result<impl IntoResponse, Error> {
-    // Clamp limit at the hard cap so callers cannot request unbounded work.
-    let limit = params.limit.min(MAX_LOG_LIMIT);
-    if limit == 0 {
+    if params.limit > MAX_LOG_LIMIT {
+        return Err(Error::bad_request(format!(
+            "limit={} exceeds max of {MAX_LOG_LIMIT}; lower the value or split the request",
+            params.limit
+        )));
+    }
+    if params.limit == 0 {
         return Err(Error::bad_request("limit must be >= 1"));
     }
+    let limit = params.limit;
 
     let repo = s.repo.lock().map_err(|_| Error::locked())?;
     let bs = repo.blockstore().clone();
     let mut cur = repo.op_id().clone();
+    drop(repo); // release the mutex before walking op-log blocks
 
     match params.format {
         LogFormat::Json => {
@@ -2120,13 +3050,16 @@ pub(crate) async fn get_log(
             for _ in 0..limit {
                 let (op, next) = read_op(bs.as_ref(), &cur)?;
                 entries.push(LogEntry {
-                    op_id: cur.to_string(),
+                    cid: cur.to_string(),
+                    time: op.time,
                     timestamp: micros_to_rfc3339(op.time),
                     author: op.author.clone(),
-                    message: op.description.clone(),
+                    description: op.description.clone(),
                     parents: op.parents.iter().map(ToString::to_string).collect(),
+                    view: op.view.to_string(),
                     agent_id: op.agent_id.clone(),
                     task_id: op.task_id.clone(),
+                    host: op.host.clone(),
                 });
                 match next {
                     Some(p) => cur = p,
@@ -2147,7 +3080,7 @@ pub(crate) async fn get_log(
             for _ in 0..limit {
                 let short = short_cid_str(&cur.to_string());
                 let (op, next) = read_op(bs.as_ref(), &cur)?;
-                lines.push_str(&format!("{short} {}\n", op.description));
+                let _ = writeln!(lines, "{short} {}", op.description);
                 match next {
                     Some(p) => cur = p,
                     None => break,
@@ -2161,18 +3094,18 @@ pub(crate) async fn get_log(
             for _ in 0..limit {
                 let op_id_str = cur.to_string();
                 let (op, next) = read_op(bs.as_ref(), &cur)?;
-                text.push_str(&format!("op {op_id_str}\n"));
-                text.push_str(&format!("   time    {}us\n", op.time));
+                let _ = writeln!(text, "op {op_id_str}");
+                let _ = writeln!(text, "   time    {}us", op.time);
                 if !op.author.is_empty() {
-                    text.push_str(&format!("   author  {}\n", op.author));
+                    let _ = writeln!(text, "   author  {}", op.author);
                 }
                 if let Some(agent) = &op.agent_id {
-                    text.push_str(&format!("   agent   {agent}\n"));
+                    let _ = writeln!(text, "   agent   {agent}");
                 }
                 if let Some(task) = &op.task_id {
-                    text.push_str(&format!("   task    {task}\n"));
+                    let _ = writeln!(text, "   task    {task}");
                 }
-                text.push_str(&format!("   message {}\n", op.description));
+                let _ = writeln!(text, "   message {}", op.description);
                 text.push('\n');
                 match next {
                     Some(p) => cur = p,
@@ -2216,7 +3149,8 @@ pub(crate) async fn get_export(
     State(s): State<AppState>,
     Query(params): Query<ExportParams>,
 ) -> Result<impl IntoResponse, Error> {
-    let limit = params.limit.unwrap_or(MAX_EXPORT_OPS).min(MAX_EXPORT_OPS);
+    clamp_or_reject("limit", params.limit, MAX_EXPORT_OPS)?;
+    let limit = params.limit.unwrap_or(MAX_EXPORT_OPS);
 
     let repo = s.repo.lock().map_err(|_| Error::locked())?;
     let bs = repo.blockstore().clone();
@@ -2302,6 +3236,7 @@ pub(crate) async fn get_export(
 /// {"imported": N, "errors": [...], "ok": true}
 /// ```
 pub(crate) async fn post_import(
+    _auth: RequireBearer,
     State(s): State<AppState>,
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
@@ -2333,6 +3268,7 @@ pub(crate) async fn post_import(
 
     let mut imported: usize = 0;
     let mut errors: Vec<Value> = Vec::new();
+    let mut imported_cids: Vec<mnem_core::id::Cid> = Vec::new();
 
     for (line_no, line) in text.lines().enumerate() {
         let line = line.trim();
@@ -2435,8 +3371,11 @@ pub(crate) async fn post_import(
         }
 
         // Write to blockstore. `put` is idempotent for already-present blocks.
-        match bs.put(claimed_cid, data) {
-            Ok(()) => imported += 1,
+        match bs.put(claimed_cid.clone(), data) {
+            Ok(()) => {
+                imported += 1;
+                imported_cids.push(claimed_cid);
+            }
             Err(e) => {
                 errors.push(json!({
                     "line": line_no + 1,
@@ -2447,12 +3386,46 @@ pub(crate) async fn post_import(
         }
     }
 
+    // C-2 FIX: advance HEAD to the commit block with the greatest `time`
+    // among all imported blocks (mirrors the BUG-50 / clone.rs heuristic
+    // in the CLI's `import.rs`).
+    let mut best_commit: Option<(u64, mnem_core::id::Cid)> = None;
+    for cid in &imported_cids {
+        let Ok(Some(bytes)) = bs.get(cid) else { continue };
+        let Ok(Ipld::Map(m)) = from_canonical_bytes::<Ipld>(&bytes) else { continue };
+        let Some(Ipld::String(kind)) = m.get("_kind") else { continue };
+        if kind != "commit" { continue; }
+        let time = match m.get("time") {
+            Some(Ipld::Integer(n)) => u64::try_from(*n).unwrap_or(0),
+            _ => 0,
+        };
+        best_commit = Some(match best_commit {
+            None => (time, cid.clone()),
+            Some((t, _)) if time > t => (time, cid.clone()),
+            Some(prev) => prev,
+        });
+    }
+
+    let (head_advanced, new_head_str) = if let Some((_, commit_cid)) = best_commit {
+        let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
+        let new_repo = guard
+            .update_heads(commit_cid.clone(), "mnem-http")
+            .map_err(|e| Error::internal(format!("update_heads: {e}")))?;
+        let cid_str = commit_cid.to_string();
+        *guard = new_repo;
+        (true, Some(cid_str))
+    } else {
+        (false, None)
+    };
+
     let ok = errors.is_empty();
     Ok(Json(json!({
         "schema": "mnem.v1.import",
         "imported": imported,
         "errors": errors,
         "ok": ok,
+        "head_advanced": head_advanced,
+        "new_head": new_head_str,
     })))
 }
 
@@ -2471,7 +3444,7 @@ pub(crate) async fn post_import(
 pub(crate) async fn get_branches(State(s): State<AppState>) -> Result<Json<Value>, Error> {
     let repo = s.repo.lock().map_err(|_| Error::locked())?;
     let view = repo.view();
-    let current_head = view.heads.first().cloned();
+    let active_ref = view.active_branch();
 
     let branches: Vec<Value> = view
         .refs
@@ -2480,7 +3453,7 @@ pub(crate) async fn get_branches(State(s): State<AppState>) -> Result<Json<Value
             let short = name.strip_prefix(HEADS_PREFIX)?;
             let (head_str, is_current) = match target {
                 mnem_core::objects::RefTarget::Normal { target } => {
-                    let is_cur = Some(target) == current_head.as_ref();
+                    let is_cur = active_ref == Some(name.as_str());
                     (target.to_string(), is_cur)
                 }
                 mnem_core::objects::RefTarget::Conflicted { .. } => {
@@ -2511,8 +3484,8 @@ pub(crate) struct CreateBranchBody {
     /// Short branch name (e.g. `"feature-x"`). Stored as
     /// `refs/heads/<name>` in the View.
     pub name: String,
-    /// Optional commit CID to point the new branch at. When absent,
-    /// defaults to the current head commit.
+    /// Optional commitish (commit CID, branch name, `HEAD`, or full ref path)
+    /// to point the new branch at. When absent, defaults to HEAD.
     #[serde(default)]
     pub at: Option<String>,
     /// Commit author recorded on the `update_ref` Operation.
@@ -2529,6 +3502,7 @@ pub(crate) struct CreateBranchBody {
 /// {"name": "feature-x", "head": "<commit-cid>", "created": true}
 /// ```
 pub(crate) async fn post_branch(
+    _auth: RequireBearer,
     State(s): State<AppState>,
     Json(body): Json<CreateBranchBody>,
 ) -> Result<Json<Value>, Error> {
@@ -2540,34 +3514,13 @@ pub(crate) async fn post_branch(
             "branch name exceeds maximum length of 255 characters",
         ));
     }
-    if body.author.trim().is_empty() {
-        return Err(Error::bad_request("author is required"));
-    }
-    // Basic refname sanity: reject characters that break VCS tooling.
-    let n = &body.name;
-    if n.contains(' ')
-        || n.contains('\t')
-        || n.contains('\n')
-        || n.contains('\x00')
-        || n.contains('~')
-        || n.contains('^')
-        || n.contains(':')
-        || n.contains('?')
-        || n.contains('*')
-        || n.contains('[')
-        || n.contains('\\')
-        || n.contains("@{")
-        || n.contains("..")
-        || n.contains("//")
-        || n.starts_with('/')
-        || n.ends_with('/')
-        || n.ends_with('.')
-        || n.ends_with(".lock")
-    {
+    validate_author(&body.author)?;
+    if !is_valid_ref_name(&body.name) {
         return Err(Error::bad_request(format!(
-            "invalid branch name `{n}`: may not contain spaces, control characters, \
+            "invalid branch name `{}`: may not contain spaces, control characters, \
              `~`, `^`, `:`, `?`, `*`, `[`, `\\`, `@{{`, `..`, `//`, \
-             or start/end with `/`, or end with `.` or `.lock`"
+             or start/end with `/` or `.`, or end with `.lock`",
+            body.name
         )));
     }
 
@@ -2582,41 +3535,44 @@ pub(crate) async fn post_branch(
         )));
     }
 
-    // Resolve the target commit CID.
+    // Resolve the target commit CID.  Accept HEAD, branch names, full ref
+    // paths, and raw commit CIDs -- matching CLI `mnem branch create <name>
+    // [<start-point>]` which uses resolve_commitish for the start-point.
     let target_cid = match body.at.as_deref() {
-        Some(cid_str) => {
-            let cid = mnem_core::id::Cid::parse_str(cid_str)
-                .map_err(|e| Error::bad_request(format!("invalid CID `{cid_str}`: {e}")))?;
+        Some(commitish) => {
+            let cid = reindex_resolve_commitish(&guard, commitish)?;
             // Verify the CID decodes as a Commit block.
             let bs = guard.blockstore().clone();
             let bytes = bs
                 .get(&cid)
                 .map_err(|e| Error::internal(format!("blockstore error: {e}")))?
                 .ok_or_else(|| {
-                    Error::not_found(format!("block {cid_str} not found in blockstore"))
+                    Error::not_found(format!("block {cid} not found in blockstore"))
                 })?;
             if from_canonical_bytes::<Commit>(&bytes).is_err() {
                 return Err(Error::bad_request(format!(
-                    "`{cid_str}` does not decode as a commit; \
-                     use a commit CID (not an op CID)"
+                    "`{commitish}` resolves to {cid} which does not decode as a commit; \
+                     use a commit CID, branch name, or HEAD"
                 )));
             }
             cid
         }
         None => guard.view().heads.first().cloned().ok_or_else(|| {
             Error::bad_request(
-                "repository has no commits yet; pass `at` with a commit CID".to_string(),
+                "repository has no commits yet; pass `at` with a commit CID or branch name"
+                    .to_string(),
             )
         })?,
     };
 
     let head_str = target_cid.to_string();
+    let author = body.author.trim().to_string();
     let new_repo = guard
         .update_ref(
             &full,
             None,
             Some(mnem_core::objects::RefTarget::normal(target_cid)),
-            &body.author,
+            &author,
         )
         .map_err(Error::from)?;
     let op_id = new_repo.op_id().to_string();
@@ -2644,6 +3600,7 @@ pub(crate) async fn post_branch(
 /// {"deleted": "feature-x"}
 /// ```
 pub(crate) async fn delete_branch(
+    _auth: RequireBearer,
     State(s): State<AppState>,
     Path(name): Path<String>,
     Query(q): Query<DeleteQuery>,
@@ -2651,9 +3608,7 @@ pub(crate) async fn delete_branch(
     if name.trim().is_empty() {
         return Err(Error::bad_request("branch name must not be empty"));
     }
-    if q.author.trim().is_empty() {
-        return Err(Error::bad_request("author is required"));
-    }
+    validate_author(&q.author)?;
 
     let full = format!("{HEADS_PREFIX}{name}");
 
@@ -2666,18 +3621,16 @@ pub(crate) async fn delete_branch(
         .cloned()
         .ok_or_else(|| Error::not_found(format!("branch `{name}` does not exist")))?;
 
-    // Refuse to delete the branch that currently points at HEAD.
-    let current_head = view.heads.first().cloned();
-    if let mnem_core::objects::RefTarget::Normal { target } = &prev {
-        if Some(target) == current_head.as_ref() {
-            return Err(Error::conflict(format!(
-                "cannot delete branch `{name}`: it is the current branch (points at HEAD)"
-            )));
-        }
+    // Refuse to delete the currently checked-out branch.
+    if view.active_branch() == Some(full.as_str()) {
+        return Err(Error::conflict(format!(
+            "cannot delete branch `{name}`: it is the current branch"
+        )));
     }
 
+    let author = q.author.trim().to_string();
     let new_repo = guard
-        .update_ref(&full, Some(&prev), None, &q.author)
+        .update_ref(&full, Some(&prev), None, &author)
         .map_err(Error::from)?;
     let op_id = new_repo.op_id().to_string();
     *guard = new_repo;
@@ -2753,6 +3706,7 @@ pub(crate) struct CreateTagBody {
 /// {"schema": "mnem.v1.tag-create", "name": "v1.0", "target": "<cid>", "created": true}
 /// ```
 pub(crate) async fn post_tag(
+    _auth: RequireBearer,
     State(s): State<AppState>,
     Json(body): Json<CreateTagBody>,
 ) -> Result<Json<Value>, Error> {
@@ -2764,34 +3718,13 @@ pub(crate) async fn post_tag(
             "tag name exceeds maximum length of 255 characters",
         ));
     }
-    if body.author.trim().is_empty() {
-        return Err(Error::bad_request("author is required"));
-    }
-    // Reuse the same refname validation as branches.
-    let n = &body.name;
-    if n.contains(' ')
-        || n.contains('\t')
-        || n.contains('\n')
-        || n.contains('\x00')
-        || n.contains('~')
-        || n.contains('^')
-        || n.contains(':')
-        || n.contains('?')
-        || n.contains('*')
-        || n.contains('[')
-        || n.contains('\\')
-        || n.contains("@{")
-        || n.contains("..")
-        || n.contains("//")
-        || n.starts_with('/')
-        || n.ends_with('/')
-        || n.ends_with('.')
-        || n.ends_with(".lock")
-    {
+    validate_author(&body.author)?;
+    if !is_valid_ref_name(&body.name) {
         return Err(Error::bad_request(format!(
-            "invalid tag name `{n}`: may not contain spaces, control characters, \
+            "invalid tag name `{}`: may not contain spaces, control characters, \
              `~`, `^`, `:`, `?`, `*`, `[`, `\\`, `@{{`, `..`, `//`, \
-             or start/end with `/`, or end with `.` or `.lock`"
+             or start/end with `/` or `.`, or end with `.lock`",
+            body.name
         )));
     }
 
@@ -2835,12 +3768,13 @@ pub(crate) async fn post_tag(
     };
 
     let target_str = target_cid.to_string();
+    let author = body.author.trim().to_string();
     let new_repo = guard
         .update_ref(
             &full,
             None,
             Some(mnem_core::objects::RefTarget::normal(target_cid)),
-            &body.author,
+            &author,
         )
         .map_err(Error::from)?;
     let op_id = new_repo.op_id().to_string();
@@ -2867,6 +3801,7 @@ pub(crate) async fn post_tag(
 /// {"schema": "mnem.v1.tag-delete", "deleted": "v1.0"}
 /// ```
 pub(crate) async fn delete_tag(
+    _auth: RequireBearer,
     State(s): State<AppState>,
     Path(name): Path<String>,
     Query(q): Query<DeleteQuery>,
@@ -2874,9 +3809,7 @@ pub(crate) async fn delete_tag(
     if name.trim().is_empty() {
         return Err(Error::bad_request("tag name must not be empty"));
     }
-    if q.author.trim().is_empty() {
-        return Err(Error::bad_request("author is required"));
-    }
+    validate_author(&q.author)?;
 
     let full = format!("{TAGS_PREFIX}{name}");
 
@@ -2889,8 +3822,9 @@ pub(crate) async fn delete_tag(
         .cloned()
         .ok_or_else(|| Error::not_found(format!("tag `{name}` does not exist")))?;
 
+    let author = q.author.trim().to_string();
     let new_repo = guard
-        .update_ref(&full, Some(&prev), None, &q.author)
+        .update_ref(&full, Some(&prev), None, &author)
         .map_err(Error::from)?;
     let op_id = new_repo.op_id().to_string();
     *guard = new_repo;
@@ -2920,12 +3854,24 @@ pub(crate) struct DiffQueryParams {
     pub limit: Option<usize>,
 }
 
+/// Query parameters for `GET /v1/diff`.
+#[derive(Deserialize)]
+pub(crate) struct GetDiffParams {
+    /// "from" side: raw CID, op CID, `HEAD`, branch name, or full ref.
+    pub from: String,
+    /// "to" side: raw CID, op CID, `HEAD`, branch name, or full ref.
+    pub to: String,
+    /// Cap the number of entries per bucket. Default 500, max 2000.
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
 /// Request body for `POST /v1/diff`.
 #[derive(Deserialize)]
 pub(crate) struct DiffBody {
-    /// CID of the "from" side: either a commit CID or an op CID.
+    /// "from" side: raw CID, op CID, `"HEAD"`, branch name, or full ref.
     pub from: String,
-    /// CID of the "to" side: either a commit CID or an op CID.
+    /// "to" side: raw CID, op CID, `"HEAD"`, branch name, or full ref.
     pub to: String,
 }
 
@@ -2987,54 +3933,131 @@ fn resolve_cid_to_commit(
     )))
 }
 
-/// `POST /v1/diff` - structural diff between two commits (or ops).
-///
-/// Body: `{"from": "<cid>", "to": "<cid>"}`
-/// Query: `?limit=N` (default 500, max 2000) - cap per added/removed/changed bucket.
-///
-/// Both `from` and `to` accept either a commit CID or an op CID (the op's head
-/// commit is resolved automatically).
-///
-/// Response schema: `mnem.v1.diff`
-pub(crate) async fn post_diff(
-    State(s): State<AppState>,
-    Query(params): Query<DiffQueryParams>,
-    Json(body): Json<DiffBody>,
-) -> Result<Json<Value>, Error> {
-    // Clamp limit.
-    let limit = params
-        .limit
-        .unwrap_or(DIFF_DEFAULT_LIMIT)
-        .min(DIFF_MAX_LIMIT);
-    if limit == 0 {
-        return Err(Error::bad_request("limit must be >= 1"));
+fn ref_target_to_str(t: &mnem_core::objects::RefTarget) -> String {
+    match t {
+        mnem_core::objects::RefTarget::Normal { target } => target.to_string(),
+        mnem_core::objects::RefTarget::Conflicted { adds, .. } => adds
+            .first()
+            .map_or_else(|| "<conflicted>".to_string(), ToString::to_string),
     }
+}
 
-    let repo = s.repo.lock().map_err(|_| Error::locked())?;
-    let bs = repo.blockstore().clone();
-    drop(repo); // release lock before potentially slow diff walks
+// Returns (input_cid, commit_cid, Commit, refs).
+// input_cid = op CID when input is an op, else the commit CID itself.
+// refs is empty when the input is a bare commit CID (no view available).
+fn resolve_to_commit_and_refs(
+    bs: &dyn mnem_core::store::Blockstore,
+    cid_str: &str,
+) -> Result<
+    (
+        mnem_core::id::Cid,
+        mnem_core::id::Cid,
+        Commit,
+        std::collections::BTreeMap<String, mnem_core::objects::RefTarget>,
+    ),
+    Error,
+> {
+    let cid = mnem_core::id::Cid::parse_str(cid_str)
+        .map_err(|e| Error::bad_request(format!("invalid CID `{cid_str}`: {e}")))?;
+    let bytes = bs
+        .get(&cid)
+        .map_err(|e| Error::internal(format!("blockstore error: {e}")))?
+        .ok_or_else(|| Error::not_found(format!("block `{cid_str}` not found in blockstore")))?;
+    if let Ok(op) = from_canonical_bytes::<Operation>(&bytes) {
+        let view_bytes = bs
+            .get(&op.view)
+            .map_err(|e| Error::internal(format!("blockstore error reading view: {e}")))?
+            .ok_or_else(|| {
+                Error::internal(format!("view block {} missing from blockstore", op.view))
+            })?;
+        let view: View = from_canonical_bytes(&view_bytes)
+            .map_err(|e| Error::internal(format!("decode view: {e}")))?;
+        let refs = view.refs.clone();
+        let commit_cid = view
+            .heads
+            .into_iter()
+            .next()
+            .ok_or_else(|| Error::bad_request(format!("op `{cid_str}` has no head commits")))?;
+        let commit_bytes = bs
+            .get(&commit_cid)
+            .map_err(|e| Error::internal(format!("blockstore error reading commit: {e}")))?
+            .ok_or_else(|| {
+                Error::not_found(format!(
+                    "commit block {} (from op `{cid_str}`) not found in blockstore",
+                    commit_cid
+                ))
+            })?;
+        let commit: Commit = from_canonical_bytes(&commit_bytes)
+            .map_err(|e| Error::internal(format!("decode commit: {e}")))?;
+        return Ok((cid, commit_cid, commit, refs));
+    }
+    if let Ok(commit) = from_canonical_bytes::<Commit>(&bytes) {
+        return Ok((cid.clone(), cid, commit, std::collections::BTreeMap::new()));
+    }
+    Err(Error::bad_request(format!(
+        "`{cid_str}` does not decode as an op or commit CID"
+    )))
+}
 
-    let (from_cid, from_commit) = resolve_cid_to_commit(bs.as_ref(), &body.from)?;
-    let (to_cid, to_commit) = resolve_cid_to_commit(bs.as_ref(), &body.to)?;
+// Shared diff computation for POST /v1/diff and GET /v1/diff.
+// Produces a JSON value with CLI-parity fields (op_a/op_b, commit_a/commit_b,
+// ref_deltas, node_deltas, edge_deltas) plus the existing nested nodes/edges
+// objects for backward compatibility.
+fn compute_diff(
+    bs: &dyn mnem_core::store::Blockstore,
+    from_resolved_str: &str,
+    to_resolved_str: &str,
+    limit: usize,
+) -> Result<Value, Error> {
+    let (from_op_cid, from_cid, from_commit, from_refs) =
+        resolve_to_commit_and_refs(bs, from_resolved_str)?;
+    let (to_op_cid, to_cid, to_commit, to_refs) =
+        resolve_to_commit_and_refs(bs, to_resolved_str)?;
 
-    // Diff node trees.
-    let node_changes = mnem_core::prolly::diff(bs.as_ref(), &from_commit.nodes, &to_commit.nodes)
+    let node_changes = prolly_diff(bs, &from_commit.nodes, &to_commit.nodes)
         .map_err(|e| Error::internal(format!("node diff failed: {e}")))?;
-
-    // Diff edge trees.
-    let edge_changes = mnem_core::prolly::diff(bs.as_ref(), &from_commit.edges, &to_commit.edges)
+    let edge_changes = prolly_diff(bs, &from_commit.edges, &to_commit.edges)
         .map_err(|e| Error::internal(format!("edge diff failed: {e}")))?;
 
-    // Build node response buckets.
+    // Ref deltas (CLI parity).
+    let mut refs_added: Vec<Value> = Vec::new();
+    let mut refs_removed: Vec<Value> = Vec::new();
+    let mut refs_changed: Vec<Value> = Vec::new();
+    for (name, target) in &to_refs {
+        match from_refs.get(name) {
+            None => refs_added.push(json!({ "name": name, "target": ref_target_to_str(target) })),
+            Some(prev) if prev != target => refs_changed.push(json!({
+                "name": name,
+                "from": ref_target_to_str(prev),
+                "to": ref_target_to_str(target),
+            })),
+            _ => {}
+        }
+    }
+    for (name, target) in &from_refs {
+        if !to_refs.contains_key(name) {
+            refs_removed
+                .push(json!({ "name": name, "target": ref_target_to_str(target) }));
+        }
+    }
+
+    // Node buckets: nested (backward compat) + flat CLI-parity array.
     let mut nodes_added: Vec<Value> = Vec::new();
     let mut nodes_removed: Vec<Value> = Vec::new();
     let mut nodes_changed: Vec<Value> = Vec::new();
+    let mut node_deltas: Vec<Value> = Vec::new();
 
     for entry in &node_changes {
         match entry {
-            mnem_core::prolly::DiffEntry::Added { value, .. } => {
+            DiffEntry::Added { value, .. } => {
                 if nodes_added.len() < limit {
-                    if let Some(node) = node_from_bs(bs.as_ref(), value) {
+                    if let Some(node) = node_from_bs(bs, value) {
+                        node_deltas.push(json!({
+                            "type": "added",
+                            "id": node.id.to_uuid_string(),
+                            "ntype": node.ntype,
+                            "summary": node.summary,
+                        }));
                         nodes_added.push(json!({
                             "id": node.id.to_uuid_string(),
                             "ntype": node.ntype,
@@ -3043,9 +4066,15 @@ pub(crate) async fn post_diff(
                     }
                 }
             }
-            mnem_core::prolly::DiffEntry::Removed { value, .. } => {
+            DiffEntry::Removed { value, .. } => {
                 if nodes_removed.len() < limit {
-                    if let Some(node) = node_from_bs(bs.as_ref(), value) {
+                    if let Some(node) = node_from_bs(bs, value) {
+                        node_deltas.push(json!({
+                            "type": "removed",
+                            "id": node.id.to_uuid_string(),
+                            "ntype": node.ntype,
+                            "summary": node.summary,
+                        }));
                         nodes_removed.push(json!({
                             "id": node.id.to_uuid_string(),
                             "ntype": node.ntype,
@@ -3054,16 +4083,27 @@ pub(crate) async fn post_diff(
                     }
                 }
             }
-            mnem_core::prolly::DiffEntry::Changed { before, after, .. } => {
+            DiffEntry::Changed { before, after, .. } => {
                 if nodes_changed.len() < limit {
-                    if let Some(after_node) = node_from_bs(bs.as_ref(), after) {
-                        let before_val = node_from_bs(bs.as_ref(), before).map(|n| {
+                    if let Some(after_node) = node_from_bs(bs, after) {
+                        let before_node = node_from_bs(bs, before);
+                        let before_val = before_node.as_ref().map(|n| {
                             json!({
                                 "id": n.id.to_uuid_string(),
                                 "ntype": n.ntype,
                                 "summary": n.summary,
                             })
                         });
+                        let before_state = before_node.as_ref().map(|n| {
+                            json!({ "ntype": n.ntype, "summary": n.summary })
+                        });
+                        node_deltas.push(json!({
+                            "type": "changed",
+                            "id": after_node.id.to_uuid_string(),
+                            "ntype": after_node.ntype,
+                            "summary": after_node.summary,
+                            "before": before_state,
+                        }));
                         nodes_changed.push(json!({
                             "id": after_node.id.to_uuid_string(),
                             "before": before_val,
@@ -3079,15 +4119,22 @@ pub(crate) async fn post_diff(
         }
     }
 
-    // Build edge response buckets.
+    // Edge buckets: nested (backward compat) + flat CLI-parity array.
     let mut edges_added: Vec<Value> = Vec::new();
     let mut edges_removed: Vec<Value> = Vec::new();
+    let mut edge_deltas: Vec<Value> = Vec::new();
 
     for entry in &edge_changes {
         match entry {
-            mnem_core::prolly::DiffEntry::Added { value, .. } => {
+            DiffEntry::Added { value, .. } => {
                 if edges_added.len() < limit {
-                    if let Some(edge) = edge_from_bs(bs.as_ref(), value) {
+                    if let Some(edge) = edge_from_bs(bs, value) {
+                        edge_deltas.push(json!({
+                            "type": "added",
+                            "label": edge.etype,
+                            "src": edge.src.to_uuid_string(),
+                            "dst": edge.dst.to_uuid_string(),
+                        }));
                         edges_added.push(json!({
                             "id": edge.id.to_uuid_string(),
                             "etype": edge.etype,
@@ -3097,9 +4144,15 @@ pub(crate) async fn post_diff(
                     }
                 }
             }
-            mnem_core::prolly::DiffEntry::Removed { value, .. } => {
+            DiffEntry::Removed { value, .. } => {
                 if edges_removed.len() < limit {
-                    if let Some(edge) = edge_from_bs(bs.as_ref(), value) {
+                    if let Some(edge) = edge_from_bs(bs, value) {
+                        edge_deltas.push(json!({
+                            "type": "removed",
+                            "label": edge.etype,
+                            "src": edge.src.to_uuid_string(),
+                            "dst": edge.dst.to_uuid_string(),
+                        }));
                         edges_removed.push(json!({
                             "id": edge.id.to_uuid_string(),
                             "etype": edge.etype,
@@ -3109,18 +4162,40 @@ pub(crate) async fn post_diff(
                     }
                 }
             }
-            mnem_core::prolly::DiffEntry::Changed { .. } => {
-                // Edges rarely change in place (etype/src/dst are immutable
-                // by convention); if they do, we emit an empty changed array
-                // as the spec requires but do not expand the entries.
+            DiffEntry::Changed { before, after, .. } => {
+                if let Some(edge_after) = edge_from_bs(bs, after) {
+                    let before_state = edge_from_bs(bs, before).map(|e| {
+                        json!({
+                            "label": e.etype,
+                            "src": e.src.to_uuid_string(),
+                            "dst": e.dst.to_uuid_string(),
+                        })
+                    });
+                    edge_deltas.push(json!({
+                        "type": "changed",
+                        "label": edge_after.etype,
+                        "src": edge_after.src.to_uuid_string(),
+                        "dst": edge_after.dst.to_uuid_string(),
+                        "before": before_state,
+                    }));
+                }
             }
         }
     }
 
-    Ok(Json(json!({
+    Ok(json!({
         "schema": "mnem.v1.diff",
+        "op_a": from_op_cid.to_string(),
+        "op_b": to_op_cid.to_string(),
         "from": from_cid.to_string(),
         "to": to_cid.to_string(),
+        "commit_a": from_cid.to_string(),
+        "commit_b": to_cid.to_string(),
+        "ref_deltas": {
+            "added": refs_added,
+            "removed": refs_removed,
+            "changed": refs_changed,
+        },
         "nodes": {
             "added": nodes_added,
             "removed": nodes_removed,
@@ -3131,7 +4206,82 @@ pub(crate) async fn post_diff(
             "removed": edges_removed,
             "changed": [],
         },
-    })))
+        "node_deltas": node_deltas,
+        "edge_deltas": edge_deltas,
+    }))
+}
+
+/// `POST /v1/diff` - structural diff between two commits (or ops).
+///
+/// Body: `{"from": "<cid>", "to": "<cid>"}`
+/// Query: `?limit=N` (default 500, max 2000) - cap per added/removed/changed bucket.
+///
+/// Both `from` and `to` accept either a commit CID or an op CID (the op's head
+/// commit is resolved automatically).
+///
+/// Response schema: `mnem.v1.diff`
+pub(crate) async fn post_diff(
+    State(s): State<AppState>,
+    Query(params): Query<DiffQueryParams>,
+    Json(body): Json<DiffBody>,
+) -> Result<Json<Value>, Error> {
+    let limit = params
+        .limit
+        .unwrap_or(DIFF_DEFAULT_LIMIT)
+        .min(DIFF_MAX_LIMIT);
+    if limit == 0 {
+        return Err(Error::bad_request("limit must be >= 1"));
+    }
+    let repo = s.repo.lock().map_err(|_| Error::locked())?;
+    let from_resolved = reindex_resolve_commitish(&repo, &body.from)?;
+    let to_resolved = reindex_resolve_commitish(&repo, &body.to)?;
+    let bs = repo.blockstore().clone();
+    drop(repo);
+    Ok(Json(compute_diff(
+        bs.as_ref(),
+        &from_resolved.to_string(),
+        &to_resolved.to_string(),
+        limit,
+    )?))
+}
+
+// ---------- GET /v1/diff ----------
+
+/// `GET /v1/diff?from=<ref>&to=<ref>[&limit=<n>]`
+///
+/// Idempotent read-only variant of `POST /v1/diff`. Accepts the same `from`
+/// and `to` commitish arguments as the POST body, but via query parameters.
+/// Useful for `curl` one-liners and browser-based tooling.
+///
+/// Returns the same `{"schema":"mnem.v1.diff", ...}` envelope.
+pub(crate) async fn get_diff(
+    State(s): State<AppState>,
+    Query(params): Query<GetDiffParams>,
+) -> Result<Json<Value>, Error> {
+    let limit = params
+        .limit
+        .unwrap_or(DIFF_DEFAULT_LIMIT)
+        .min(DIFF_MAX_LIMIT);
+    if limit == 0 {
+        return Err(Error::bad_request("limit must be >= 1"));
+    }
+    if params.from.trim().is_empty() {
+        return Err(Error::bad_request("`from` query parameter is required"));
+    }
+    if params.to.trim().is_empty() {
+        return Err(Error::bad_request("`to` query parameter is required"));
+    }
+    let repo = s.repo.lock().map_err(|_| Error::locked())?;
+    let from_resolved = reindex_resolve_commitish(&repo, &params.from)?;
+    let to_resolved = reindex_resolve_commitish(&repo, &params.to)?;
+    let bs = repo.blockstore().clone();
+    drop(repo);
+    Ok(Json(compute_diff(
+        bs.as_ref(),
+        &from_resolved.to_string(),
+        &to_resolved.to_string(),
+        limit,
+    )?))
 }
 
 // ---------- GET /v1/blocks/{cid} ----------
@@ -3171,7 +4321,7 @@ pub(crate) struct BlockParams {
 /// Errors:
 /// - 400 if the CID string cannot be parsed
 /// - 404 if the block is not in the store
-/// - On CBOR decode failure (json format): 200 with `"data": null, "error": "..."`
+/// - 422 if `?format=json` is requested but the CBOR block cannot be decoded
 pub(crate) async fn get_block(
     State(s): State<AppState>,
     Path(cid_str): Path<String>,
@@ -3219,14 +4369,9 @@ pub(crate) async fn get_block(
                     "data": ipld_to_json(&ipld),
                 }))
                 .into_response()),
-                Err(e) => Ok(Json(json!({
-                    "schema": "mnem.v1.block",
-                    "cid": cid.to_string(),
-                    "format": "json",
-                    "data": Value::Null,
-                    "error": format!("decode failed: {e}"),
-                }))
-                .into_response()),
+                Err(e) => Err(Error::unprocessable(format!(
+                    "block `{cid_str}` cannot be decoded as JSON (CBOR decode error): {e}"
+                ))),
             }
         }
     }
@@ -3264,26 +4409,37 @@ pub(crate) enum MergeStrategyParam {
 /// Request body for `POST /v1/merge`.
 #[derive(Deserialize)]
 pub(crate) struct MergeBody {
-    /// CID of the left (current-branch) commit.
+    /// Left (current-branch) commit: raw CID, `"HEAD"`, branch name, or full ref.
     pub left: String,
-    /// CID of the right (incoming-branch) commit.
+    /// Right (incoming-branch) commit: raw CID, `"HEAD"`, branch name, or full ref.
     pub right: String,
     /// Conflict-resolution strategy. Defaults to `"manual"`.
     #[serde(default)]
     pub strategy: MergeStrategyParam,
+    /// When `true`, compute and return the merge outcome without persisting any
+    /// results. Mirrors the CLI `mnem merge --dry-run` flag. Note: the HTTP
+    /// endpoint is inherently non-committed (HEAD and refs are never updated by
+    /// this handler), so `dry_run: true` explicitly signals preview-only intent.
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
-/// `POST /v1/merge` - 3-way merge two commit CIDs.
+/// `POST /v1/merge` - 3-way merge two commits.
 ///
-/// Body: `{"left": "<cid>", "right": "<cid>", "strategy": "manual"|"ours"|"theirs"}`
+/// Body: `{"left": "<ref>", "right": "<ref>", "strategy": "manual"|"ours"|"theirs", "dry_run": false}`
 ///
-/// `strategy` defaults to `"manual"` when omitted.
+/// `left` and `right` accept raw CIDs, `"HEAD"`, branch names, or full refs
+/// (mirrors CLI which accepts any commitish). `strategy` defaults to `"manual"`.
+/// `dry_run` defaults to `false`.
+/// Mirrors `mnem merge --dry-run`: when `true`, the merge outcome is computed but
+/// this handler never updates HEAD or refs regardless, so `dry_run` is a client hint.
 ///
 /// Response (HTTP 200 for all outcomes):
-/// - `{"status": "fast_forward", "commit": "<cid>"}`
-/// - `{"status": "clean", "commit": "<cid>"}`
-/// - `{"status": "conflicts", "conflicts": <MergeConflicts>}`
+/// - `{"status": "fast_forward", "commit": "<cid>", "dry_run": bool}`
+/// - `{"status": "clean", "commit": "<cid>", "dry_run": bool}`
+/// - `{"status": "conflicts", "conflicts": <MergeConflicts>, "dry_run": bool}`
 pub(crate) async fn post_merge(
+    _auth: RequireBearer,
     State(s): State<AppState>,
     Json(body): Json<MergeBody>,
 ) -> Result<Json<Value>, Error> {
@@ -3291,19 +4447,26 @@ pub(crate) async fn post_merge(
     use mnem_core::store::MemoryOpHeadsStore;
 
     let repo = s.repo.lock().map_err(|_| Error::locked())?;
+    // Step 1: resolve symbolic refs (HEAD, branch names, full refs) to raw CIDs
+    // while holding the read lock so the view is consistent. Raw CIDs and op
+    // CIDs pass through unchanged here.
+    let left_resolved = reindex_resolve_commitish(&repo, &body.left)?;
+    let right_resolved = reindex_resolve_commitish(&repo, &body.right)?;
     let bs = repo.blockstore().clone();
     drop(repo); // release lock before slow merge walks
 
-    // Reject same-CID early: calling merge_three_way with left==right
-    // returns FastForward but is almost certainly a caller mistake.
-    if body.left == body.right {
+    // Step 2: load commits. resolve_cid_to_commit also handles op CIDs by
+    // unwrapping the op→view→commit chain, giving us the actual commit CIDs.
+    let (left_cid, _) = resolve_cid_to_commit(bs.as_ref(), &left_resolved.to_string())?;
+    let (right_cid, _) = resolve_cid_to_commit(bs.as_ref(), &right_resolved.to_string())?;
+
+    // Reject same-commit after full resolution: "main" and "HEAD" might resolve
+    // to the same commit, which is almost certainly a caller mistake.
+    if left_cid == right_cid {
         return Err(Error::bad_request(
-            "left and right must be different commit CIDs",
+            "left and right must resolve to different commits",
         ));
     }
-
-    let (left_cid, _) = resolve_cid_to_commit(bs.as_ref(), &body.left)?;
-    let (right_cid, _) = resolve_cid_to_commit(bs.as_ref(), &body.right)?;
 
     let strategy = match body.strategy {
         MergeStrategyParam::Manual => MergeStrategy::Manual,
@@ -3327,22 +4490,3098 @@ pub(crate) async fn post_merge(
         }
     })?;
 
+    let dry_run = body.dry_run;
     let response = match outcome {
         MergeOutcome::FastForward(cid) => json!({
+            "schema": "mnem.v1.merge",
             "status": "fast_forward",
             "commit": cid.to_string(),
+            "dry_run": dry_run,
         }),
         MergeOutcome::Clean(cid) => json!({
+            "schema": "mnem.v1.merge",
             "status": "clean",
             "commit": cid.to_string(),
+            "dry_run": dry_run,
         }),
         MergeOutcome::Conflicts(conflicts) => json!({
+            "schema": "mnem.v1.merge",
             "status": "conflicts",
             "conflicts": conflicts,
+            "dry_run": dry_run,
         }),
     };
 
     Ok(Json(response))
+}
+
+// ---------- GET /v1/schema ----------
+
+/// `GET /v1/schema` - list all known labels (ntypes) and their indexed props.
+///
+/// Reads the `IndexSet` stored in the head commit. Returns an empty list
+/// when the repo has no commits or the head commit carries no IndexSet.
+///
+/// Response schema: `mnem.v1.schema`
+/// ```json
+/// {"schema":"mnem.v1.schema","labels":[{"label":"Fact","indexed_props":["user","topic"]},...]}
+/// ```
+pub(crate) async fn get_schema(State(s): State<AppState>) -> Result<Json<Value>, Error> {
+    let repo = s.repo.lock().map_err(|_| Error::locked())?;
+    let commit: Option<mnem_core::objects::Commit> = repo.head_commit().cloned();
+    let bs = repo.blockstore().clone();
+    drop(repo);
+
+    let Some(commit) = commit else {
+        return Ok(Json(json!({"schema": "mnem.v1.schema", "labels": []})));
+    };
+    let Some(indexes_cid) = commit.indexes.as_ref() else {
+        return Ok(Json(json!({"schema": "mnem.v1.schema", "labels": []})));
+    };
+
+    let bytes = bs
+        .get(indexes_cid)
+        .map_err(|e| Error::internal(format!("blockstore: {e}")))?
+        .ok_or_else(|| Error::internal("IndexSet block missing from blockstore"))?;
+    let set: mnem_core::objects::IndexSet = from_canonical_bytes(&bytes)
+        .map_err(|e| Error::internal(format!("decode IndexSet: {e}")))?;
+
+    let has_outgoing = set.outgoing.is_some();
+    let has_incoming = set.incoming.is_some();
+
+    let labels: Vec<Value> = set
+        .nodes_by_label
+        .keys()
+        .map(|label| {
+            let props: Vec<&String> = set
+                .nodes_by_prop
+                .get(label)
+                .map(|m| m.keys().collect())
+                .unwrap_or_default();
+            json!({
+                "label": label,
+                "indexed_props": props,
+                "has_outgoing_adj": has_outgoing,
+                "has_incoming_adj": has_incoming,
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({"schema": "mnem.v1.schema", "labels": labels})))
+}
+
+// ---------- GET /v1/refs ----------
+
+/// `GET /v1/refs` - list ALL refs (branches, tags, and any other refs).
+///
+/// Unlike `/v1/branches` and `/v1/tags`, this endpoint exposes the raw ref
+/// store without prefix filtering, making every ref visible. The `ref_type`
+/// field is `"branch"` for `refs/heads/*`, `"tag"` for `refs/tags/*`, and
+/// `"other"` for anything else.
+///
+/// Response schema: `mnem.v1.refs`
+/// ```json
+/// {"schema":"mnem.v1.refs","refs":[{"name":"refs/heads/main","short":"main","ref_type":"branch","head":"<cid>"},{"name":"refs/tags/v1","short":"v1","ref_type":"tag","target":"<cid>"},...]}
+/// ```
+/// Branches carry `"head"` for the tip CID; tags carry `"target"`.
+/// This matches the type-specific `/v1/branches` and `/v1/tags` endpoints.
+pub(crate) async fn get_refs(State(s): State<AppState>) -> Result<Json<Value>, Error> {
+    let repo = s.repo.lock().map_err(|_| Error::locked())?;
+    let view = repo.view();
+
+    let refs: Vec<Value> = view
+        .refs
+        .iter()
+        .map(|(name, target)| {
+            let (ref_type, short) = if let Some(s) = name.strip_prefix(HEADS_PREFIX) {
+                ("branch", s.to_string())
+            } else if let Some(s) = name.strip_prefix(TAGS_PREFIX) {
+                ("tag", s.to_string())
+            } else {
+                ("other", name.clone())
+            };
+            let (cid_str, conflicted) = match target {
+                mnem_core::objects::RefTarget::Normal { target } => {
+                    (target.to_string(), false)
+                }
+                mnem_core::objects::RefTarget::Conflicted { .. } => {
+                    (String::new(), true)
+                }
+            };
+            // Branches expose the CID as "head"; tags expose it as "target".
+            // This mirrors the type-specific endpoint conventions.
+            let mut obj = serde_json::Map::new();
+            obj.insert("name".into(), json!(name));
+            obj.insert("short".into(), json!(short));
+            obj.insert("ref_type".into(), json!(ref_type));
+            obj.insert(
+                if ref_type == "tag" { "target" } else { "head" }.into(),
+                json!(cid_str),
+            );
+            obj.insert("conflicted".into(), json!(conflicted));
+            Value::Object(obj)
+        })
+        .collect();
+
+    Ok(Json(json!({"schema": "mnem.v1.refs", "refs": refs})))
+}
+
+// ---------- POST /v1/refs/{*name} ----------
+
+/// Request body for `POST /v1/refs/{*name}`.
+#[derive(Deserialize)]
+pub(crate) struct SetRefBody {
+    /// Commit CID to point the ref at.
+    pub target: String,
+    /// Author recorded on the `update_ref` Operation.
+    pub author: String,
+    /// Optional CAS guard. When provided the update is rejected unless the ref
+    /// currently points to this CID (`RepoError::Stale` → 409). Omit to
+    /// create a ref that must not yet exist (`prev=None` = create-only;
+    /// returns 409 if the ref already exists at any target).
+    #[serde(default)]
+    pub prev: Option<String>,
+}
+
+/// Return `true` when `name` is safe to use as a ref name.
+///
+/// Rejects patterns that git and mnem's object store treat as special
+/// or that could traverse paths / inject log noise:
+/// - empty or whitespace-only
+/// - contains `..` (path traversal)
+/// - contains `//` (double slash)
+/// - contains `\` (Windows path sep leaking through)
+/// - contains `@{` (git reflog shorthand)
+/// - starts or ends with `.`
+/// - ends with `.lock`
+/// - the bare literal `HEAD` (refs **named** HEAD shadow the symbolic HEAD)
+/// - any ASCII control character or space
+fn is_valid_ref_name(name: &str) -> bool {
+    let s = name.trim();
+    if s.is_empty() {
+        return false;
+    }
+    if s.eq_ignore_ascii_case("HEAD") {
+        return false;
+    }
+    if s.contains("..") || s.contains("//") || s.contains('\\') || s.contains("@{") {
+        return false;
+    }
+    if s.starts_with('.') || s.ends_with('.') || s.ends_with(".lock") {
+        return false;
+    }
+    if s.starts_with('/') || s.ends_with('/') {
+        return false;
+    }
+    // git-refname forbidden chars: ~, ^, :, ?, *, [
+    if s.contains('~') || s.contains('^') || s.contains(':')
+        || s.contains('?') || s.contains('*') || s.contains('[')
+    {
+        return false;
+    }
+    s.chars().all(|c| !c.is_ascii_control() && c != ' ')
+}
+
+/// `POST /v1/refs/{*name}` - create or update a ref by full name.
+///
+/// The `name` path parameter must be the full ref name, e.g.
+/// `refs/heads/feature-x` or `refs/tags/v1.0.0`. Returns 400 when
+/// `target` is not a known commit CID.
+///
+/// Response schema: `mnem.v1.ref-set`
+/// ```json
+/// {"schema":"mnem.v1.ref-set","name":"refs/heads/feature-x","head":"<cid>"}
+/// ```
+pub(crate) async fn post_ref(
+    _auth: RequireBearer,
+    State(s): State<AppState>,
+    Path(name): Path<String>,
+    Json(body): Json<SetRefBody>,
+) -> Result<Json<Value>, Error> {
+    if name.trim().is_empty() {
+        return Err(Error::bad_request("ref name is required"));
+    }
+    if !is_valid_ref_name(&name) {
+        return Err(Error::bad_request(
+            "ref name contains invalid characters; must not contain \
+             `..`, `//`, `\\`, `@{`, control chars, or be the literal `HEAD`",
+        ));
+    }
+    validate_author(&body.author)?;
+
+    let target_cid = mnem_core::id::Cid::parse_str(&body.target)
+        .map_err(|e| Error::bad_request(format!("invalid target CID `{}`: {e}", body.target)))?;
+
+    let prev_target: Option<mnem_core::objects::RefTarget> = match body.prev {
+        Some(ref s) => {
+            let c = mnem_core::id::Cid::parse_str(s)
+                .map_err(|e| Error::bad_request(format!("invalid prev CID `{s}`: {e}")))?;
+            Some(mnem_core::objects::RefTarget::normal(c))
+        }
+        None => None,
+    };
+
+    let target_str = target_cid.to_string();
+    let new_target = mnem_core::objects::RefTarget::normal(target_cid);
+    let author = body.author.trim().to_string();
+
+    let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
+    let new_repo = guard
+        .update_ref(
+            &name,
+            prev_target.as_ref(),
+            Some(new_target),
+            &author,
+        )
+        .map_err(|e| {
+            use mnem_core::error::RepoError;
+            match &e {
+                mnem_core::error::Error::Repo(RepoError::Stale) => {
+                    Error::conflict("ref is stale; fetch the latest target and retry")
+                }
+                _ => Error::internal(format!("update_ref failed: {e}")),
+            }
+        })?;
+    let op_id = new_repo.op_id().to_string();
+    *guard = new_repo;
+
+    Ok(Json(json!({
+        "schema": "mnem.v1.ref-set",
+        "name": name,
+        "head": target_str,
+        "op_id": op_id,
+    })))
+}
+
+// ---------- DELETE /v1/refs/{*name} ----------
+
+/// `DELETE /v1/refs/{*name}` - delete a ref by its full name.
+///
+/// Accepts the same `author` + `message` query params as the branch/tag
+/// delete endpoints.
+///
+/// Response schema: `mnem.v1.ref-delete`
+/// ```json
+/// {"schema":"mnem.v1.ref-delete","name":"refs/heads/feature-x","deleted":true}
+/// ```
+pub(crate) async fn delete_ref(
+    _auth: RequireBearer,
+    State(s): State<AppState>,
+    Path(name): Path<String>,
+    Query(q): Query<DeleteQuery>,
+) -> Result<Json<Value>, Error> {
+    validate_author(&q.author)?;
+
+    let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
+    let view = guard.view();
+    let current = view
+        .refs
+        .get(&name)
+        .cloned()
+        .ok_or_else(|| Error::not_found(format!("ref not found: {name}")))?;
+    let _ = view;
+
+    let new_repo = guard
+        .update_ref(&name, Some(&current), None, &q.author)
+        .map_err(|e| {
+            use mnem_core::error::RepoError;
+            match &e {
+                mnem_core::error::Error::Repo(RepoError::Stale) => {
+                    Error::conflict("ref is stale; fetch the latest target and retry")
+                }
+                _ => Error::internal(format!("delete ref failed: {e}")),
+            }
+        })?;
+    let op_id = new_repo.op_id().to_string();
+    *guard = new_repo;
+
+    Ok(Json(json!({
+        "schema": "mnem.v1.ref-delete",
+        "name": name,
+        "deleted": true,
+        "op_id": op_id,
+    })))
+}
+
+// ---------- GET /v1/query + POST /v1/query ----------
+
+/// Shared query parameters for the property-filter query endpoint.
+///
+/// Implements `FromRequestParts` directly (not via `axum::extract::Query`)
+/// so that repeated keys like `?with_outgoing=a&with_outgoing=b` work.
+/// `serde_urlencoded` errors on duplicate struct fields for the derived
+/// path; parsing as a flat list of pairs avoids that entirely.
+#[derive(Default)]
+pub(crate) struct QueryParams {
+    pub label: Option<String>,
+    pub r#where: Vec<String>,
+    pub with_outgoing: Vec<String>,
+    pub limit: Option<usize>,
+}
+
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for QueryParams {
+    type Rejection = Error;
+    fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let raw = parts.uri.query().unwrap_or("").to_string();
+        async move {
+            let pairs: Vec<(String, String)> = serde_urlencoded::from_str(&raw)
+                .map_err(|e| Error::bad_request(format!("invalid query string: {e}")))?;
+            let mut p = QueryParams::default();
+            for (k, v) in pairs {
+                match k.as_str() {
+                    "label" => p.label = Some(v),
+                    "where" => p.r#where.push(v),
+                    "with_outgoing" => p.with_outgoing.push(v),
+                    "limit" => p.limit = v.parse().ok(),
+                    _ => {}
+                }
+            }
+            Ok(p)
+        }
+    }
+}
+
+/// Request body for `POST /v1/query` (same fields as GET query params).
+#[derive(Deserialize, Default)]
+pub(crate) struct QueryBody {
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub r#where: Vec<String>,
+    #[serde(default)]
+    pub with_outgoing: Vec<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+fn run_query(
+    repo: &mnem_core::repo::ReadonlyRepo,
+    label: Option<&str>,
+    wheres: &[String],
+    with_outgoing: &[String],
+    limit: usize,
+) -> Result<Vec<Value>, Error> {
+    // The query engine returns Uninitialized on a repo with no head commit;
+    // surface that as an empty result set instead of a 500.
+    if repo.head_commit().is_none() {
+        return Ok(vec![]);
+    }
+
+    let mut q = repo.query();
+
+    if let Some(lbl) = label {
+        q = q.label(lbl);
+    }
+
+    for kv in wheres {
+        let (k, v) = kv
+            .split_once('=')
+            .ok_or_else(|| Error::bad_request(format!("where clause must be key=value, got: {kv}")))?;
+        if k.is_empty() {
+            return Err(Error::bad_request(format!(
+                "where clause key must not be empty in `{kv}`"
+            )));
+        }
+        q = q.where_prop(k, PropPredicate::Eq(ipld_core::ipld::Ipld::String(v.to_string())));
+    }
+
+    for etype in with_outgoing {
+        q = q.with_outgoing(etype.as_str());
+    }
+
+    let hits = q
+        .limit(limit)
+        .execute()
+        .map_err(|e| Error::internal(format!("query failed: {e}")))?;
+
+    let results = hits
+        .into_iter()
+        .map(|hit| {
+            let node = &hit.node;
+            let edges: Vec<Value> = hit
+                .edges
+                .iter()
+                .map(|e| {
+                    json!({
+                        "id": e.id.to_string(),
+                        "src": e.src.to_string(),
+                        "dst": e.dst.to_string(),
+                        "etype": e.etype,
+                    })
+                })
+                .collect();
+            json!({
+                "id": node.id.to_string(),
+                "ntype": node.ntype,
+                "summary": node.summary,
+                "context_sentence": node.context_sentence,
+                "props": node.props,
+                "edges": edges,
+                "edges_truncated": hit.edges_truncated,
+            })
+        })
+        .collect();
+
+    Ok(results)
+}
+
+/// `GET /v1/query` - property-filter query.
+///
+/// Query params: `label`, `where` (repeatable, `key=value`),
+/// `with_outgoing` (repeatable edge label), `limit` (usize, default 10).
+///
+/// Response schema: `mnem.v1.query`
+pub(crate) async fn get_query(
+    State(s): State<AppState>,
+    params: QueryParams,
+) -> Result<Json<Value>, Error> {
+    clamp_or_reject("limit", params.limit, MAX_QUERY_LIMIT)?;
+    let limit = params.limit.unwrap_or(10);
+    let repo = s.repo.lock().map_err(|_| Error::locked())?;
+    let results = run_query(
+        &repo,
+        params.label.as_deref(),
+        &params.r#where,
+        &params.with_outgoing,
+        limit,
+    )?;
+    Ok(Json(json!({"schema": "mnem.v1.query", "results": results})))
+}
+
+/// `POST /v1/query` - property-filter query (body variant).
+///
+/// Identical semantics to `GET /v1/query` but accepts a JSON body.
+/// Useful when filter values contain characters that are awkward in
+/// query strings (e.g. `=`, `&`).
+///
+/// Response schema: `mnem.v1.query`
+pub(crate) async fn post_query(
+    State(s): State<AppState>,
+    Json(body): Json<QueryBody>,
+) -> Result<Json<Value>, Error> {
+    clamp_or_reject("limit", body.limit, MAX_QUERY_LIMIT)?;
+    let limit = body.limit.unwrap_or(10);
+    let repo = s.repo.lock().map_err(|_| Error::locked())?;
+    let results = run_query(
+        &repo,
+        body.label.as_deref(),
+        &body.r#where,
+        &body.with_outgoing,
+        limit,
+    )?;
+    Ok(Json(json!({"schema": "mnem.v1.query", "results": results})))
+}
+
+// ---------- GET /v1/nodes/{id}/edges ----------
+
+/// Query params for `GET /v1/nodes/{id}/edges`.
+///
+/// `etype` may be repeated (`?etype=knows&etype=lives_in`) to filter to
+/// multiple edge types at once, matching CLI `--edge-label` semantics.
+#[derive(Default)]
+pub(crate) struct NodeEdgesParams {
+    /// `"out"` (default), `"in"`, or `"both"`.
+    pub direction: Option<String>,
+    /// Filter to these etypes (empty = no filter).
+    pub etypes: Vec<String>,
+    /// Maximum edges per direction. Defaults to 100.
+    pub limit: Option<usize>,
+}
+
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for NodeEdgesParams {
+    type Rejection = Error;
+    fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let raw = parts.uri.query().unwrap_or("").to_string();
+        async move {
+            let pairs: Vec<(String, String)> = serde_urlencoded::from_str(&raw)
+                .map_err(|e| Error::bad_request(format!("invalid query string: {e}")))?;
+            let mut p = NodeEdgesParams::default();
+            for (k, v) in pairs {
+                match k.as_str() {
+                    "direction" => p.direction = Some(v),
+                    "etype" => {
+                        if v.len() > MAX_ETYPE_LEN {
+                            return Err(Error::bad_request(format!(
+                                "etype exceeds maximum length of {MAX_ETYPE_LEN} bytes"
+                            )));
+                        }
+                        p.etypes.push(v);
+                    }
+                    "limit" => p.limit = v.parse().ok(),
+                    _ => {}
+                }
+            }
+            Ok(p)
+        }
+    }
+}
+
+/// `GET /v1/nodes/{id}/edges` - list edges for a node.
+///
+/// Returns outgoing and/or incoming edges depending on the `direction`
+/// query param (`out` | `in` | `both`, default `out`).
+///
+/// Response schema: `mnem.v1.node-edges`
+/// ```json
+/// {"schema":"mnem.v1.node-edges","id":"<uuid>","outgoing":[...],"incoming":[...]}
+/// ```
+pub(crate) async fn get_node_edges(
+    State(s): State<AppState>,
+    Path(id_str): Path<String>,
+    params: NodeEdgesParams,
+) -> Result<Json<Value>, Error> {
+    let node_id = mnem_core::id::NodeId::parse_uuid(&id_str)
+        .map_err(|_| Error::bad_request(format!("invalid node id: {id_str}")))?;
+
+    let direction = params.direction.as_deref().unwrap_or("out");
+    if !matches!(direction, "out" | "in" | "both") {
+        return Err(Error::bad_request(format!(
+            "invalid direction {direction:?}; expected \"out\", \"in\", or \"both\""
+        )));
+    }
+    clamp_or_reject("limit", params.limit, MAX_EDGE_LIMIT)?;
+    let limit = params.limit.unwrap_or(100);
+    // outgoing_edges / incoming_edges_capped take Option<&[&str]>.
+    let etype_strs: Vec<&str> = params.etypes.iter().map(String::as_str).collect();
+    let etype_filter: Option<&[&str]> = if etype_strs.is_empty() {
+        None
+    } else {
+        Some(&etype_strs)
+    };
+
+    let repo = s.repo.lock().map_err(|_| Error::locked())?;
+
+    // Fetch the node to get ntype; verify it exists.
+    let node = repo
+        .lookup_node(&node_id)
+        .map_err(|e| Error::internal(format!("lookup_node: {e}")))?
+        .ok_or_else(|| Error::not_found(format!("no node with id={id_str}")))?;
+
+    let serialize_edge = |e: &mnem_core::objects::Edge| -> Value {
+        let props_map: serde_json::Map<String, Value> = e
+            .props
+            .iter()
+            .map(|(k, v)| (k.clone(), ipld_to_json(v)))
+            .collect();
+        json!({
+            "id": e.id.to_string(),
+            "src": e.src.to_string(),
+            "dst": e.dst.to_string(),
+            "etype": e.etype,
+            "props": props_map,
+        })
+    };
+
+    // Collect outgoing edges once; build both the HTTP-rich format and the
+    // CLI-compatible flat format from the same vec.
+    let outgoing_raw: Vec<mnem_core::objects::Edge> = if direction == "out" || direction == "both" {
+        repo.outgoing_edges(&node_id, etype_filter)
+            .map_err(|e| Error::internal(format!("outgoing_edges: {e}")))?
+            .into_iter()
+            .take(limit)
+            .collect()
+    } else {
+        vec![]
+    };
+
+    let incoming: Vec<Value> = if direction == "in" || direction == "both" {
+        let edges = repo
+            .incoming_edges_capped(&node_id, etype_filter, limit)
+            .map_err(|e| Error::internal(format!("incoming_edges: {e}")))?;
+        edges.iter().map(serialize_edge).collect()
+    } else {
+        vec![]
+    };
+
+    // CLI-compatible flat edge list: [{etype, dst}] using UUID strings.
+    // Mirrors the output of `mnem traverse --json` (outgoing only).
+    let edges: Vec<Value> = outgoing_raw
+        .iter()
+        .map(|e| json!({"etype": e.etype, "dst": e.dst.to_uuid_string()}))
+        .collect();
+    let outgoing: Vec<Value> = outgoing_raw.iter().map(serialize_edge).collect();
+
+    Ok(Json(json!({
+        "schema": "mnem.v1.node-edges",
+        // CLI-compatible node wrapper: mirrors `mnem traverse --json`.
+        "node": {
+            "id": node.id.to_uuid_string(),
+            "ntype": node.ntype,
+        },
+        "id": id_str,
+        // CLI-compatible flat outgoing edges: [{etype, dst}].
+        "edges": edges,
+        "outgoing": outgoing,
+        "incoming": incoming,
+    })))
+}
+
+// ---------- GET /v1/config ----------
+
+/// `GET /v1/config` - read all config key/value pairs.
+///
+/// Reads `<data_dir>/config.toml` as a flat key=value listing using
+/// dotted-key notation (e.g. `user.name`, `embed.provider`). Returns
+/// an empty object when the file does not exist.
+///
+/// Response schema: `mnem.v1.config`
+/// ```json
+/// {"schema":"mnem.v1.config","config":{"user.name":"alice","embed.provider":"openai"}}
+/// ```
+pub(crate) async fn get_config(State(s): State<AppState>) -> Result<Json<Value>, Error> {
+    let config_path = s.data_dir.join("config.toml");
+    let flat = read_config_flat(&config_path)?;
+    Ok(Json(json!({"schema": "mnem.v1.config", "config": flat})))
+}
+
+// ---------- PUT /v1/config/{*key} ----------
+
+/// Request body for `PUT /v1/config/{*key}`.
+#[derive(Deserialize)]
+pub(crate) struct SetConfigBody {
+    /// String value to store.
+    pub value: String,
+}
+
+/// `PUT /v1/config/{*key}` - set a config key.
+///
+/// `key` is a dotted path such as `user.name` or `embed.provider`. The
+/// value is stored as a TOML string. Creates `config.toml` if absent.
+///
+/// Response schema: `mnem.v1.config-set`
+/// ```json
+/// {"schema":"mnem.v1.config-set","key":"user.name","value":"alice"}
+/// ```
+pub(crate) async fn put_config(
+    _auth: RequireBearer,
+    State(s): State<AppState>,
+    Path(key): Path<String>,
+    Json(body): Json<SetConfigBody>,
+) -> Result<Json<Value>, Error> {
+    if key.trim().is_empty() {
+        return Err(Error::bad_request("config key is required"));
+    }
+    let config_path = s.data_dir.join("config.toml");
+    let mut table = load_config_toml(&config_path)?;
+    set_dotted_key(&mut table, &key, body.value.clone())?;
+    save_config_toml(&config_path, &table)?;
+    Ok(Json(json!({
+        "schema": "mnem.v1.config-set",
+        "key": key,
+        "value": body.value,
+    })))
+}
+
+// ---------- DELETE /v1/config/{*key} ----------
+
+/// `DELETE /v1/config/{*key}` - unset a config key.
+///
+/// Removes the key from `config.toml`. Returns 404 when the key does
+/// not exist. Writes back the modified TOML.
+///
+/// Response schema: `mnem.v1.config-deleted`
+/// ```json
+/// {"schema":"mnem.v1.config-deleted","key":"user.name","deleted":true}
+/// ```
+pub(crate) async fn delete_config(
+    _auth: RequireBearer,
+    State(s): State<AppState>,
+    Path(key): Path<String>,
+) -> Result<Json<Value>, Error> {
+    if key.trim().is_empty() {
+        return Err(Error::bad_request("config key is required"));
+    }
+    let config_path = s.data_dir.join("config.toml");
+    let mut table = load_config_toml(&config_path)?;
+    let removed = remove_dotted_key(&mut table, &key);
+    if !removed {
+        return Err(Error::not_found(format!("config key not found: {key}")));
+    }
+    save_config_toml(&config_path, &table)?;
+    Ok(Json(json!({
+        "schema": "mnem.v1.config-deleted",
+        "key": key,
+        "deleted": true,
+    })))
+}
+
+// ---------- GET/POST /v1/remotes, GET/DELETE /v1/remotes/{name} ----------
+
+#[derive(serde::Deserialize)]
+pub(crate) struct AddRemoteBody {
+    name: String,
+    url: String,
+    token_env: Option<String>,
+}
+
+fn validate_remote_name(name: &str) -> Result<(), Error> {
+    if name.is_empty() {
+        return Err(Error::bad_request("remote name must not be empty"));
+    }
+    if name.contains('.') || name.contains('[') || name.contains(']') {
+        return Err(Error::bad_request(
+            "remote name must not contain '.', '[', or ']'",
+        ));
+    }
+    Ok(())
+}
+
+fn load_remote_section(
+    config_path: &std::path::Path,
+) -> Result<mnem_transport::remote::RemoteSection, Error> {
+    if !config_path.exists() {
+        return Ok(mnem_transport::remote::RemoteSection::default());
+    }
+    let text = std::fs::read_to_string(config_path)
+        .map_err(|e| Error::internal(format!("read config.toml: {e}")))?;
+    mnem_transport::remote::parse_config(&text)
+        .map_err(|e| Error::internal(format!("parse config.toml remote section: {e}")))
+}
+
+fn save_remote_section(
+    config_path: &std::path::Path,
+    section: &mnem_transport::remote::RemoteSection,
+) -> Result<(), Error> {
+    let mut root: toml::Value = if config_path.exists() {
+        let text = std::fs::read_to_string(config_path)
+            .map_err(|e| Error::internal(format!("read config.toml: {e}")))?;
+        toml::from_str(&text)
+            .map_err(|e| Error::internal(format!("parse config.toml: {e}")))?
+    } else {
+        toml::Value::Table(toml::map::Map::new())
+    };
+    let table = root
+        .as_table_mut()
+        .ok_or_else(|| Error::internal("config.toml root is not a table"))?;
+    table.remove("remote");
+    if !section.remote.is_empty() {
+        let remote_text = mnem_transport::remote::serialize_config(section)
+            .map_err(|e| Error::internal(format!("serialize remote section: {e}")))?;
+        let remote_root: toml::Value = toml::from_str(&remote_text)
+            .map_err(|e| Error::internal(format!("re-parse remote section: {e}")))?;
+        if let Some(new_remote) = remote_root.get("remote").cloned() {
+            table.insert("remote".into(), new_remote);
+        }
+    }
+    let text = toml::to_string_pretty(&root)
+        .map_err(|e| Error::internal(format!("serialize config.toml: {e}")))?;
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| Error::internal(format!("create config dir: {e}")))?;
+    }
+    std::fs::write(config_path, text)
+        .map_err(|e| Error::internal(format!("write config.toml: {e}")))
+}
+
+/// `GET /v1/remotes` - list all configured remotes.
+pub(crate) async fn get_remotes(State(s): State<AppState>) -> Result<Json<Value>, Error> {
+    let config_path = s.data_dir.join("config.toml");
+    let section = load_remote_section(&config_path)?;
+    let remotes: Vec<Value> = section
+        .remote
+        .iter()
+        .map(|(name, cfg)| {
+            json!({
+                "name": name,
+                "url": cfg.url,
+                "token_env": cfg.token_env,
+                "capabilities": cfg.capabilities,
+            })
+        })
+        .collect();
+    Ok(Json(json!({
+        "schema": "mnem.v1.remotes",
+        "remotes": remotes,
+    })))
+}
+
+/// `POST /v1/remotes` - add a new remote entry.
+pub(crate) async fn post_remote(
+    _auth: RequireBearer,
+    State(s): State<AppState>,
+    Json(body): Json<AddRemoteBody>,
+) -> Result<Json<Value>, Error> {
+    validate_remote_name(&body.name)?;
+    if body.url.starts_with("file://") || body.url.starts_with("file:/") {
+        return Err(Error::bad_request(
+            "file:// URLs are not allowed as remote URLs",
+        ));
+    }
+    if body.url.trim().is_empty() {
+        return Err(Error::bad_request("remote URL must not be empty"));
+    }
+    let config_path = s.data_dir.join("config.toml");
+    let mut section = load_remote_section(&config_path)?;
+    if section.remote.contains_key(&body.name) {
+        return Err(Error::conflict(format!(
+            "remote '{}' already exists",
+            body.name
+        )));
+    }
+    section.remote.insert(
+        body.name.clone(),
+        mnem_transport::remote::RemoteConfigFile {
+            url: body.url.clone(),
+            capabilities: None,
+            token_env: body.token_env.clone(),
+        },
+    );
+    save_remote_section(&config_path, &section)?;
+    Ok(Json(json!({
+        "schema": "mnem.v1.remote-create",
+        "name": body.name,
+        "url": body.url,
+        "token_env": body.token_env,
+        "created": true,
+    })))
+}
+
+/// `GET /v1/remotes/{name}` - show one remote.
+pub(crate) async fn get_remote(
+    State(s): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<Value>, Error> {
+    let config_path = s.data_dir.join("config.toml");
+    let section = load_remote_section(&config_path)?;
+    let cfg = section
+        .remote
+        .get(&name)
+        .ok_or_else(|| Error::not_found(format!("remote '{name}' not found")))?;
+    Ok(Json(json!({
+        "schema": "mnem.v1.remote",
+        "name": name,
+        "url": cfg.url,
+        "token_env": cfg.token_env,
+        "capabilities": cfg.capabilities,
+    })))
+}
+
+/// `DELETE /v1/remotes/{name}` - remove a remote entry.
+pub(crate) async fn delete_remote(
+    _auth: RequireBearer,
+    State(s): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<Value>, Error> {
+    let config_path = s.data_dir.join("config.toml");
+    let mut section = load_remote_section(&config_path)?;
+    if !section.remote.contains_key(&name) {
+        return Err(Error::not_found(format!("remote '{name}' not found")));
+    }
+    section.remote.remove(&name);
+    save_remote_section(&config_path, &section)?;
+    Ok(Json(json!({
+        "schema": "mnem.v1.remote-delete",
+        "deleted": name,
+    })))
+}
+
+// ---------- GET /v1/status ----------
+
+/// `GET /v1/status` - current repo state: op-id, HEAD commit, merge
+/// state, active branch, ref counts, remote tracking ref count, and
+/// label count.
+///
+/// Response schema: `mnem.v1.status`
+/// ```json
+/// {"schema":"mnem.v1.status","op_id":"...","head":null,"merge_in_progress":false,...}
+/// ```
+pub(crate) async fn get_status(State(s): State<AppState>) -> Result<Json<Value>, Error> {
+    let r = s.repo.lock().map_err(|_| Error::locked())?;
+
+    let merge_in_progress = s.data_dir.join("MERGE_HEAD").exists();
+    let merge_head_cid: Option<String> = if merge_in_progress {
+        std::fs::read_to_string(s.data_dir.join("MERGE_HEAD"))
+            .ok()
+            .map(|s| s.trim().to_string())
+    } else {
+        None
+    };
+
+    let op_id = r.op_id().to_string();
+    let view = r.view();
+    let head = view.heads.first().map(ToString::to_string);
+    let active_branch = view.active_branch().map(str::to_string);
+
+    let commit_info = r.head_commit().map(|c| {
+        let mut obj = serde_json::Map::new();
+        obj.insert("change_id".into(), json!(c.change_id.to_uuid_string()));
+        obj.insert("message".into(), json!(c.message));
+        obj.insert("nodes".into(), json!(c.nodes.to_string()));
+        obj.insert("edges".into(), json!(c.edges.to_string()));
+        if let Some(idx_cid) = &c.indexes {
+            obj.insert("indexes".into(), json!(idx_cid.to_string()));
+        }
+        Value::Object(obj)
+    });
+
+    // Load label count from the IndexSet, mirroring `mnem status` output.
+    let labels: Option<usize> = r.head_commit().and_then(|c| {
+        let idx_cid = c.indexes.as_ref()?;
+        let bs = r.blockstore();
+        let bytes = bs.get(idx_cid).ok()??;
+        let idx: mnem_core::objects::IndexSet = from_canonical_bytes(&bytes).ok()?;
+        Some(idx.nodes_by_label.len())
+    });
+
+    let refs = &view.refs;
+    let (normal_count, conflicted_count) = refs.iter().fold((0usize, 0usize), |(n, c), (_, t)| {
+        match t {
+            mnem_core::objects::RefTarget::Normal { .. } => (n + 1, c),
+            mnem_core::objects::RefTarget::Conflicted { .. } => (n, c + 1),
+        }
+    });
+    let conflicted_refs: Vec<Value> = refs
+        .iter()
+        .filter_map(|(name, t)| match t {
+            mnem_core::objects::RefTarget::Conflicted { adds, removes } => Some(json!({
+                "name": name,
+                "adds": adds.len(),
+                "removes": removes.len(),
+            })),
+            _ => None,
+        })
+        .collect();
+
+    let remote_tracking_total: usize = view
+        .remote_refs
+        .as_ref()
+        .map(|rr| rr.values().map(std::collections::BTreeMap::len).sum())
+        .unwrap_or(0);
+
+    Ok(Json(json!({
+        "schema": "mnem.v1.status",
+        "op_id": op_id,
+        "head": head,
+        "active_branch": active_branch,
+        "merge_in_progress": merge_in_progress,
+        "merge_head": merge_head_cid,
+        "commit": commit_info,
+        "refs_total": refs.len(),
+        "refs_normal": normal_count,
+        "refs_conflicted": conflicted_count,
+        "conflicted_refs": conflicted_refs,
+        "remote_tracking_total": remote_tracking_total,
+        "labels": labels,
+    })))
+}
+
+// ---------- POST /v1/switch ----------
+
+/// Request body for `POST /v1/switch`.
+#[derive(Deserialize)]
+pub(crate) struct SwitchBody {
+    /// Short branch name (e.g. `main`) or fully-qualified ref
+    /// (e.g. `refs/heads/main`). Required.
+    pub name: String,
+    /// Commit author recorded in the op-log entry. Required.
+    pub author: String,
+    /// When `true`, create the branch (pointing at HEAD) if it does not
+    /// already exist, then switch to it atomically. Mirrors the behaviour
+    /// of `git switch -c <branch>` / `git checkout -b <branch>`.
+    /// Returns 409 when the repo has no commits yet (nothing to point at).
+    #[serde(default)]
+    pub create: bool,
+}
+
+/// `POST /v1/switch` - advance HEAD to the tip of a named branch.
+///
+/// Mirrors `mnem switch <branch>`. Refuses while a merge is in
+/// progress (409). Returns 404 when the branch does not exist and 409
+/// when the branch is in a conflicted state.
+///
+/// When `create: true` the branch is created first (if absent) then
+/// switched to in one atomic-ish sequence, mirroring `git switch -c`.
+///
+/// Response schema: `mnem.v1.switch`
+/// ```json
+/// {"schema":"mnem.v1.switch","name":"main","head":"<cid>","already_on":false,"created":false}
+/// ```
+pub(crate) async fn post_switch(
+    _auth: RequireBearer,
+    State(s): State<AppState>,
+    Json(body): Json<SwitchBody>,
+) -> Result<Json<Value>, Error> {
+    let name = body.name.trim();
+    if name.is_empty() {
+        return Err(Error::bad_request("name is required"));
+    }
+    if name.len() > 255 {
+        return Err(Error::bad_request(
+            "branch name exceeds maximum length of 255 bytes",
+        ));
+    }
+    if !is_valid_ref_name(name) {
+        return Err(Error::bad_request(format!(
+            "invalid branch name `{name}`: may not contain spaces, control characters, \
+             `~`, `^`, `:`, `?`, `*`, `[`, `\\`, `@{{`, `..`, `//`, \
+             or start/end with `/` or `.`, or end with `.lock`"
+        )));
+    }
+    let author = body.author.trim();
+    if author.is_empty() {
+        return Err(Error::bad_request("author is required"));
+    }
+    if author.len() > MAX_AUTHOR_LEN {
+        return Err(Error::bad_request(format!(
+            "author exceeds maximum length of {MAX_AUTHOR_LEN} bytes"
+        )));
+    }
+    if s.data_dir.join("MERGE_HEAD").exists() {
+        return Err(Error::conflict(
+            "you are in the middle of a merge; run merge --continue or merge --abort first",
+        ));
+    }
+
+    let full_ref = if name.starts_with(HEADS_PREFIX) {
+        name.to_string()
+    } else {
+        format!("{HEADS_PREFIX}{name}")
+    };
+
+    let short_name = name
+        .strip_prefix(HEADS_PREFIX)
+        .unwrap_or(name)
+        .to_string();
+
+    let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
+
+    // When `create: true` and the branch doesn't yet exist, create it
+    // atomically at the current HEAD commit before switching. This mirrors
+    // `git switch -c <branch>` / `git checkout -b <branch>`.
+    let created = if body.create && !guard.view().refs.contains_key(&full_ref) {
+        let head_cid = guard
+            .view()
+            .heads
+            .first()
+            .cloned()
+            .ok_or_else(|| Error::conflict("repository has no commits yet; cannot create branch"))?;
+        let new_repo = guard
+            .update_ref(
+                &full_ref,
+                None,
+                Some(mnem_core::objects::RefTarget::normal(head_cid)),
+                author,
+            )
+            .map_err(Error::from)?;
+        *guard = new_repo;
+        true
+    } else {
+        false
+    };
+
+    let branch_tip = match guard.view().refs.get(&full_ref) {
+        Some(mnem_core::objects::RefTarget::Normal { target }) => target.clone(),
+        Some(mnem_core::objects::RefTarget::Conflicted { .. }) => {
+            return Err(Error::conflict(format!(
+                "branch '{short_name}' is in a conflicted state; resolve before switching"
+            )));
+        }
+        None => {
+            return Err(Error::not_found(format!(
+                "branch '{short_name}' not found"
+            )));
+        }
+    };
+
+    let current_head = guard.view().heads.first().cloned();
+    let current_active_ref = guard.view().active_branch().map(str::to_string);
+    if current_head.as_ref() == Some(&branch_tip)
+        && current_active_ref.as_deref() == Some(full_ref.as_str())
+        && !created
+    {
+        return Ok(Json(json!({
+            "schema": "mnem.v1.switch",
+            "op_id": guard.op_id().to_string(),
+            "name": short_name,
+            "head": branch_tip.to_string(),
+            "already_on": true,
+            "created": false,
+        })));
+    }
+
+    let new_repo = guard
+        .switch_branch(branch_tip.clone(), &full_ref, author)
+        .map_err(|e| Error::internal(e.to_string()))?;
+    let op_id = new_repo.op_id().to_string();
+    *guard = new_repo;
+
+    Ok(Json(json!({
+        "schema": "mnem.v1.switch",
+        "op_id": op_id,
+        "name": short_name,
+        "head": branch_tip.to_string(),
+        "already_on": false,
+        "created": created,
+    })))
+}
+
+// ---------- GET /v1/nodes/{id}/blame ----------
+
+/// Query params for `GET /v1/nodes/{id}/blame`.
+#[derive(Deserialize)]
+pub(crate) struct BlameQuery {
+    /// Restrict to one edge-type label (e.g. `authored`, `cites`).
+    pub etype: Option<String>,
+    /// Walk operation ancestry and report the oldest ancestor commit
+    /// that first introduced each edge.
+    #[serde(default)]
+    pub first_writer: bool,
+    /// When true, return 404 if the requested node does not exist
+    /// instead of an empty edges array. Mirrors CLI `--strict`.
+    #[serde(default)]
+    pub strict: bool,
+}
+
+/// `GET /v1/nodes/{id}/blame` - list all incoming edges for a node,
+/// optionally filtered by edge-type.
+///
+/// Mirrors `mnem blame <node-id>`. Supports `?etype=<label>` and
+/// `?first_writer=true` (BFS over operation ancestry).
+///
+/// Response schema: `mnem.v1.blame`
+pub(crate) async fn get_node_blame(
+    State(s): State<AppState>,
+    Path(id_str): Path<String>,
+    Query(q): Query<BlameQuery>,
+) -> Result<Json<Value>, Error> {
+    let node_id = NodeId::parse_uuid(&id_str)
+        .map_err(|e| Error::bad_request(format!("invalid UUID: {e}")))?;
+
+    let r = s.repo.lock().map_err(|_| Error::locked())?;
+
+    if q.strict {
+        r.lookup_node(&node_id)
+            .map_err(|e| Error::internal(e.to_string()))?
+            .ok_or_else(|| Error::not_found(format!("no node with id={id_str}")))?;
+    }
+
+    if let Some(ref et) = q.etype {
+        if et.len() > MAX_ETYPE_LEN {
+            return Err(Error::bad_request(format!(
+                "etype exceeds maximum length of {MAX_ETYPE_LEN} bytes"
+            )));
+        }
+    }
+    let filter_etype = q.etype.as_deref();
+    let filter_slice = filter_etype.map(|s| [s]);
+    let filter_ref = filter_slice.as_ref().map(|arr| &arr[..]);
+
+    let edges = r
+        .incoming_edges(&node_id, filter_ref)
+        .map_err(|e| Error::internal(e.to_string()))?;
+
+    let head = r
+        .view()
+        .heads
+        .first()
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "<no-head>".into());
+
+    if !q.first_writer {
+        let items: Vec<Value> = edges
+            .iter()
+            .map(|e| {
+                let props_map: serde_json::Map<String, Value> = e
+                    .props
+                    .iter()
+                    .map(|(k, v)| (k.clone(), ipld_to_json(v)))
+                    .collect();
+                let relation = format!(
+                    "{} -[{}]-> {}",
+                    e.src.to_uuid_string(),
+                    e.etype,
+                    node_id.to_uuid_string()
+                );
+                json!({
+                    "id": e.id.to_uuid_string(),
+                    "etype": e.etype,
+                    "src": e.src.to_uuid_string(),
+                    "dst": node_id.to_uuid_string(),
+                    "relation": relation,
+                    "props": props_map,
+                    "in_commit": head,
+                })
+            })
+            .collect();
+        return Ok(Json(json!({
+            "schema": "mnem.v1.blame",
+            "node_id": node_id.to_uuid_string(),
+            "edges": items,
+        })));
+    }
+
+    // BFS over operation ancestry to find first_writer for each edge.
+    let bs = r.blockstore().clone();
+    let ohs = r.op_heads_store().clone();
+    let mut first_writer: std::collections::HashMap<EdgeId, String> =
+        edges.iter().map(|e| (e.id, head.clone())).collect();
+    let mut visited: std::collections::HashSet<Cid> = std::collections::HashSet::new();
+    let mut queue: std::collections::VecDeque<Cid> =
+        r.operation().parents.iter().cloned().collect();
+
+    while let Some(ancestor_op_id) = queue.pop_front() {
+        if !visited.insert(ancestor_op_id.clone()) {
+            continue;
+        }
+        let ancestor =
+            match mnem_core::repo::ReadonlyRepo::load_at(bs.clone(), ohs.clone(), ancestor_op_id.clone()) {
+                Ok(a) => a,
+                Err(e) => {
+                    tracing::warn!(
+                        ancestor_op = %ancestor_op_id,
+                        error = %e,
+                        "blame first_writer: skipped ancestor"
+                    );
+                    continue;
+                }
+            };
+        let ancestor_commit = ancestor
+            .view()
+            .heads
+            .first()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "<no-head>".into());
+        let ancestor_edges = ancestor
+            .incoming_edges(&node_id, filter_ref)
+            .unwrap_or_default();
+        let ancestor_ids: std::collections::HashSet<EdgeId> =
+            ancestor_edges.iter().map(|e| e.id).collect();
+        for (edge_id, fw) in &mut first_writer {
+            if ancestor_ids.contains(edge_id) {
+                *fw = ancestor_commit.clone();
+            }
+        }
+        queue.extend(ancestor.operation().parents.iter().cloned());
+    }
+
+    let items: Vec<Value> = edges
+        .iter()
+        .map(|e| {
+            let fw = first_writer
+                .get(&e.id)
+                .map(String::as_str)
+                .unwrap_or("<unknown>");
+            let props_map: serde_json::Map<String, Value> = e
+                .props
+                .iter()
+                .map(|(k, v)| (k.clone(), ipld_to_json(v)))
+                .collect();
+            let relation = format!(
+                "{} -[{}]-> {}",
+                e.src.to_uuid_string(),
+                e.etype,
+                node_id.to_uuid_string()
+            );
+            json!({
+                "id": e.id.to_uuid_string(),
+                "etype": e.etype,
+                "src": e.src.to_uuid_string(),
+                "dst": node_id.to_uuid_string(),
+                "relation": relation,
+                "props": props_map,
+                "first_writer": fw,
+            })
+        })
+        .collect();
+    Ok(Json(json!({
+        "schema": "mnem.v1.blame",
+        "node_id": node_id.to_uuid_string(),
+        "edges": items,
+    })))
+}
+
+// ---------- POST /v1/embed ----------
+
+/// Query params for `POST /v1/embed`.
+#[derive(Deserialize)]
+pub(crate) struct EmbedQuery {
+    /// Re-embed nodes that already have a vector for the current model.
+    #[serde(default)]
+    pub force: bool,
+    /// Restrict to one label (ntype).
+    pub label: Option<String>,
+    /// Count and return what would be embedded without calling the
+    /// provider.
+    #[serde(default)]
+    pub dry_run: bool,
+    /// Author recorded in the resulting operation. Defaults to
+    /// `"mnem-http"` when omitted.
+    pub author: Option<String>,
+}
+
+/// `POST /v1/embed` - backfill embeddings for nodes that have no
+/// vector under the configured model.
+///
+/// Mirrors `mnem embed`. Requires an embedder to be configured via
+/// `config.toml` (`[embed]` section). Returns 503 when no embedder is
+/// configured. Supports `?force=true`, `?label=<ntype>`,
+/// `?dry_run=true`.
+///
+/// Response schema: `mnem.v1.embed`
+pub(crate) async fn post_embed(
+    _auth: RequireBearer,
+    State(s): State<AppState>,
+    Query(q): Query<EmbedQuery>,
+) -> Result<Json<Value>, Error> {
+    let pc = s.embed_cfg.as_ref().ok_or_else(|| {
+        Error::status(
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "no embedder configured; set [embed] in config.toml first",
+        )
+    })?;
+    let embedder = mnem_embed_providers::open(pc)
+        .map_err(|e| Error::internal(format!("open embedder: {e}")))?;
+    let model_fq = embedder.model().to_string();
+
+    let r = s.repo.lock().map_err(|_| Error::locked())?;
+    let Some(head) = r.head_commit() else {
+        return Ok(Json(json!({
+            "schema": "mnem.v1.embed",
+            "model": model_fq,
+            "embedded": 0,
+            "skipped_already_embedded": 0,
+            "skipped_no_text": 0,
+            "dry_run": q.dry_run,
+            "note": "repository has no commits yet",
+        })));
+    };
+
+    let bs = r.blockstore().clone();
+    let cursor = Cursor::new(&*bs, &head.nodes)
+        .map_err(|e| Error::internal(format!("cursor: {e}")))?;
+
+    let mut candidates: Vec<(Cid, Node)> = Vec::new();
+    let mut skipped_already_embedded: usize = 0;
+    let mut skipped_no_text: usize = 0;
+
+    for entry in cursor {
+        let (_k, node_cid) = entry.map_err(|e| Error::internal(e.to_string()))?;
+        let bytes = bs
+            .get(&node_cid)
+            .map_err(|e| Error::internal(e.to_string()))?
+            .ok_or_else(|| Error::internal(format!("node CID {node_cid} missing")))?;
+        let node: Node =
+            from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
+
+        if mnem_core::anchor::is_system_node(&node) {
+            continue;
+        }
+        if let Some(lbl) = &q.label {
+            if &node.ntype != lbl {
+                continue;
+            }
+        }
+
+        let already = if q.force {
+            false
+        } else {
+            r.embedding_for(&node_cid, &model_fq)
+                .map_err(|e| Error::internal(e.to_string()))?
+                .is_some()
+        };
+        if already {
+            skipped_already_embedded += 1;
+            continue;
+        }
+        if embed_text_of(&node).is_some() {
+            candidates.push((node_cid, node));
+        } else {
+            skipped_no_text += 1;
+        }
+    }
+
+    let would_embed = candidates.len();
+    if q.dry_run {
+        return Ok(Json(json!({
+            "schema": "mnem.v1.embed",
+            "model": model_fq,
+            "would_embed": would_embed,
+            "skipped_already_embedded": skipped_already_embedded,
+            "skipped_no_text": skipped_no_text,
+            "dry_run": true,
+        })));
+    }
+
+    if candidates.is_empty() {
+        return Ok(Json(json!({
+            "schema": "mnem.v1.embed",
+            "model": model_fq,
+            "embedded": 0,
+            "skipped_already_embedded": skipped_already_embedded,
+            "skipped_no_text": skipped_no_text,
+            "dry_run": q.dry_run,
+        })));
+    }
+
+    let total = candidates.len();
+    let mut tx = r.start_transaction();
+    drop(r); // release before blocking embed calls
+    for (node_cid, node) in candidates {
+        let text = embed_text_of(&node)
+            .ok_or_else(|| Error::internal("node has no embeddable text".to_string()))?;
+        let v = embedder
+            .embed(&text)
+            .map_err(|e| Error::internal(format!("embed: {e}")))?;
+        let emb = mnem_embed_providers::to_embedding(&model_fq, &v);
+        tx.set_embedding(node_cid, model_fq.clone(), emb)
+            .map_err(|e| Error::internal(e.to_string()))?;
+    }
+    if let Some(a) = q.author.as_deref() {
+        if a.trim().is_empty() {
+            return Err(Error::bad_request("author must not be blank"));
+        }
+        if a.len() > MAX_AUTHOR_LEN {
+            return Err(Error::bad_request(format!(
+                "author exceeds maximum length of {MAX_AUTHOR_LEN} bytes"
+            )));
+        }
+    }
+    let author = q.author.as_deref().unwrap_or("mnem-http");
+    let msg = format!("mnem embed: backfill {total} nodes with {model_fq}");
+    let new_repo = tx
+        .commit(author, &msg)
+        .map_err(|e| Error::internal(e.to_string()))?;
+    let new_op_id = new_repo.op_id().to_string();
+    let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
+    *guard = new_repo;
+
+    Ok(Json(json!({
+        "schema": "mnem.v1.embed",
+        "model": model_fq,
+        "embedded": total,
+        "skipped_already_embedded": skipped_already_embedded,
+        "skipped_no_text": skipped_no_text,
+        "dry_run": false,
+        "op_id": new_op_id,
+    })))
+}
+
+/// Extract the text to embed for a node: prefer non-empty `summary`,
+/// fall back to first 4096 bytes of `content`.
+fn embed_text_of(node: &Node) -> Option<String> {
+    let summary = node.summary.as_deref().unwrap_or("").trim();
+    if !summary.is_empty() {
+        return Some(summary.to_string());
+    }
+    if let Some(content) = &node.content {
+        let s = String::from_utf8_lossy(content);
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            let cap = trimmed.floor_char_boundary(4096);
+            return Some(trimmed[..cap].to_string());
+        }
+    }
+    None
+}
+
+// ---------- POST /v1/gc ----------
+
+/// Query params for `POST /v1/gc`.
+#[derive(Deserialize)]
+pub(crate) struct GcQuery {
+    /// Actually delete unreachable blocks. Without this flag the
+    /// handler is a safe dry-run that only reports counts.
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// `POST /v1/gc` - garbage-collect unreachable blocks.
+///
+/// Mirrors `mnem gc`. Walks the full content-addressed DAG reachable
+/// from all known refs (branches, tags, remote tracking refs, WC
+/// pointer), then deletes every block not in that set.
+///
+/// Without `?force=true` this is a **dry-run**: it returns counts but
+/// does not modify the store.
+///
+/// Response schema: `mnem.v1.gc`
+pub(crate) async fn post_gc(
+    _auth: RequireBearer,
+    State(s): State<AppState>,
+    Query(q): Query<GcQuery>,
+) -> Result<Json<Value>, Error> {
+    let r = s.repo.lock().map_err(|_| Error::locked())?;
+    let bs = r.blockstore().clone();
+    let view = r.view();
+
+    // Collect roots: current op + every ref target.
+    let mut roots: Vec<Cid> = vec![r.op_id().clone()];
+    for ref_target in view.refs.values() {
+        match ref_target {
+            mnem_core::objects::RefTarget::Normal { target } => roots.push(target.clone()),
+            mnem_core::objects::RefTarget::Conflicted { adds, .. } => {
+                roots.extend(adds.iter().cloned());
+            }
+        }
+    }
+    if let Some(remote_map) = &view.remote_refs {
+        for inner in remote_map.values() {
+            for ref_target in inner.values() {
+                match ref_target {
+                    mnem_core::objects::RefTarget::Normal { target } => roots.push(target.clone()),
+                    mnem_core::objects::RefTarget::Conflicted { adds, .. } => {
+                        roots.extend(adds.iter().cloned());
+                    }
+                }
+            }
+        }
+    }
+    if let Some(wc) = &view.wc_commit {
+        roots.push(wc.clone());
+    }
+    roots.sort();
+    roots.dedup();
+
+    // Walk reachable blocks.
+    let mut reachable: std::collections::HashSet<Cid> = std::collections::HashSet::new();
+    for root in &roots {
+        for item in bs.iter_from_root(root) {
+            match item {
+                Ok((cid, _)) => {
+                    reachable.insert(cid);
+                }
+                Err(e) => {
+                    return Err(Error::internal(format!(
+                        "gc: reachability walk failed: {e}; run fsck to diagnose"
+                    )));
+                }
+            }
+        }
+    }
+    let reachable_count = reachable.len();
+
+    // Enumerate all blocks.
+    let all = match bs.all_cids().map_err(|e| Error::internal(e.to_string()))? {
+        Some(cids) => cids,
+        None => {
+            return Ok(Json(json!({
+                "schema": "mnem.v1.gc",
+                "reachable": reachable_count,
+                "total": null,
+                "unreachable": null,
+                "deleted": 0,
+                "errors": 0,
+                "force": q.force,
+                "note": "store does not support block enumeration",
+            })));
+        }
+    };
+    let total_count = all.len();
+    let unreachable: Vec<Cid> = all
+        .into_iter()
+        .filter(|cid| !reachable.contains(cid))
+        .collect();
+    let unreachable_count = unreachable.len();
+
+    if !q.force {
+        return Ok(Json(json!({
+            "schema": "mnem.v1.gc",
+            "reachable": reachable_count,
+            "total": total_count,
+            "unreachable": unreachable_count,
+            "deleted": 0,
+            "errors": 0,
+            "force": false,
+        })));
+    }
+
+    let mut deleted: usize = 0;
+    let mut errors: usize = 0;
+    for cid in &unreachable {
+        match bs.delete(cid) {
+            Ok(()) => deleted += 1,
+            Err(e) => {
+                tracing::warn!(cid = %cid, error = %e, "gc: failed to delete block");
+                errors += 1;
+            }
+        }
+    }
+
+    Ok(Json(json!({
+        "schema": "mnem.v1.gc",
+        "reachable": reachable_count,
+        "total": total_count,
+        "unreachable": unreachable_count,
+        "deleted": deleted,
+        "errors": errors,
+        "force": true,
+    })))
+}
+
+// ---------- GET /v1/fsck ----------
+
+/// Hard cap on the number of ops walked when `limit` is not supplied.
+const FSCK_DEFAULT_LIMIT: usize = 50_000;
+
+/// Query parameters for `GET /v1/fsck`.
+#[derive(Deserialize)]
+pub(crate) struct FsckQuery {
+    /// Maximum number of ops to walk backwards from HEAD.
+    pub limit: Option<usize>,
+}
+
+/// One integrity error discovered during the walk.
+#[derive(Serialize)]
+struct FsckErrorEntry {
+    op: String,
+    kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cid: Option<String>,
+}
+
+/// Verify that a CID exists in the blockstore and that its bytes hash to that
+/// CID. Returns `Ok(())` on success or `Err(reason)` with a human-readable
+/// description.
+fn fsck_check_block(
+    bs: &dyn mnem_core::store::Blockstore,
+    cid: &Cid,
+) -> Result<(), String> {
+    let bytes = bs
+        .get(cid)
+        .map_err(|e| format!("store I/O error fetching {cid}: {e}"))?;
+    let bytes = match bytes {
+        Some(b) => b,
+        None => return Err("missing".to_string()),
+    };
+    if let Some(computed) = recompute_cid(cid, &bytes) {
+        if computed != *cid {
+            return Err(format!(
+                "CID mismatch: claimed {cid} but content hashes to {computed}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Recursively walk every block in the Prolly tree rooted at `root`, counting
+/// blocks present and pushing errors for any missing interior block.
+fn fsck_walk_prolly_tree(
+    bs: &dyn mnem_core::store::Blockstore,
+    root: &Cid,
+    tree_name: &str,
+    op_cid_str: &str,
+    errors: &mut Vec<FsckErrorEntry>,
+) -> usize {
+    let mut stack: Vec<Cid> = vec![root.clone()];
+    let mut blocks_ok: usize = 0;
+    while let Some(cid) = stack.pop() {
+        let chunk = match load_tree_chunk(bs, &cid) {
+            Ok(c) => {
+                blocks_ok += 1;
+                c
+            }
+            Err(_) => {
+                errors.push(FsckErrorEntry {
+                    op: op_cid_str.to_owned(),
+                    kind: format!("missing interior block {cid} in {tree_name} tree"),
+                    cid: Some(cid.to_string()),
+                });
+                continue;
+            }
+        };
+        if let TreeChunk::Internal(internal) = chunk {
+            stack.extend(internal.children);
+        }
+    }
+    blocks_ok
+}
+
+/// `GET /v1/fsck` — reachability-only integrity check.
+///
+/// Mirrors `mnem fsck`: walks all ops from HEAD and verifies every referenced
+/// block is present and CID-correct.
+pub(crate) async fn get_fsck(
+    State(s): State<AppState>,
+    Query(q): Query<FsckQuery>,
+) -> Result<Json<Value>, Error> {
+    let repo = s.repo.lock().map_err(|_| Error::locked())?;
+    let bs = repo.blockstore().clone();
+    let bs = bs.as_ref();
+    let limit = q.limit.unwrap_or(FSCK_DEFAULT_LIMIT);
+    let head_op_cid = repo.op_id().clone();
+
+    let mut errors: Vec<FsckErrorEntry> = Vec::new();
+    let mut ops_checked: usize = 0;
+    let mut blocks_verified: usize = 0;
+    let mut visited: std::collections::HashSet<Cid> = std::collections::HashSet::new();
+    let mut cur = head_op_cid;
+
+    loop {
+        if ops_checked >= limit {
+            break;
+        }
+        if !visited.insert(cur.clone()) {
+            break;
+        }
+        let op_cid_str = cur.to_string();
+
+        // Step 1: verify the op block itself.
+        let op_bytes = match fsck_check_block(bs, &cur) {
+            Ok(()) => {
+                blocks_verified += 1;
+                bs.get(&cur)
+                    .map_err(|e| Error::internal(format!("store I/O: {e}")))?
+                    .ok_or_else(|| Error::internal(format!("op block {} vanished after verification", cur)))?
+            }
+            Err(reason) => {
+                errors.push(FsckErrorEntry {
+                    op: op_cid_str.clone(),
+                    kind: format!("op block {reason}"),
+                    cid: Some(op_cid_str.clone()),
+                });
+                break;
+            }
+        };
+
+        let op: Operation = match from_canonical_bytes(&op_bytes) {
+            Ok(o) => o,
+            Err(e) => {
+                errors.push(FsckErrorEntry {
+                    op: op_cid_str.clone(),
+                    kind: format!("op block decode failed: {e}"),
+                    cid: Some(op_cid_str.clone()),
+                });
+                break;
+            }
+        };
+        ops_checked += 1;
+
+        // Step 2: verify the view block.
+        let view_cid = &op.view;
+        let view_opt: Option<View> = match fsck_check_block(bs, view_cid) {
+            Ok(()) => {
+                blocks_verified += 1;
+                let view_bytes = bs
+                    .get(view_cid)
+                    .map_err(|e| Error::internal(format!("store I/O: {e}")))?
+                    .ok_or_else(|| Error::internal(format!("view block {} vanished after verification", view_cid)))?;
+                match from_canonical_bytes::<View>(&view_bytes) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        errors.push(FsckErrorEntry {
+                            op: op_cid_str.clone(),
+                            kind: format!("view block decode failed: {e}"),
+                            cid: Some(view_cid.to_string()),
+                        });
+                        None
+                    }
+                }
+            }
+            Err(reason) => {
+                errors.push(FsckErrorEntry {
+                    op: op_cid_str.clone(),
+                    kind: format!("view block {reason}"),
+                    cid: Some(view_cid.to_string()),
+                });
+                None
+            }
+        };
+
+        // Steps 3 & 4: verify each head commit and its Prolly tree roots.
+        if let Some(view) = view_opt {
+            for head_cid in &view.heads {
+                let commit_opt: Option<Commit> = match fsck_check_block(bs, head_cid) {
+                    Ok(()) => {
+                        blocks_verified += 1;
+                        let commit_bytes = bs
+                            .get(head_cid)
+                            .map_err(|e| Error::internal(format!("store I/O: {e}")))?
+                            .ok_or_else(|| Error::internal(format!("commit block {} vanished after verification", head_cid)))?;
+                        match from_canonical_bytes::<Commit>(&commit_bytes) {
+                            Ok(c) => Some(c),
+                            Err(e) => {
+                                errors.push(FsckErrorEntry {
+                                    op: op_cid_str.clone(),
+                                    kind: format!("commit block decode failed: {e}"),
+                                    cid: Some(head_cid.to_string()),
+                                });
+                                None
+                            }
+                        }
+                    }
+                    Err(reason) => {
+                        errors.push(FsckErrorEntry {
+                            op: op_cid_str.clone(),
+                            kind: format!("commit block {reason}"),
+                            cid: Some(head_cid.to_string()),
+                        });
+                        None
+                    }
+                };
+
+                if let Some(commit) = commit_opt {
+                    for (tree_name, tree_cid) in [
+                        ("nodes", &commit.nodes),
+                        ("edges", &commit.edges),
+                        ("schema", &commit.schema),
+                    ] {
+                        let n =
+                            fsck_walk_prolly_tree(bs, tree_cid, tree_name, &op_cid_str, &mut errors);
+                        blocks_verified += n;
+                    }
+
+                    for (tree_name, maybe_cid) in [
+                        ("embeddings", commit.embeddings.as_ref()),
+                        ("sparse", commit.sparse.as_ref()),
+                    ] {
+                        if let Some(cid) = maybe_cid {
+                            let n = fsck_walk_prolly_tree(
+                                bs,
+                                cid,
+                                tree_name,
+                                &op_cid_str,
+                                &mut errors,
+                            );
+                            blocks_verified += n;
+                        }
+                    }
+
+                    let optional_roots: &[(&str, Option<&Cid>)] = &[
+                        ("indexes root", commit.indexes.as_ref()),
+                        ("delta root", commit.delta.as_ref()),
+                    ];
+                    for (label, maybe_cid) in optional_roots {
+                        if let Some(opt_cid) = maybe_cid {
+                            match fsck_check_block(bs, opt_cid) {
+                                Ok(()) => blocks_verified += 1,
+                                Err(reason) => {
+                                    errors.push(FsckErrorEntry {
+                                        op: op_cid_str.clone(),
+                                        kind: format!("{label} {reason}"),
+                                        cid: Some(opt_cid.to_string()),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        match op.parents.first() {
+            Some(parent_cid) => cur = parent_cid.clone(),
+            None => break,
+        }
+    }
+
+    let ok = errors.is_empty();
+    Ok(Json(json!({
+        "schema": "mnem.v1.fsck",
+        "ops_checked": ops_checked,
+        "blocks_verified": blocks_verified,
+        "errors": errors,
+        "ok": ok,
+    })))
+}
+
+// ---------- GET /v1/nodes/{id}/embeddings ----------
+
+/// Query parameters for `GET /v1/nodes/{id}/embeddings`.
+#[derive(Deserialize)]
+pub(crate) struct ListEmbeddingsQuery {
+    // No parameters needed; reserved for future filtering.
+}
+
+/// List all embedding models stored for a node.
+///
+/// Mirrors `mnem embedding ls <node-uuid>` — returns the model strings
+/// (e.g. `"openai:text-embedding-3-small"`) that have a vector stored
+/// against this node's content-addressed CID.
+///
+/// Returns `200 OK` with schema `mnem.v1.node-embeddings` on success,
+/// `404 Not Found` if the node does not exist.
+pub(crate) async fn get_node_embeddings(
+    State(s): State<AppState>,
+    Path(id_str): Path<String>,
+    Query(_q): Query<ListEmbeddingsQuery>,
+) -> Result<Json<Value>, Error> {
+    let id = NodeId::parse_uuid(&id_str)
+        .map_err(|e| Error::bad_request(format!("invalid UUID: {e}")))?;
+    let repo = s.repo.lock().map_err(|_| Error::locked())?;
+    let node = repo
+        .lookup_node(&id)?
+        .ok_or_else(|| Error::not_found(format!("no node with id={id_str}")))?;
+
+    let (_, node_cid) = mnem_core::codec::hash_to_cid(&node)
+        .map_err(|e| Error::internal(format!("hash node: {e}")))?;
+
+    let models = repo
+        .embedding_models_for(&node_cid)
+        .map_err(|e| Error::internal(format!("list embeddings: {e}")))?;
+
+    Ok(Json(json!({
+        "schema": "mnem.v1.node-embeddings",
+        "node_id": id_str,
+        "models": models,
+        "count": models.len(),
+    })))
+}
+
+// ---------- GET /v1/show ----------
+
+/// Query parameters for `GET /v1/show`.
+#[derive(Deserialize)]
+pub(crate) struct ShowQuery {
+    /// CID to decode. If absent, defaults to the current op-head.
+    pub cid: Option<String>,
+}
+
+/// Decode any CID and return a structured JSON summary.
+///
+/// Mirrors `mnem show [<cid>]`. Peeks the `_kind` discriminator and
+/// re-decodes into the concrete type, returning the same fields the CLI
+/// pretty-printer surfaces. Unknown kinds return the kind string and
+/// byte count so callers know what they have.
+pub(crate) async fn get_show(
+    State(s): State<AppState>,
+    Query(q): Query<ShowQuery>,
+) -> Result<Json<Value>, Error> {
+    let repo = s.repo.lock().map_err(|_| Error::locked())?;
+
+    let target_cid: Cid = match q.cid {
+        Some(ref s) => Cid::parse_str(s)
+            .map_err(|e| Error::bad_request(format!("invalid CID: {e}")))?,
+        None => repo.op_id().clone(),
+    };
+
+    let bs = repo.blockstore();
+    let bytes = bs
+        .get(&target_cid)
+        .map_err(|e| Error::internal(format!("blockstore read: {e}")))?
+        .ok_or_else(|| Error::not_found(format!("block {target_cid} not found")))?;
+
+    let kind = {
+        let ipld: Option<Ipld> = from_canonical_bytes::<Ipld>(&bytes).ok();
+        ipld.and_then(|i| match i {
+            Ipld::Map(m) => match m.get("_kind")? {
+                Ipld::String(s) => Some(s.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+    };
+
+    let mut obj = serde_json::Map::new();
+    obj.insert("schema".into(), json!("mnem.v1.show"));
+    obj.insert("cid".into(), json!(target_cid.to_string()));
+    obj.insert("size".into(), json!(bytes.len()));
+    obj.insert(
+        "kind".into(),
+        json!(kind.as_deref().unwrap_or("<unknown>")),
+    );
+
+    match kind.as_deref() {
+        Some("node") => {
+            if let Ok(n) = from_canonical_bytes::<mnem_core::objects::Node>(&bytes) {
+                obj.insert("id".into(), json!(n.id.to_uuid_string()));
+                obj.insert("ntype".into(), json!(n.ntype));
+                obj.insert("summary".into(), json!(n.summary));
+                if let Some(ref ctx) = n.context_sentence {
+                    obj.insert("context_sentence".into(), json!(ctx));
+                }
+                let props_map: serde_json::Map<String, Value> = n
+                    .props
+                    .iter()
+                    .map(|(k, v)| (k.clone(), ipld_to_json(v)))
+                    .collect();
+                obj.insert("props".into(), Value::Object(props_map));
+                obj.insert(
+                    "content_bytes".into(),
+                    json!(n.content.as_ref().map_or(0, bytes::Bytes::len)),
+                );
+                // Embedding detail — mirrors CLI `show_node()` output.
+                if let Ok(models) = repo.embedding_models_for(&target_cid) {
+                    let embeds: Vec<Value> = models
+                        .iter()
+                        .filter_map(|model| {
+                            repo.embedding_for(&target_cid, model).ok().flatten().map(
+                                |emb| {
+                                    json!({
+                                        "model": emb.model,
+                                        "dim": emb.dim,
+                                        "dtype": serde_json::to_value(&emb.dtype)
+                                            .unwrap_or(json!("f32")),
+                                    })
+                                },
+                            )
+                        })
+                        .collect();
+                    if !embeds.is_empty() {
+                        obj.insert("embeddings".into(), json!(embeds));
+                    }
+                }
+            }
+        }
+        Some("edge") => {
+            if let Ok(e) = from_canonical_bytes::<mnem_core::objects::Edge>(&bytes) {
+                obj.insert("id".into(), json!(e.id.to_uuid_string()));
+                obj.insert("etype".into(), json!(e.etype));
+                obj.insert("src".into(), json!(e.src.to_uuid_string()));
+                obj.insert("dst".into(), json!(e.dst.to_uuid_string()));
+                let props_map: serde_json::Map<String, Value> = e
+                    .props
+                    .iter()
+                    .map(|(k, v)| (k.clone(), ipld_to_json(v)))
+                    .collect();
+                obj.insert("props".into(), Value::Object(props_map));
+            }
+        }
+        Some("commit") => {
+            if let Ok(c) = from_canonical_bytes::<mnem_core::objects::Commit>(&bytes) {
+                obj.insert("change_id".into(), json!(c.change_id.to_uuid_string()));
+                obj.insert("author".into(), json!(c.author));
+                if let Some(a) = &c.agent_id {
+                    obj.insert("agent_id".into(), json!(a));
+                }
+                if let Some(t) = &c.task_id {
+                    obj.insert("task_id".into(), json!(t));
+                }
+                obj.insert("message".into(), json!(c.message));
+                obj.insert("time".into(), json!(c.time));
+                obj.insert("nodes".into(), json!(c.nodes.to_string()));
+                obj.insert("edges".into(), json!(c.edges.to_string()));
+                obj.insert("schema_tree_cid".into(), json!(c.schema.to_string()));
+                if let Some(i) = &c.indexes {
+                    obj.insert("indexes".into(), json!(i.to_string()));
+                }
+                obj.insert(
+                    "parents".into(),
+                    json!(c
+                        .parents
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()),
+                );
+                obj.insert("has_signature".into(), json!(c.signature.is_some()));
+            }
+        }
+        Some("operation") => {
+            if let Ok(op) = from_canonical_bytes::<mnem_core::objects::Operation>(&bytes) {
+                obj.insert("author".into(), json!(op.author));
+                if let Some(a) = &op.agent_id {
+                    obj.insert("agent_id".into(), json!(a));
+                }
+                if let Some(t) = &op.task_id {
+                    obj.insert("task_id".into(), json!(t));
+                }
+                obj.insert("description".into(), json!(op.description));
+                obj.insert("time".into(), json!(op.time));
+                obj.insert(
+                    "parents".into(),
+                    json!(op
+                        .parents
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()),
+                );
+                obj.insert("view".into(), json!(op.view.to_string()));
+                // Decode the view block to surface head CID and refs count,
+                // matching CLI show_operation() output.
+                if let Ok(Some(vb)) = bs.get(&op.view) {
+                    if let Ok(v) = from_canonical_bytes::<mnem_core::objects::View>(&vb) {
+                        if let Some(head_cid) = v.heads.first() {
+                            obj.insert("view_head".into(), json!(head_cid.to_string()));
+                        }
+                        obj.insert("view_refs_count".into(), json!(v.refs.len()));
+                    }
+                }
+            }
+        }
+        Some("view") => {
+            if let Ok(v) = from_canonical_bytes::<mnem_core::objects::View>(&bytes) {
+                obj.insert("heads".into(), json!(v.heads.len()));
+                obj.insert("refs".into(), json!(v.refs.len()));
+            }
+        }
+        Some("index_set") => {
+            if let Ok(idx) =
+                from_canonical_bytes::<mnem_core::objects::IndexSet>(&bytes)
+            {
+                obj.insert("labels".into(), json!(idx.nodes_by_label.len()));
+            }
+        }
+        Some("tombstone") => {
+            if let Ok(t) = from_canonical_bytes::<mnem_core::objects::Tombstone>(&bytes) {
+                obj.insert("tombstoned_at".into(), json!(t.tombstoned_at));
+                obj.insert("reason".into(), json!(t.reason));
+            }
+        }
+        _ => {}
+    }
+
+    Ok(Json(Value::Object(obj)))
+}
+
+// ---- reindex helpers ----
+
+pub(crate) fn reindex_ipld_to_text(v: &Ipld) -> String {
+    match v {
+        Ipld::Null => "null".into(),
+        Ipld::Bool(b) => b.to_string(),
+        Ipld::Integer(n) => n.to_string(),
+        Ipld::Float(f) => f.to_string(),
+        Ipld::String(s) => s.clone(),
+        Ipld::Bytes(b) => format!("bytes({})", b.len()),
+        Ipld::List(xs) => format!("[{} items]", xs.len()),
+        Ipld::Map(m) => format!("{{{} keys}}", m.len()),
+        Ipld::Link(c) => format!("cid:{c}"),
+    }
+}
+
+pub(crate) fn reindex_fallback_text_of(node: &Node) -> String {
+    let mut parts: Vec<String> = vec![node.ntype.clone()];
+    let mut sorted: Vec<(&String, &Ipld)> = node.props.iter().collect();
+    sorted.sort_by_key(|(k, _)| k.as_str());
+    for (k, v) in sorted {
+        parts.push(format!("{k}: {}", reindex_ipld_to_text(v)));
+    }
+    parts.join(". ")
+}
+
+pub(crate) fn reindex_text_of_node(node: &Node) -> String {
+    if let Some(s) = &node.summary {
+        if !s.trim().is_empty() {
+            return s.clone();
+        }
+    }
+    if let Some(text) = embed_text_of(node) {
+        return text;
+    }
+    reindex_fallback_text_of(node)
+}
+
+fn reindex_resolve_commitish(
+    r: &mnem_core::repo::ReadonlyRepo,
+    s: &str,
+) -> Result<Cid, Error> {
+    if s.eq_ignore_ascii_case("HEAD") {
+        return r
+            .view()
+            .heads
+            .first()
+            .cloned()
+            .ok_or_else(|| Error::bad_request("repository has no commits yet (HEAD unresolved)"));
+    }
+    if let Ok(cid) = Cid::parse_str(s) {
+        return Ok(cid);
+    }
+    let refs = &r.view().refs;
+    let candidate = if refs.contains_key(s) {
+        s.to_string()
+    } else {
+        format!("{HEADS_PREFIX}{s}")
+    };
+    match refs.get(&candidate) {
+        Some(mnem_core::objects::RefTarget::Normal { target }) => Ok(target.clone()),
+        Some(mnem_core::objects::RefTarget::Conflicted { .. }) => Err(Error::bad_request(
+            format!("ref `{candidate}` is conflicted; resolve the ref first"),
+        )),
+        None => Err(Error::bad_request(format!(
+            "cannot resolve `{s}` to a commit (tried HEAD, raw CID, ref `{s}`, \
+             and `{HEADS_PREFIX}{s}`)"
+        ))),
+    }
+}
+
+fn reindex_nodes_at(
+    bs: &std::sync::Arc<dyn mnem_core::store::Blockstore>,
+    commit_cid: &Cid,
+) -> Result<std::collections::HashSet<Cid>, Error> {
+    let bytes = bs
+        .get(commit_cid)
+        .map_err(|e| Error::internal(e.to_string()))?
+        .ok_or_else(|| {
+            Error::bad_request(format!("commit CID {commit_cid} missing from store"))
+        })?;
+    let commit: Commit =
+        from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
+    let mut out = std::collections::HashSet::new();
+    let cursor = Cursor::new(&**bs, &commit.nodes)
+        .map_err(|e| Error::internal(format!("cursor: {e}")))?;
+    for entry in cursor {
+        let (_k, node_cid) = entry.map_err(|e| Error::internal(e.to_string()))?;
+        out.insert(node_cid);
+    }
+    Ok(out)
+}
+
+fn decode_reindex_embedding(
+    val: &Ipld,
+) -> Result<mnem_core::objects::node::Embedding, Error> {
+    let bytes = to_canonical_bytes(val)
+        .map_err(|e| Error::internal(format!("CBOR re-encode of extra[\"embed\"]: {e}")))?;
+    let emb: mnem_core::objects::node::Embedding = from_canonical_bytes(&bytes)
+        .map_err(|e| Error::internal(format!("decode extra[\"embed\"] as Embedding: {e}")))?;
+    emb.validate()
+        .map_err(|e| Error::internal(format!("extra[\"embed\"] invariant violated: {e:?}")))?;
+    Ok(emb)
+}
+
+fn decode_reindex_sparse(
+    val: &Ipld,
+) -> Result<mnem_core::sparse::SparseEmbed, Error> {
+    let bytes = to_canonical_bytes(val).map_err(|e| {
+        Error::internal(format!("CBOR re-encode of extra[\"sparse_embed\"]: {e}"))
+    })?;
+    let se: mnem_core::sparse::SparseEmbed = from_canonical_bytes(&bytes).map_err(|e| {
+        Error::internal(format!(
+            "decode extra[\"sparse_embed\"] as SparseEmbed: {e}"
+        ))
+    })?;
+    se.validate().map_err(|e| {
+        Error::internal(format!("extra[\"sparse_embed\"] invariant violated: {e}"))
+    })?;
+    Ok(se)
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ReindexBody {
+    #[serde(default)]
+    force: bool,
+    label: Option<String>,
+    since: Option<String>,
+    #[serde(default)]
+    dry_run: bool,
+    message: Option<String>,
+    #[serde(default)]
+    lift_legacy_extra: bool,
+    #[serde(default)]
+    lift_legacy_sparse: bool,
+    author: Option<String>,
+}
+
+pub(crate) async fn post_reindex(
+    _auth: RequireBearer,
+    State(s): State<AppState>,
+    Json(body): Json<ReindexBody>,
+) -> Result<Json<Value>, Error> {
+    if body.lift_legacy_extra && body.force {
+        return Err(Error::bad_request(
+            "lift_legacy_extra and force are mutually exclusive",
+        ));
+    }
+    if body.lift_legacy_sparse && body.force {
+        return Err(Error::bad_request(
+            "lift_legacy_sparse and force are mutually exclusive",
+        ));
+    }
+
+    if let Some(a) = body.author.as_deref() {
+        validate_author(a.trim())?;
+    }
+    validate_message(body.message.as_deref())?;
+    let is_lift_only = body.lift_legacy_extra || body.lift_legacy_sparse;
+    let author = body.author.as_deref().unwrap_or("mnem-http").to_string();
+
+    if !is_lift_only && s.embed_cfg.is_none() {
+        return Err(Error::status(
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "no embedder configured; set [embed] in config.toml first",
+        ));
+    }
+
+    let r = s.repo.lock().map_err(|_| Error::locked())?;
+    let Some(head) = r.head_commit() else {
+        let mode = if body.lift_legacy_extra {
+            "lift_legacy_extra"
+        } else if body.lift_legacy_sparse {
+            "lift_legacy_sparse"
+        } else {
+            "normal"
+        };
+        return Ok(Json(json!({
+            "schema": "mnem.v1.reindex",
+            "mode": mode,
+            "total_nodes": 0,
+            "note": "repository has no commits yet",
+        })));
+    };
+    let head = head.clone();
+
+    let bs = r.blockstore().clone();
+
+    let since_set: Option<std::collections::HashSet<Cid>> = match &body.since {
+        None => None,
+        Some(s_ref) => {
+            let cid = reindex_resolve_commitish(&r, s_ref)?;
+            Some(reindex_nodes_at(&bs, &cid)?)
+        }
+    };
+
+    // ---- lift-legacy-extra path ----
+    if body.lift_legacy_extra {
+        let mut total_nodes: usize = 0;
+        let mut legacy_count: usize = 0;
+        let mut decode_errors: usize = 0;
+        let mut to_lift: Vec<(Cid, mnem_core::objects::node::Embedding)> = Vec::new();
+
+        let cursor = Cursor::new(&*bs, &head.nodes)
+            .map_err(|e| Error::internal(format!("cursor: {e}")))?;
+        for entry in cursor {
+            let (_k, node_cid) = entry.map_err(|e| Error::internal(e.to_string()))?;
+            let bytes = bs
+                .get(&node_cid)
+                .map_err(|e| Error::internal(e.to_string()))?
+                .ok_or_else(|| Error::internal(format!("node CID {node_cid} missing")))?;
+            let node: Node =
+                from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
+            total_nodes += 1;
+            if let Some(set) = &since_set {
+                if set.contains(&node_cid) {
+                    continue;
+                }
+            }
+            if let Some(lbl) = &body.label {
+                if &node.ntype != lbl {
+                    continue;
+                }
+            }
+            if mnem_core::anchor::is_system_node(&node) {
+                continue;
+            }
+            let Some(ipld_val) = node.extra.get("embed") else {
+                continue;
+            };
+            match decode_reindex_embedding(ipld_val) {
+                Ok(emb) => {
+                    legacy_count += 1;
+                    to_lift.push((node_cid, emb));
+                }
+                Err(_) => {
+                    decode_errors += 1;
+                }
+            }
+        }
+
+        if body.dry_run {
+            return Ok(Json(json!({
+                "schema": "mnem.v1.reindex",
+                "mode": "lift_legacy_extra",
+                "total_nodes": total_nodes,
+                "would_lift": legacy_count,
+                "decode_errors": decode_errors,
+                "dry_run": true,
+            })));
+        }
+        if to_lift.is_empty() {
+            return Ok(Json(json!({
+                "schema": "mnem.v1.reindex",
+                "mode": "lift_legacy_extra",
+                "total_nodes": total_nodes,
+                "lifted": 0,
+                "decode_errors": decode_errors,
+                "dry_run": false,
+            })));
+        }
+
+        let total = to_lift.len();
+        let mut tx = r.start_transaction();
+        for (node_cid, emb) in to_lift {
+            let model = emb.model.clone();
+            tx.set_embedding(node_cid, model, emb)
+                .map_err(|e| Error::internal(e.to_string()))?;
+        }
+        let msg = body.message.clone().unwrap_or_else(|| {
+            format!(
+                "mnem reindex --lift-legacy-extra: {total} embedding(s) promoted to sidecar"
+            )
+        });
+        let new_repo = tx
+            .commit(&author, &msg)
+            .map_err(|e| Error::internal(e.to_string()))?;
+        let new_op_id = new_repo.op_id().to_string();
+        drop(r);
+        let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
+        *guard = new_repo;
+        return Ok(Json(json!({
+            "schema": "mnem.v1.reindex",
+            "mode": "lift_legacy_extra",
+            "total_nodes": total_nodes,
+            "lifted": total,
+            "decode_errors": decode_errors,
+            "dry_run": false,
+            "op_id": new_op_id,
+        })));
+    }
+
+    // ---- lift-legacy-sparse path ----
+    if body.lift_legacy_sparse {
+        let mut total_nodes: usize = 0;
+        let mut legacy_count: usize = 0;
+        let mut decode_errors: usize = 0;
+        let mut to_lift: Vec<(Cid, mnem_core::sparse::SparseEmbed)> = Vec::new();
+
+        let cursor = Cursor::new(&*bs, &head.nodes)
+            .map_err(|e| Error::internal(format!("cursor: {e}")))?;
+        for entry in cursor {
+            let (_k, node_cid) = entry.map_err(|e| Error::internal(e.to_string()))?;
+            let bytes = bs
+                .get(&node_cid)
+                .map_err(|e| Error::internal(e.to_string()))?
+                .ok_or_else(|| Error::internal(format!("node CID {node_cid} missing")))?;
+            let node: Node =
+                from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
+            total_nodes += 1;
+            if let Some(set) = &since_set {
+                if set.contains(&node_cid) {
+                    continue;
+                }
+            }
+            if let Some(lbl) = &body.label {
+                if &node.ntype != lbl {
+                    continue;
+                }
+            }
+            if mnem_core::anchor::is_system_node(&node) {
+                continue;
+            }
+            let Some(ipld_val) = node.extra.get("sparse_embed") else {
+                continue;
+            };
+            let se = match decode_reindex_sparse(ipld_val) {
+                Ok(s) => s,
+                Err(_) => {
+                    decode_errors += 1;
+                    continue;
+                }
+            };
+            if r.sparse_for(&node_cid, &se.vocab_id)
+                .map_err(|e| Error::internal(e.to_string()))?
+                .is_some()
+            {
+                continue;
+            }
+            legacy_count += 1;
+            to_lift.push((node_cid, se));
+        }
+
+        if body.dry_run {
+            return Ok(Json(json!({
+                "schema": "mnem.v1.reindex",
+                "mode": "lift_legacy_sparse",
+                "total_nodes": total_nodes,
+                "would_lift": legacy_count,
+                "decode_errors": decode_errors,
+                "dry_run": true,
+            })));
+        }
+        if to_lift.is_empty() {
+            return Ok(Json(json!({
+                "schema": "mnem.v1.reindex",
+                "mode": "lift_legacy_sparse",
+                "total_nodes": total_nodes,
+                "lifted": 0,
+                "decode_errors": decode_errors,
+                "dry_run": false,
+            })));
+        }
+
+        let total = to_lift.len();
+        let mut tx = r.start_transaction();
+        for (node_cid, se) in to_lift {
+            let vocab_id = se.vocab_id.clone();
+            tx.set_sparse_embedding(node_cid, vocab_id, se)
+                .map_err(|e| Error::internal(e.to_string()))?;
+        }
+        let msg = body.message.clone().unwrap_or_else(|| {
+            format!(
+                "mnem reindex --lift-legacy-sparse: {total} sparse embedding(s) promoted to sidecar"
+            )
+        });
+        let new_repo = tx
+            .commit(&author, &msg)
+            .map_err(|e| Error::internal(e.to_string()))?;
+        let new_op_id = new_repo.op_id().to_string();
+        drop(r);
+        let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
+        *guard = new_repo;
+        return Ok(Json(json!({
+            "schema": "mnem.v1.reindex",
+            "mode": "lift_legacy_sparse",
+            "total_nodes": total_nodes,
+            "lifted": total,
+            "decode_errors": decode_errors,
+            "dry_run": false,
+            "op_id": new_op_id,
+        })));
+    }
+
+    // ---- normal embed path ----
+    let pc = s.embed_cfg.as_ref().ok_or_else(|| {
+        Error::status(
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "no embedder configured; set [embed] in config.toml first",
+        )
+    })?;
+    let embedder = mnem_embed_providers::open(pc)
+        .map_err(|e| Error::internal(format!("open embedder: {e}")))?;
+    let model_fq = embedder.model().to_string();
+
+    let mut candidates: Vec<(Cid, Node)> = Vec::new();
+    let mut total_nodes: usize = 0;
+    let mut matched_label: usize = 0;
+    let mut skipped_already_embedded: usize = 0;
+    let mut skipped_outside_since: usize = 0;
+
+    let cursor = Cursor::new(&*bs, &head.nodes)
+        .map_err(|e| Error::internal(format!("cursor: {e}")))?;
+    for entry in cursor {
+        let (_k, node_cid) = entry.map_err(|e| Error::internal(e.to_string()))?;
+        let bytes = bs
+            .get(&node_cid)
+            .map_err(|e| Error::internal(e.to_string()))?
+            .ok_or_else(|| Error::internal(format!("node CID {node_cid} missing")))?;
+        let node: Node =
+            from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
+        total_nodes += 1;
+        if let Some(set) = &since_set {
+            if set.contains(&node_cid) {
+                skipped_outside_since += 1;
+                continue;
+            }
+        }
+        if let Some(lbl) = &body.label {
+            if &node.ntype != lbl {
+                continue;
+            }
+        }
+        matched_label += 1;
+        let already = if body.force {
+            false
+        } else {
+            r.embedding_for(&node_cid, &model_fq)
+                .map_err(|e| Error::internal(e.to_string()))?
+                .is_some()
+        };
+        if already {
+            skipped_already_embedded += 1;
+            continue;
+        }
+        if mnem_core::anchor::is_system_node(&node) {
+            continue;
+        }
+        candidates.push((node_cid, node));
+    }
+
+    let would_embed = candidates.len();
+    if body.dry_run {
+        return Ok(Json(json!({
+            "schema": "mnem.v1.reindex",
+            "model": model_fq,
+            "total_nodes": total_nodes,
+            "matched_label": matched_label,
+            "skipped_already_embedded": skipped_already_embedded,
+            "skipped_outside_since": skipped_outside_since,
+            "would_embed": would_embed,
+            "dry_run": true,
+        })));
+    }
+    if candidates.is_empty() {
+        return Ok(Json(json!({
+            "schema": "mnem.v1.reindex",
+            "model": model_fq,
+            "total_nodes": total_nodes,
+            "matched_label": matched_label,
+            "skipped_already_embedded": skipped_already_embedded,
+            "skipped_outside_since": skipped_outside_since,
+            "embedded": 0,
+            "dry_run": false,
+        })));
+    }
+
+    let total = candidates.len();
+    let mut tx = r.start_transaction();
+    for (node_cid, node) in candidates {
+        let text = reindex_text_of_node(&node);
+        let v = embedder
+            .embed(&text)
+            .map_err(|e| Error::internal(format!("embed: {e}")))?;
+        let emb = mnem_embed_providers::to_embedding(&model_fq, &v);
+        tx.set_embedding(node_cid, model_fq.clone(), emb)
+            .map_err(|e| Error::internal(e.to_string()))?;
+    }
+    let msg = body
+        .message
+        .clone()
+        .unwrap_or_else(|| format!("mnem reindex: {total} nodes embedded with {model_fq}"));
+    let new_repo = tx
+        .commit(&author, &msg)
+        .map_err(|e| Error::internal(e.to_string()))?;
+    let new_op_id = new_repo.op_id().to_string();
+    drop(r);
+    let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
+    *guard = new_repo;
+
+    Ok(Json(json!({
+        "schema": "mnem.v1.reindex",
+        "model": model_fq,
+        "total_nodes": total_nodes,
+        "matched_label": matched_label,
+        "skipped_already_embedded": skipped_already_embedded,
+        "skipped_outside_since": skipped_outside_since,
+        "embedded": total,
+        "dry_run": false,
+        "op_id": new_op_id,
+    })))
+}
+
+// ---------- POST /v1/revert ----------
+
+#[derive(Deserialize)]
+pub(crate) struct RevertBody {
+    /// Op CID to invert (find with `GET /v1/log`).
+    pub commit: String,
+    /// Commit message for the revert operation.
+    pub message: Option<String>,
+    /// Author string. Defaults to `"mnem-http"` when absent.
+    pub author: Option<String>,
+}
+
+/// Walk the op-log backwards from `start` looking for `target_cid`,
+/// returning `(target_op, parent_op)`. `parent_op` is the op immediately
+/// preceding the target (i.e. `target_op.parents[0]`). Returns `None`
+/// when the target is not reachable within 100 000 ops.
+fn find_op_and_parent(
+    bs: &dyn mnem_core::store::Blockstore,
+    start: &Cid,
+    target_cid: &Cid,
+) -> Result<Option<(Operation, Option<Operation>)>, Error> {
+    let mut cur = start.clone();
+    for _ in 0..100_000usize {
+        let bytes = bs
+            .get(&cur)
+            .map_err(|e| Error::internal(e.to_string()))?
+            .ok_or_else(|| Error::internal(format!("op {cur} missing from blockstore")))?;
+        let op: Operation = from_canonical_bytes(&bytes)
+            .map_err(|e| Error::internal(format!("decode op: {e}")))?;
+
+        if &cur == target_cid {
+            let parent_op: Option<Operation> = match op.parents.first() {
+                None => None,
+                Some(parent_cid) => {
+                    let pb = bs
+                        .get(parent_cid)
+                        .map_err(|e| Error::internal(e.to_string()))?
+                        .ok_or_else(|| {
+                            Error::internal(format!("parent op {parent_cid} missing"))
+                        })?;
+                    Some(
+                        from_canonical_bytes(&pb)
+                            .map_err(|e| Error::internal(format!("decode parent op: {e}")))?,
+                    )
+                }
+            };
+            return Ok(Some((op, parent_op)));
+        }
+
+        match op.parents.first() {
+            Some(p) => cur = p.clone(),
+            None => break,
+        }
+    }
+    Ok(None)
+}
+
+pub(crate) async fn post_revert(
+    _auth: RequireBearer,
+    State(s): State<AppState>,
+    Json(body): Json<RevertBody>,
+) -> Result<Json<Value>, Error> {
+    if let Some(a) = &body.author {
+        if a.trim().is_empty() {
+            return Err(Error::bad_request("author must not be blank"));
+        }
+        if a.len() > MAX_AUTHOR_LEN {
+            return Err(Error::bad_request(format!(
+                "author exceeds maximum length of {MAX_AUTHOR_LEN} bytes"
+            )));
+        }
+    }
+    if let Some(m) = &body.message {
+        if m.len() > MAX_MESSAGE_LEN {
+            return Err(Error::bad_request(format!(
+                "message exceeds maximum length of {MAX_MESSAGE_LEN} bytes"
+            )));
+        }
+    }
+
+    let target_cid = Cid::parse_str(&body.commit)
+        .map_err(|_| Error::bad_request(format!("invalid CID: `{}`", body.commit)))?;
+
+    let author = body
+        .author
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .unwrap_or("mnem-http")
+        .to_string();
+
+    let r = s.repo.lock().map_err(|_| Error::locked())?;
+    let bs = r.blockstore().clone();
+    let head_op_cid = r.op_id().clone();
+
+    let (target_op, parent_op_opt) =
+        find_op_and_parent(&*bs, &head_op_cid, &target_cid)?.ok_or_else(|| {
+            Error::bad_request(format!(
+                "op `{}` not found in op-log; use GET /v1/log to list available ops",
+                body.commit
+            ))
+        })?;
+
+    // Resolve target view and commit CID.
+    let target_view_bytes = bs
+        .get(&target_op.view)
+        .map_err(|e| Error::internal(e.to_string()))?
+        .ok_or_else(|| {
+            Error::internal(format!(
+                "view block for op `{}` missing from blockstore",
+                body.commit
+            ))
+        })?;
+    let target_view: View = from_canonical_bytes(&target_view_bytes)
+        .map_err(|e| Error::internal(format!("decode view: {e}")))?;
+
+    let target_commit_cid = target_view.heads.first().ok_or_else(|| {
+        Error::bad_request(format!(
+            "op `{}` has no head commit (init or ref-only op); nothing to revert",
+            body.commit
+        ))
+    })?;
+
+    // Resolve parent view and commit CID (the "before" state).
+    let (parent_view_opt, parent_commit_cid_opt): (Option<View>, Option<Cid>) =
+        match &parent_op_opt {
+            None => (None, None),
+            Some(pop) => {
+                let pv_bytes = bs
+                    .get(&pop.view)
+                    .map_err(|e| Error::internal(e.to_string()))?
+                    .ok_or_else(|| {
+                        Error::internal("view block for parent op missing from blockstore")
+                    })?;
+                let pview: View = from_canonical_bytes(&pv_bytes)
+                    .map_err(|e| Error::internal(format!("decode parent view: {e}")))?;
+                let pcid = pview.heads.first().cloned();
+                (Some(pview), pcid)
+            }
+        };
+
+    // Load both commits and compute prolly-tree diffs.
+    let target_commit_bytes = bs
+        .get(target_commit_cid)
+        .map_err(|e| Error::internal(e.to_string()))?
+        .ok_or_else(|| {
+            Error::internal(format!(
+                "commit block `{target_commit_cid}` missing from blockstore"
+            ))
+        })?;
+    let target_commit: Commit = from_canonical_bytes(&target_commit_bytes)
+        .map_err(|e| Error::internal(format!("decode commit: {e}")))?;
+
+    let (before_nodes_root, before_edges_root) = match &parent_commit_cid_opt {
+        Some(pcid) => {
+            let pc_bytes = bs
+                .get(pcid)
+                .map_err(|e| Error::internal(e.to_string()))?
+                .ok_or_else(|| {
+                    Error::internal(format!(
+                        "parent commit block `{pcid}` missing from blockstore"
+                    ))
+                })?;
+            let pc: Commit = from_canonical_bytes(&pc_bytes)
+                .map_err(|e| Error::internal(format!("decode parent commit: {e}")))?;
+            (pc.nodes.clone(), pc.edges.clone())
+        }
+        None => {
+            let empty = build_tree(&*bs, std::iter::empty())
+                .map_err(|e| Error::internal(format!("build empty tree: {e}")))?;
+            (empty.clone(), empty)
+        }
+    };
+
+    let node_changes = prolly_diff(&*bs, &before_nodes_root, &target_commit.nodes)
+        .map_err(|e| Error::internal(format!("node diff: {e}")))?;
+    let edge_changes = prolly_diff(&*bs, &before_edges_root, &target_commit.edges)
+        .map_err(|e| Error::internal(format!("edge diff: {e}")))?;
+
+    // Tombstone diff: nodes tombstoned by this op must be un-tombstoned on revert.
+    let parent_tombstones: std::collections::BTreeMap<NodeId, mnem_core::objects::Tombstone> =
+        parent_view_opt
+            .as_ref()
+            .map(|pv| pv.tombstones.clone())
+            .unwrap_or_default();
+    let tombstones_added_by_op: Vec<NodeId> = target_view
+        .tombstones
+        .keys()
+        .filter(|id| !parent_tombstones.contains_key(*id))
+        .copied()
+        .collect();
+
+    if node_changes.is_empty() && edge_changes.is_empty() && tombstones_added_by_op.is_empty() {
+        return Ok(Json(json!({
+            "schema": "mnem.v1.revert",
+            "status": "noop",
+            "message": "op made no node/edge/tombstone changes - nothing to revert",
+        })));
+    }
+
+    // BUG-4 pre-flight: verify edge endpoints are alive before we try to re-add removed edges.
+    for entry in &edge_changes {
+        if let DiffEntry::Removed { value, .. } = entry {
+            let edge_bytes = bs
+                .get(value)
+                .map_err(|e| Error::internal(e.to_string()))?
+                .ok_or_else(|| Error::internal(format!("edge block `{value}` missing")))?;
+            let edge: mnem_core::objects::Edge = from_canonical_bytes(&edge_bytes)
+                .map_err(|e| Error::internal(format!("decode edge: {e}")))?;
+            for (endpoint_id, role) in [(edge.src, "src"), (edge.dst, "dst")] {
+                let exists = r
+                    .lookup_node(&endpoint_id)
+                    .map_err(|e| Error::internal(e.to_string()))?
+                    .is_some();
+                let tombstoned = r.is_tombstoned(&endpoint_id);
+                if !exists || tombstoned {
+                    return Err(Error::bad_request(format!(
+                        "cannot revert op `{}`: edge endpoint {} ({role}) no longer exists \
+                         (deleted or tombstoned since the op was applied). \
+                         Revert the deletion first, or skip reverting this op.",
+                        body.commit, endpoint_id
+                    )));
+                }
+            }
+        }
+    }
+
+    let mut tx = r.start_transaction();
+    let mut mutations_applied: usize = 0;
+
+    for entry in &node_changes {
+        match entry {
+            DiffEntry::Added { value, .. } => {
+                let bytes = bs
+                    .get(value)
+                    .map_err(|e| Error::internal(e.to_string()))?
+                    .ok_or_else(|| Error::internal(format!("node block `{value}` missing")))?;
+                let node: Node =
+                    from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
+                if tx.base().lookup_node(&node.id).map_err(|e| Error::internal(e.to_string()))?.is_some() {
+                    tx.remove_node(node.id);
+                    mutations_applied += 1;
+                }
+            }
+            DiffEntry::Removed { value, .. } => {
+                let bytes = bs
+                    .get(value)
+                    .map_err(|e| Error::internal(e.to_string()))?
+                    .ok_or_else(|| Error::internal(format!("node block `{value}` missing")))?;
+                let node: Node =
+                    from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
+                if tx.base().lookup_node(&node.id).map_err(|e| Error::internal(e.to_string()))?.is_none() {
+                    tx.add_node(&node).map_err(|e| Error::internal(e.to_string()))?;
+                    mutations_applied += 1;
+                }
+            }
+            DiffEntry::Changed { before, .. } => {
+                let bytes = bs
+                    .get(before)
+                    .map_err(|e| Error::internal(e.to_string()))?
+                    .ok_or_else(|| Error::internal(format!("node block `{before}` missing")))?;
+                let node: Node =
+                    from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
+                let current_is_before = match tx.base().lookup_node(&node.id).map_err(|e| Error::internal(e.to_string()))? {
+                    None => false,
+                    Some(ref cur) => cur == &node,
+                };
+                if !current_is_before {
+                    tx.add_node(&node).map_err(|e| Error::internal(e.to_string()))?;
+                    mutations_applied += 1;
+                }
+            }
+        }
+    }
+
+    for entry in &edge_changes {
+        match entry {
+            DiffEntry::Added { value, .. } => {
+                let bytes = bs
+                    .get(value)
+                    .map_err(|e| Error::internal(e.to_string()))?
+                    .ok_or_else(|| Error::internal(format!("edge block `{value}` missing")))?;
+                let edge: mnem_core::objects::Edge =
+                    from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
+                if tx.base().lookup_edge(&edge.id).map_err(|e| Error::internal(e.to_string()))?.is_some() {
+                    tx.remove_edge(edge.id);
+                    mutations_applied += 1;
+                }
+            }
+            DiffEntry::Removed { value, .. } => {
+                let bytes = bs
+                    .get(value)
+                    .map_err(|e| Error::internal(e.to_string()))?
+                    .ok_or_else(|| Error::internal(format!("edge block `{value}` missing")))?;
+                let edge: mnem_core::objects::Edge =
+                    from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
+                if tx.base().lookup_edge(&edge.id).map_err(|e| Error::internal(e.to_string()))?.is_none() {
+                    tx.add_edge(&edge).map_err(|e| Error::internal(e.to_string()))?;
+                    mutations_applied += 1;
+                }
+            }
+            DiffEntry::Changed { before, .. } => {
+                let bytes = bs
+                    .get(before)
+                    .map_err(|e| Error::internal(e.to_string()))?
+                    .ok_or_else(|| Error::internal(format!("edge block `{before}` missing")))?;
+                let edge: mnem_core::objects::Edge =
+                    from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
+                let current_is_before = match tx.base().lookup_edge(&edge.id).map_err(|e| Error::internal(e.to_string()))? {
+                    None => false,
+                    Some(ref cur) => cur == &edge,
+                };
+                if !current_is_before {
+                    tx.add_edge(&edge).map_err(|e| Error::internal(e.to_string()))?;
+                    mutations_applied += 1;
+                }
+            }
+        }
+    }
+
+    // Invert tombstone changes.
+    for node_id in &tombstones_added_by_op {
+        if tx.base().is_tombstoned(node_id) {
+            tx.untombstone_node(*node_id);
+            mutations_applied += 1;
+        }
+    }
+
+    if mutations_applied == 0 {
+        return Ok(Json(json!({
+            "schema": "mnem.v1.revert",
+            "status": "noop",
+            "message": "inverse changes are all no-ops in the current tree (op may already be reverted)",
+        })));
+    }
+
+    let default_msg = format!("revert: {}", body.commit);
+    let msg = body.message.as_deref().unwrap_or(&default_msg);
+    let new_repo = tx
+        .commit(&author, msg)
+        .map_err(|e| Error::internal(format!("commit revert: {e}")))?;
+
+    let new_op_id = new_repo.op_id().to_string();
+    let new_head = new_repo.view().heads.first().map(ToString::to_string);
+
+    drop(r);
+    let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
+    *guard = new_repo;
+
+    Ok(Json(json!({
+        "schema": "mnem.v1.revert",
+        "status": "ok",
+        "reverted_op": body.commit,
+        "new_op": new_op_id,
+        "new_head": new_head,
+        "mutations_applied": mutations_applied,
+    })))
+}
+
+// ---- config helpers ----
+
+fn load_config_toml(path: &std::path::Path) -> Result<toml::Table, Error> {
+    if !path.exists() {
+        return Ok(toml::Table::new());
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| Error::internal(format!("read config.toml: {e}")))?;
+    text.parse::<toml::Table>()
+        .map_err(|e| Error::internal(format!("parse config.toml: {e}")))
+}
+
+fn save_config_toml(path: &std::path::Path, table: &toml::Table) -> Result<(), Error> {
+    let text = toml::to_string_pretty(table)
+        .map_err(|e| Error::internal(format!("serialize config.toml: {e}")))?;
+    std::fs::write(path, text)
+        .map_err(|e| Error::internal(format!("write config.toml: {e}")))
+}
+
+/// Flatten a TOML table into dotted-key string pairs.
+fn flatten_toml(prefix: &str, val: &toml::Value, out: &mut Map<String, Value>) {
+    match val {
+        toml::Value::Table(t) => {
+            for (k, v) in t {
+                let full = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
+                flatten_toml(&full, v, out);
+            }
+        }
+        other => {
+            let s = match other {
+                toml::Value::String(s) => s.clone(),
+                toml::Value::Integer(i) => i.to_string(),
+                toml::Value::Float(f) => f.to_string(),
+                toml::Value::Boolean(b) => b.to_string(),
+                _ => other.to_string(),
+            };
+            out.insert(prefix.to_string(), Value::String(s));
+        }
+    }
+}
+
+fn read_config_flat(path: &std::path::Path) -> Result<Map<String, Value>, Error> {
+    let table = load_config_toml(path)?;
+    let mut out = Map::new();
+    for (k, v) in &table {
+        flatten_toml(k, v, &mut out);
+    }
+    Ok(out)
+}
+
+/// Set a dotted key in a TOML table, creating intermediate tables as needed.
+fn set_dotted_key(table: &mut toml::Table, key: &str, value: String) -> Result<(), Error> {
+    let parts: Vec<&str> = key.splitn(2, '.').collect();
+    if parts.len() == 1 {
+        table.insert(parts[0].to_string(), toml::Value::String(value));
+        return Ok(());
+    }
+    let section = parts[0];
+    let rest = parts[1];
+    let entry = table
+        .entry(section.to_string())
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+    if let toml::Value::Table(sub) = entry {
+        set_dotted_key(sub, rest, value)
+    } else {
+        Err(Error::conflict(format!(
+            "config key {section:?} is not a table"
+        )))
+    }
+}
+
+/// Remove a dotted key from a TOML table. Returns `true` when the key existed.
+fn remove_dotted_key(table: &mut toml::Table, key: &str) -> bool {
+    let parts: Vec<&str> = key.splitn(2, '.').collect();
+    if parts.len() == 1 {
+        return table.remove(parts[0]).is_some();
+    }
+    let section = parts[0];
+    let rest = parts[1];
+    if let Some(toml::Value::Table(sub)) = table.get_mut(section) {
+        let removed = remove_dotted_key(sub, rest);
+        if sub.is_empty() {
+            table.remove(section);
+        }
+        removed
+    } else {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -3538,5 +7777,79 @@ mod tests {
     #[test]
     fn year_2100_start() {
         check(47482, 2100, 1, 1);
+    }
+}
+
+#[cfg(test)]
+mod ref_name_validation_tests {
+    use super::is_valid_ref_name;
+
+    #[test]
+    fn valid_names_accepted() {
+        assert!(is_valid_ref_name("refs/heads/main"));
+        assert!(is_valid_ref_name("refs/heads/feature-x"));
+        assert!(is_valid_ref_name("refs/tags/v1.0.0"));
+        assert!(is_valid_ref_name("refs/remotes/origin/main"));
+    }
+
+    #[test]
+    fn empty_and_whitespace_rejected() {
+        assert!(!is_valid_ref_name(""));
+        assert!(!is_valid_ref_name("   "));
+    }
+
+    #[test]
+    fn literal_head_rejected() {
+        assert!(!is_valid_ref_name("HEAD"));
+        assert!(!is_valid_ref_name("head"));
+        assert!(!is_valid_ref_name("Head"));
+    }
+
+    #[test]
+    fn double_dot_rejected() {
+        assert!(!is_valid_ref_name("refs/heads/a..b"));
+        assert!(!is_valid_ref_name("..refs/heads/main"));
+    }
+
+    #[test]
+    fn double_slash_rejected() {
+        assert!(!is_valid_ref_name("refs//heads/main"));
+    }
+
+    #[test]
+    fn backslash_rejected() {
+        assert!(!is_valid_ref_name("refs\\heads\\main"));
+    }
+
+    #[test]
+    fn at_brace_rejected() {
+        assert!(!is_valid_ref_name("refs/heads/a@{0}"));
+    }
+
+    #[test]
+    fn leading_dot_rejected() {
+        assert!(!is_valid_ref_name(".hidden"));
+    }
+
+    #[test]
+    fn trailing_dot_rejected() {
+        assert!(!is_valid_ref_name("refs/heads/main."));
+    }
+
+    #[test]
+    fn dot_lock_suffix_rejected() {
+        assert!(!is_valid_ref_name("refs/heads/main.lock"));
+    }
+
+    #[test]
+    fn control_chars_rejected() {
+        assert!(!is_valid_ref_name("refs/heads/a\x01b"));
+        assert!(!is_valid_ref_name("refs/heads/a\nb"));
+        assert!(!is_valid_ref_name("refs/heads/a\tb"));
+    }
+
+    #[test]
+    fn space_rejected() {
+        assert!(!is_valid_ref_name("refs/heads/my branch"));
     }
 }

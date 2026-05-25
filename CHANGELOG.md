@@ -4,6 +4,34 @@ All notable changes to mnem.
 
 ## Unreleased
 
+### HTTP - Breaking changes
+
+The following HTTP response fields were renamed to align with the CLI wire
+format and the rest of the HTTP API's naming conventions. Any client that
+parses these fields by name must be updated.
+
+- `POST /v1/edges`: response field `edge_id` renamed to `id`; schema string
+  changed from `mnem.v1.post-edge` to `mnem.v1.edge-created` (matches the
+  `node-created` / `node-deleted` pattern used by all other mutation responses).
+- `GET /v1/nodes/{id}/embedding`: schema string changed from
+  `mnem.v1.node_embedding` (underscore) to `mnem.v1.node-embedding` (hyphen),
+  fixing an inconsistency with every other schema string in the API.
+- `GET /v1/log`: field `op_id` renamed to `cid`; field `message` renamed to
+  `description`. Both now match `mnem log --format=json` output.
+- `GET /v1/log`: default limit changed from 50 to 20, matching the CLI default.
+  Clients that rely on the implicit default will now receive fewer entries;
+  pass `?limit=N` explicitly to control this.
+
+### HTTP - Bug fixes
+
+- `POST /v1/embed`: repo lock is now released before the embedding loop so
+  concurrent requests are not blocked during network-bound embed calls.
+- `GET /v1/retrieve` (multi-query / HyDE paths): repo lock is released before
+  LLM calls, unblocking concurrent requests during paraphrase generation.
+- `embed_text_of`: content truncation now aligns to a UTF-8 character boundary
+  (`floor_char_boundary`) instead of a raw byte offset, preventing a panic on
+  nodes whose content contains multi-byte characters near the 4096-byte cap.
+
 ## 0.1.7 - 2026-05-21
 
 ### CLI
