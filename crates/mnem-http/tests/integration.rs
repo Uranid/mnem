@@ -1431,3 +1431,40 @@ async fn query_empty_result_when_label_absent() {
     assert_eq!(j["count"], 0, "expected 0 results for absent label, got {j}");
     assert!(j["nodes"].as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+/// `where_eq=ntype=Task` must route through the Prolly label index
+/// (`.label()`) rather than `.where_prop()`. Verifies that the fast-path
+/// routing added to mirror `node_label_from_where` in the CLI handler
+/// returns the same results as an explicit `label=Task` filter.
+async fn query_where_eq_ntype_routes_to_label_index() {
+    let (app, _td) = make_app();
+
+    post_node_json(
+        &app,
+        serde_json::json!({ "label": "Task", "summary": "task one", "author": "test" }),
+    )
+    .await;
+    post_node_json(
+        &app,
+        serde_json::json!({ "label": "Fact", "summary": "a fact", "author": "test" }),
+    )
+    .await;
+
+    // `where_eq=ntype=Task` must resolve via label index, not prop scan.
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/query?where_eq=ntype%3DTask")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let j = to_json(resp.into_body()).await;
+    assert_eq!(j["count"], 1, "expected 1 Task, got {j}");
+    let node = &j["nodes"][0];
+    assert_eq!(node["label"], "Task");
+    assert_eq!(node["summary"], "task one");
+}

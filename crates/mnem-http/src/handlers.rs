@@ -1019,7 +1019,20 @@ pub(crate) async fn query(
     }
     if let Some(w) = &q.where_eq {
         let (k, v) = parse_kv(w).map_err(Error::bad_request)?;
-        qry = qry.where_prop(k, PropPredicate::Eq(v));
+        // Mirror `node_label_from_where` (mnem-cli/src/commands/mod.rs):
+        // `ntype` and `label` are index keys, not prop keys — route them
+        // through `.label()` so the Prolly label cursor is used (O(log n))
+        // instead of the full-table `.where_prop()` scan.
+        if matches!(k.as_str(), "ntype" | "label") {
+            let Ipld::String(lbl) = &v else {
+                return Err(Error::bad_request(
+                    "where_eq ntype/label expects a string value",
+                ));
+            };
+            qry = qry.label(lbl.clone());
+        } else {
+            qry = qry.where_prop(k, PropPredicate::Eq(v));
+        }
     }
     if let Some(etypes) = &q.with_outgoing {
         for etype in etypes.split(',').map(str::trim).filter(|s| !s.is_empty()) {
