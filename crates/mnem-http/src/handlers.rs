@@ -26,6 +26,7 @@ use ipld_core::ipld::Ipld;
 use mnem_core::codec::{from_canonical_bytes, json_to_ipld};
 use mnem_core::id::{EdgeId, NodeId};
 use mnem_core::index::PropPredicate;
+use mnem_core::Query as NodeQuery;
 use mnem_core::objects::{Commit, Edge, Node, Operation};
 use mnem_core::retrieve::Lane;
 use mnem_core::{HEADS_PREFIX, TAGS_PREFIX};
@@ -958,6 +959,126 @@ pub(crate) async fn retrieve(
     "dropped": result.dropped,
     "candidates_seen": result.candidates_seen,
     "score_distribution": score_dist,
+    })))
+}
+
+// ---------- GET /v1/query ----------
+//
+// Pure label/property filter scan. No embedder required.
+// Mirrors `mnem query` in the CLI: uses the `Query` engine which
+// dispatches to the Prolly index (O(log n) point lookup or label cursor)
+// rather than the retrieval pipeline.
+//
+// At least one of `label` or `where_eq` must be supplied.
+// `with_outgoing` accepts a comma-separated list of edge-type labels.
+//
+// Response: {"nodes": [...], "count": N}
+// Each node: {"id", "label", "summary", "props", "edges", "incoming_edges"}
+
+/// Query parameters for `GET /v1/query`.
+#[derive(Deserialize)]
+pub(crate) struct QueryParams {
+    /// Filter by node label (ntype). Unlike `/v1/retrieve`, this is a
+    /// pre-filter scan criterion backed by the Prolly label index — no
+    /// embedder required.
+    pub label: Option<String>,
+    /// Property equality filter as `KEY=VALUE`. VALUE is tried as JSON
+    /// first, then falls back to a raw string. When combined with `label`,
+    /// uses the indexed `(label, prop) -> value` Prolly point lookup.
+    pub where_eq: Option<String>,
+    /// Comma-separated edge-type labels to include as outgoing edges on
+    /// each result node (e.g. `with_outgoing=knows,works_at`).
+    pub with_outgoing: Option<String>,
+    /// Comma-separated edge-type labels to include as incoming edges on
+    /// each result node.
+    pub with_incoming: Option<String>,
+    /// Max results to return. Capped at `MAX_RETRIEVE_LIMIT`.
+    pub limit: Option<usize>,
+}
+
+/// `GET /v1/query` — pure label/property scan. No embedder required.
+///
+/// Mirrors `mnem query` in the CLI. At least one of `label` or `where_eq`
+/// must be supplied. Results are unranked (Prolly tree order).
+pub(crate) async fn query(
+    State(s): State<AppState>,
+    Query(q): Query<QueryParams>,
+) -> Result<Json<Value>, Error> {
+    if q.label.is_none() && q.where_eq.is_none() {
+        return Err(Error::bad_request(
+            "at least one of `label` or `where_eq` is required for /v1/query",
+        ));
+    }
+    clamp_or_reject("limit", q.limit, MAX_RETRIEVE_LIMIT)?;
+
+    let repo = s.repo.lock().map_err(|_| Error::locked())?;
+    let mut qry = NodeQuery::new(&*repo);
+
+    if let Some(l) = &q.label {
+        qry = qry.label(l.clone());
+    }
+    if let Some(w) = &q.where_eq {
+        let (k, v) = parse_kv(w).map_err(Error::bad_request)?;
+        qry = qry.where_prop(k, PropPredicate::Eq(v));
+    }
+    if let Some(etypes) = &q.with_outgoing {
+        for etype in etypes.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            qry = qry.with_outgoing(etype);
+        }
+    }
+    if let Some(etypes) = &q.with_incoming {
+        for etype in etypes.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            qry = qry.with_incoming(etype);
+        }
+    }
+    qry = qry.limit(q.limit.unwrap_or(20));
+
+    let hits = qry.execute()?;
+
+    let nodes: Vec<Value> = hits
+        .iter()
+        .map(|h| {
+            let mut props_map = Map::new();
+            for (k, v) in &h.node.props {
+                props_map.insert(k.clone(), ipld_to_json(v));
+            }
+            let edges: Vec<Value> = h
+                .edges
+                .iter()
+                .map(|e| {
+                    json!({
+                        "etype": e.etype,
+                        "src": e.src.to_uuid_string(),
+                        "dst": e.dst.to_uuid_string(),
+                    })
+                })
+                .collect();
+            let incoming_edges: Vec<Value> = h
+                .incoming_edges
+                .iter()
+                .map(|e| {
+                    json!({
+                        "etype": e.etype,
+                        "src": e.src.to_uuid_string(),
+                        "dst": e.dst.to_uuid_string(),
+                    })
+                })
+                .collect();
+            json!({
+                "id": h.node.id.to_uuid_string(),
+                "label": h.node.ntype,
+                "summary": h.node.summary,
+                "props": Value::Object(props_map),
+                "edges": edges,
+                "incoming_edges": incoming_edges,
+                "edges_truncated": h.edges_truncated,
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "nodes": nodes,
+        "count": nodes.len(),
     })))
 }
 

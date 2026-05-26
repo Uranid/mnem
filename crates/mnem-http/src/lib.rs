@@ -13,6 +13,8 @@
 //! - `GET /v1/retrieve?text=&budget=&limit=` - dense vector retrieval
 //!   (embedder required when `text` is set). Returns rendered items
 //!   plus budget metadata.
+//! - `GET /v1/query?label=&where_eq=&limit=` - pure label/property scan.
+//!   No embedder required. At least one of `label` or `where_eq` must be set.
 //!
 //! Tokio lives ONLY in this crate. `mnem-core` stays WASM-clean.
 //! This crate compiles to a single binary + library pair.
@@ -153,6 +155,7 @@ pub fn route_table(metrics_enabled: bool) -> Vec<(&'static str, &'static str, &'
         ),
         ("POST", "/v1/nodes/{id}/tombstone", "tombstone a node"),
         ("GET/POST", "/v1/retrieve", "agent-facing retrieval"),
+        ("GET", "/v1/query", "pure label/property filter scan (no embedder required)"),
         (
             "POST",
             "/v1/ingest",
@@ -320,6 +323,7 @@ pub fn app_with_options(repo_dir: &Path, opts: AppOptions) -> Result<Router> {
             "/v1/retrieve",
             get(handlers::retrieve).post(handlers::retrieve_full),
         )
+        .route("/v1/query", get(handlers::query))
         .route(
             "/v1/branches",
             get(handlers::get_branches).post(handlers::post_branch),
