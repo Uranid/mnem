@@ -1243,3 +1243,228 @@ async fn long_summary_node_round_trips_without_truncation() {
         "retrieved summary bytes must be byte-identical to the original"
     );
 }
+
+// ---------- GET /v1/query ----------
+
+async fn post_node_json(app: &axum::Router, body: serde_json::Value) -> Value {
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/nodes")
+                .header("Content-Type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "post_node_json failed");
+    to_json(resp.into_body()).await
+}
+
+#[tokio::test]
+async fn query_requires_label_or_where_eq() {
+    let (app, _td) = make_app();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/query")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let j = to_json(resp.into_body()).await;
+    assert!(
+        j["error"].as_str().unwrap().contains("label"),
+        "error should mention `label`: {j}"
+    );
+}
+
+#[tokio::test]
+async fn query_by_label_returns_matching_nodes() {
+    let (app, _td) = make_app();
+
+    // Commit two nodes with different labels.
+    post_node_json(
+        &app,
+        serde_json::json!({ "label": "Task", "summary": "write tests", "author": "test" }),
+    )
+    .await;
+    post_node_json(
+        &app,
+        serde_json::json!({ "label": "Fact", "summary": "sky is blue", "author": "test" }),
+    )
+    .await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/query?label=Task")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let j = to_json(resp.into_body()).await;
+    let nodes = j["nodes"].as_array().unwrap();
+    assert_eq!(j["count"], 1, "expected exactly 1 Task node, got {j}");
+    assert_eq!(nodes[0]["label"], "Task");
+    assert_eq!(nodes[0]["summary"], "write tests");
+}
+
+#[tokio::test]
+async fn query_by_where_eq_returns_matching_nodes() {
+    let (app, _td) = make_app();
+
+    post_node_json(
+        &app,
+        serde_json::json!({
+            "label": "Task", "summary": "active task",
+            "props": { "status": "active" }, "author": "test"
+        }),
+    )
+    .await;
+    post_node_json(
+        &app,
+        serde_json::json!({
+            "label": "Task", "summary": "done task",
+            "props": { "status": "done" }, "author": "test"
+        }),
+    )
+    .await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/query?where_eq=status%3Dactive")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let j = to_json(resp.into_body()).await;
+    assert_eq!(j["count"], 1, "expected exactly 1 active node, got {j}");
+    assert_eq!(j["nodes"][0]["summary"], "active task");
+}
+
+#[tokio::test]
+async fn query_label_and_where_eq_combined() {
+    let (app, _td) = make_app();
+
+    post_node_json(
+        &app,
+        serde_json::json!({
+            "label": "Task", "summary": "task active",
+            "props": { "status": "active" }, "author": "test"
+        }),
+    )
+    .await;
+    post_node_json(
+        &app,
+        serde_json::json!({
+            "label": "Fact", "summary": "fact active",
+            "props": { "status": "active" }, "author": "test"
+        }),
+    )
+    .await;
+
+    // Combined: label=Task AND where_eq=status=active — should return only the Task.
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/query?label=Task&where_eq=status%3Dactive")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let j = to_json(resp.into_body()).await;
+    assert_eq!(j["count"], 1, "expected exactly 1 Task+active node, got {j}");
+    assert_eq!(j["nodes"][0]["label"], "Task");
+}
+
+#[tokio::test]
+async fn query_rejects_oversized_limit() {
+    let (app, _td) = make_app();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/query?label=Task&limit=99999999")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let j = to_json(resp.into_body()).await;
+    let err = j["error"].as_str().unwrap();
+    assert!(err.contains("limit"), "error must name the knob: {err}");
+}
+
+#[tokio::test]
+async fn query_empty_result_when_label_absent() {
+    let (app, _td) = make_app();
+
+    post_node_json(
+        &app,
+        serde_json::json!({ "label": "Fact", "summary": "a fact", "author": "test" }),
+    )
+    .await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/query?label=Task")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let j = to_json(resp.into_body()).await;
+    assert_eq!(j["count"], 0, "expected 0 results for absent label, got {j}");
+    assert!(j["nodes"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+/// `where_eq=ntype=Task` must route through the Prolly label index
+/// (`.label()`) rather than `.where_prop()`. Verifies that the fast-path
+/// routing added to mirror `node_label_from_where` in the CLI handler
+/// returns the same results as an explicit `label=Task` filter.
+async fn query_where_eq_ntype_routes_to_label_index() {
+    let (app, _td) = make_app();
+
+    post_node_json(
+        &app,
+        serde_json::json!({ "label": "Task", "summary": "task one", "author": "test" }),
+    )
+    .await;
+    post_node_json(
+        &app,
+        serde_json::json!({ "label": "Fact", "summary": "a fact", "author": "test" }),
+    )
+    .await;
+
+    // `where_eq=ntype=Task` must resolve via label index, not prop scan.
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/query?where_eq=ntype%3DTask")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let j = to_json(resp.into_body()).await;
+    assert_eq!(j["count"], 1, "expected 1 Task, got {j}");
+    let node = &j["nodes"][0];
+    assert_eq!(node["label"], "Task");
+    assert_eq!(node["summary"], "task one");
+}
