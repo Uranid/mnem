@@ -47,7 +47,7 @@ tracing              = { workspace = true }
 # Deterministic grapheme / word / sentence segmentation over arbitrary
 # Unicode (covers the 99% of real-world ingest text that the crude
 # split_whitespace / `char::is_alphabetic` path mis-segments).
-unicode-segmentation = "1.12"
+unicode-segmentation = "1.13"
 
 [dev-dependencies]
 # Property-based determinism test: identical input across two runs must
