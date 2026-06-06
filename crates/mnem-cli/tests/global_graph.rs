@@ -72,9 +72,13 @@ fn global_add_labeled_node(global_root: &Path, summary: &str, label: &str) -> St
     let out = mnem_global(
         global_root,
         &[
-            "global", "add", "node",
-            "--summary", summary,
-            "--label", label,
+            "global",
+            "add",
+            "node",
+            "--summary",
+            summary,
+            "--label",
+            label,
             "--no-embed",
         ],
     )
@@ -154,9 +158,18 @@ fn global_stats_on_fresh_init() {
         stdout.contains("commit="),
         "stats must print 'commit=<cid>' in the one-liner, got:\n{stdout}"
     );
-    assert!(stdout.contains("content="), "stats must print 'content=...' in the one-liner, got:\n{stdout}");
-    assert!(stdout.contains("edges="), "stats must print 'edges=...' in the one-liner, got:\n{stdout}");
-    assert!(stdout.contains("labels="), "stats must print 'labels=...' in the one-liner, got:\n{stdout}");
+    assert!(
+        stdout.contains("content="),
+        "stats must print 'content=...' in the one-liner, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("edges="),
+        "stats must print 'edges=...' in the one-liner, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("labels="),
+        "stats must print 'labels=...' in the one-liner, got:\n{stdout}"
+    );
 }
 
 /// Adding a labeled node must increment the `labels=N` counter in `mnem global stats`.
@@ -220,10 +233,15 @@ fn global_stats_edges_increments_after_edge() {
     mnem_global(
         dir.path(),
         &[
-            "global", "add", "edge",
-            "--from", &src,
-            "--to", &dst,
-            "--label", "refs_test_link",
+            "global",
+            "add",
+            "edge",
+            "--from",
+            &src,
+            "--to",
+            &dst,
+            "--label",
+            "refs_test_link",
         ],
     )
     .assert()
@@ -421,7 +439,11 @@ fn global_tombstone_nonexistent_uuid_exits_nonzero() {
     init_global(dir.path());
     mnem_global(
         dir.path(),
-        &["global", "tombstone", "00000000-0000-7000-8000-000000000099"],
+        &[
+            "global",
+            "tombstone",
+            "00000000-0000-7000-8000-000000000099",
+        ],
     )
     .assert()
     .failure();
@@ -493,8 +515,10 @@ fn global_tombstoned_node_hidden_from_retrieve() {
     let before_out = mnem_global(
         dir.path(),
         &[
-            "global", "retrieve",
-            "--where", "ntype=TombstoneRetrieveLabel",
+            "global",
+            "retrieve",
+            "--where",
+            "ntype=TombstoneRetrieveLabel",
             "--no-vector",
         ],
     )
@@ -519,8 +543,10 @@ fn global_tombstoned_node_hidden_from_retrieve() {
     let after_out = mnem_global(
         dir.path(),
         &[
-            "global", "retrieve",
-            "--where", "ntype=TombstoneRetrieveLabel",
+            "global",
+            "retrieve",
+            "--where",
+            "ntype=TombstoneRetrieveLabel",
             "--no-vector",
         ],
     )
@@ -632,18 +658,16 @@ fn global_deleted_node_hidden_from_retrieve() {
     let dir = TempDir::new().unwrap();
     init_global(dir.path());
 
-    let uuid = global_add_labeled_node(
-        dir.path(),
-        "delete-retrieve-check",
-        "DeleteRetrieveLabel",
-    );
+    let uuid = global_add_labeled_node(dir.path(), "delete-retrieve-check", "DeleteRetrieveLabel");
 
     // Before delete: retrieve must return the node.
     let before_out = mnem_global(
         dir.path(),
         &[
-            "global", "retrieve",
-            "--where", "ntype=DeleteRetrieveLabel",
+            "global",
+            "retrieve",
+            "--where",
+            "ntype=DeleteRetrieveLabel",
             "--no-vector",
         ],
     )
@@ -668,8 +692,10 @@ fn global_deleted_node_hidden_from_retrieve() {
     let after_out = mnem_global(
         dir.path(),
         &[
-            "global", "retrieve",
-            "--where", "ntype=DeleteRetrieveLabel",
+            "global",
+            "retrieve",
+            "--where",
+            "ntype=DeleteRetrieveLabel",
             "--no-vector",
         ],
     )
@@ -745,10 +771,15 @@ fn global_add_edge_nonexistent_uuid_exits_nonzero() {
     mnem_global(
         dir.path(),
         &[
-            "global", "add", "edge",
-            "--from", "00000000-0000-7000-8000-000000000099",
-            "--to", &existing,
-            "--label", "ghost_link",
+            "global",
+            "add",
+            "edge",
+            "--from",
+            "00000000-0000-7000-8000-000000000099",
+            "--to",
+            &existing,
+            "--label",
+            "ghost_link",
         ],
     )
     .assert()
@@ -767,10 +798,15 @@ fn global_add_edge_bad_dst_uuid_exits_nonzero() {
     mnem_global(
         dir.path(),
         &[
-            "global", "add", "edge",
-            "--from", &existing,
-            "--to", "00000000-0000-7000-8000-000000000099",
-            "--label", "ghost_link",
+            "global",
+            "add",
+            "edge",
+            "--from",
+            &existing,
+            "--to",
+            "00000000-0000-7000-8000-000000000099",
+            "--label",
+            "ghost_link",
         ],
     )
     .assert()
@@ -866,10 +902,12 @@ fn global_query_filters_by_label() {
 
     let uuid = global_add_labeled_node(dir.path(), "query-label-test", "FactQuery");
 
-    let query_out =
-        mnem_global(dir.path(), &["global", "query", "--where", "ntype=FactQuery"])
-            .assert()
-            .success();
+    let query_out = mnem_global(
+        dir.path(),
+        &["global", "query", "--where", "ntype=FactQuery"],
+    )
+    .assert()
+    .success();
     let query_stdout = String::from_utf8_lossy(&query_out.get_output().stdout).to_string();
     assert!(
         query_stdout.contains("1 hit(s)"),
@@ -912,9 +950,12 @@ fn global_query_two_nodes_same_label() {
     let uuid1 = global_add_labeled_node(dir.path(), "multi-query-a", "MultiQueryLabel");
     let uuid2 = global_add_labeled_node(dir.path(), "multi-query-b", "MultiQueryLabel");
 
-    let out = mnem_global(dir.path(), &["global", "query", "--where", "ntype=MultiQueryLabel"])
-        .assert()
-        .success();
+    let out = mnem_global(
+        dir.path(),
+        &["global", "query", "--where", "ntype=MultiQueryLabel"],
+    )
+    .assert()
+    .success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(
         stdout.contains("2 hit(s)"),
@@ -940,11 +981,7 @@ fn global_retrieve_returns_matching_node() {
     let dir = TempDir::new().unwrap();
     init_global(dir.path());
 
-    let uuid = global_add_labeled_node(
-        dir.path(),
-        "retrieve-target-unique",
-        "GlobalRetrieveTest",
-    );
+    let uuid = global_add_labeled_node(dir.path(), "retrieve-target-unique", "GlobalRetrieveTest");
 
     // Retrieve by property filter; --no-vector skips the embedder so no
     // Ollama/OpenAI connection is required in the test environment.
@@ -981,8 +1018,10 @@ fn global_retrieve_zero_hits_for_unknown_label() {
     let out = mnem_global(
         dir.path(),
         &[
-            "global", "retrieve",
-            "--where", "ntype=LabelThatNeverExistsInRetrieve77",
+            "global",
+            "retrieve",
+            "--where",
+            "ntype=LabelThatNeverExistsInRetrieve77",
             "--no-vector",
         ],
     )
@@ -1008,7 +1047,8 @@ fn global_retrieve_text_query_returns_matching_node() {
     let out = mnem_global(
         dir.path(),
         &[
-            "global", "retrieve",
+            "global",
+            "retrieve",
             "unique-bm25-search-target-xyz",
             "--no-vector",
         ],

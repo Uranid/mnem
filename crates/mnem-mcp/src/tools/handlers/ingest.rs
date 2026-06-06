@@ -287,4 +287,3 @@ fn embed_ingest_nodes(
 
     count
 }
-

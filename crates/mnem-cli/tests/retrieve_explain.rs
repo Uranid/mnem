@@ -63,9 +63,12 @@ fn mnem(repo: &Path, args: &[&str]) -> Command {
 fn setup_repo_with_node(summary: &str) -> (TempDir, String) {
     let dir = TempDir::new().expect("tempdir");
     mnem(dir.path(), &["init"]).assert().success();
-    let out = mnem(dir.path(), &["add", "node", "-s", summary, "--label", "Fact"])
-        .output()
-        .expect("add node");
+    let out = mnem(
+        dir.path(),
+        &["add", "node", "-s", summary, "--label", "Fact"],
+    )
+    .output()
+    .expect("add node");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let uuid = stdout
         .lines()
@@ -131,9 +134,12 @@ fn no_explain_omits_lane_scores() {
 #[test]
 fn explain_no_lanes_without_vector_ranker() {
     let (dir, _) = setup_repo_with_node("Carol leads the product team");
-    let output = mnem(dir.path(), &["retrieve", "--explain", "--no-vector", "Carol"])
-        .output()
-        .expect("retrieve ran");
+    let output = mnem(
+        dir.path(),
+        &["retrieve", "--explain", "--no-vector", "Carol"],
+    )
+    .output()
+    .expect("retrieve ran");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -158,9 +164,9 @@ fn explain_lane_line_precedes_rendered_content() {
         .find("lanes: vector=")
         .unwrap_or_else(|| panic!("expected 'lanes: vector=' in stdout:\n{stdout}"));
     // Anchor on `summary:` which is always present in rendered output.
-    let summary_pos = stdout
-        .find("summary: Diana")
-        .unwrap_or_else(|| panic!("expected 'summary: Diana' in rendered content; stdout:\n{stdout}"));
+    let summary_pos = stdout.find("summary: Diana").unwrap_or_else(|| {
+        panic!("expected 'summary: Diana' in rendered content; stdout:\n{stdout}")
+    });
 
     assert!(
         lanes_pos < summary_pos,
@@ -194,7 +200,10 @@ fn explain_lane_score_format_is_valid() {
                 let score: f32 = score_str.parse().unwrap_or_else(|_| {
                     panic!("lane score '{score_str}' is not a valid f32 in: {stdout}")
                 });
-                assert!(score.is_finite(), "lane score must be finite, got {score} in: {stdout}");
+                assert!(
+                    score.is_finite(),
+                    "lane score must be finite, got {score} in: {stdout}"
+                );
                 // Verify exactly 4 decimal places (format!("{:.4}", score)).
                 let decimal_part = score_str.split('.').nth(1).unwrap_or_else(|| {
                     panic!("lane score '{score_str}' has no decimal point in: {stdout}")
@@ -202,13 +211,16 @@ fn explain_lane_score_format_is_valid() {
                 assert_eq!(
                     decimal_part.len(),
                     4,
-                    "lane score '{score_str}' must have exactly 4 decimal digits; got {}"
-                    , decimal_part.len()
+                    "lane score '{score_str}' must have exactly 4 decimal digits; got {}",
+                    decimal_part.len()
                 );
             }
         }
     }
-    assert!(found_lanes_line, "no 'lanes:' line found at all in stdout:\n{stdout}");
+    assert!(
+        found_lanes_line,
+        "no 'lanes:' line found at all in stdout:\n{stdout}"
+    );
 }
 
 /// When multiple items are returned, every item must have its own `lanes:` line.
@@ -217,10 +229,32 @@ fn explain_lane_score_format_is_valid() {
 fn explain_all_items_get_lane_scores() {
     let dir = TempDir::new().expect("tempdir");
     mnem(dir.path(), &["init"]).assert().success();
-    mnem(dir.path(), &["add", "node", "-s", "Frank is a backend engineer at CorpA", "--label", "Fact"])
-        .assert().success();
-    mnem(dir.path(), &["add", "node", "-s", "Grace is a frontend engineer at CorpB", "--label", "Fact"])
-        .assert().success();
+    mnem(
+        dir.path(),
+        &[
+            "add",
+            "node",
+            "-s",
+            "Frank is a backend engineer at CorpA",
+            "--label",
+            "Fact",
+        ],
+    )
+    .assert()
+    .success();
+    mnem(
+        dir.path(),
+        &[
+            "add",
+            "node",
+            "-s",
+            "Grace is a frontend engineer at CorpB",
+            "--label",
+            "Fact",
+        ],
+    )
+    .assert()
+    .success();
 
     let output = mnem(dir.path(), &["retrieve", "--explain", "engineer"])
         .env_remove("MNEM_DISABLE_MOCK_FALLBACK")
@@ -231,10 +265,16 @@ fn explain_all_items_get_lane_scores() {
 
     // Count items returned.
     let item_count = stdout.lines().filter(|l| l.starts_with("---")).count();
-    assert!(item_count >= 2, "expected at least 2 items; stdout:\n{stdout}");
+    assert!(
+        item_count >= 2,
+        "expected at least 2 items; stdout:\n{stdout}"
+    );
 
     // Count lanes lines - must match item count.
-    let lanes_count = stdout.lines().filter(|l| l.trim().starts_with("lanes:")).count();
+    let lanes_count = stdout
+        .lines()
+        .filter(|l| l.trim().starts_with("lanes:"))
+        .count();
     assert_eq!(
         lanes_count, item_count,
         "every item must have a 'lanes:' line; found {lanes_count} lanes lines for {item_count} items; stdout:\n{stdout}"
@@ -249,7 +289,13 @@ fn explain_empty_result_no_lanes_line() {
     // (there are no nodes matching the prop filter).
     let output = mnem(
         dir.path(),
-        &["retrieve", "--explain", "--no-vector", "--where", "name=Nonexistent"],
+        &[
+            "retrieve",
+            "--explain",
+            "--no-vector",
+            "--where",
+            "name=Nonexistent",
+        ],
     )
     .output()
     .expect("retrieve ran");
@@ -274,29 +320,65 @@ fn explain_graph_expand_shows_graph_expand_lane() {
     mnem(dir.path(), &["init"]).assert().success();
 
     // Node A: seed (matched by vector search).
-    let out_a = mnem(dir.path(), &["add", "node", "-s", "Ivy is the lead architect", "--label", "Fact"])
-        .output()
-        .expect("add node A");
+    let out_a = mnem(
+        dir.path(),
+        &[
+            "add",
+            "node",
+            "-s",
+            "Ivy is the lead architect",
+            "--label",
+            "Fact",
+        ],
+    )
+    .output()
+    .expect("add node A");
     let uuid_a = parse_uuid(&out_a);
 
     // Node B: neighbor (reached via graph expand from A).
-    let out_b = mnem(dir.path(), &["add", "node", "-s", "Jake reports to the lead architect", "--label", "Fact"])
-        .output()
-        .expect("add node B");
+    let out_b = mnem(
+        dir.path(),
+        &[
+            "add",
+            "node",
+            "-s",
+            "Jake reports to the lead architect",
+            "--label",
+            "Fact",
+        ],
+    )
+    .output()
+    .expect("add node B");
     let uuid_b = parse_uuid(&out_b);
 
     // Add a directed edge A → B.
-    mnem(dir.path(), &["add", "edge", "--from", &uuid_a, "--to", &uuid_b, "--label", "manages"])
-        .assert()
-        .success();
+    mnem(
+        dir.path(),
+        &[
+            "add", "edge", "--from", &uuid_a, "--to", &uuid_b, "--label", "manages",
+        ],
+    )
+    .assert()
+    .success();
 
     // Retrieve with graph expand; mock vector fires as the seed ranker.
     // --vector-cap 1 forces only the top-1 ANN result (Ivy) into prefetched so
     // Jake is NOT in the initial seen set and gets discovered via graph expansion.
-    let output = mnem(dir.path(), &["retrieve", "--explain", "--graph-expand", "20", "--vector-cap", "1", "architect"])
-        .env_remove("MNEM_DISABLE_MOCK_FALLBACK")
-        .output()
-        .expect("retrieve ran");
+    let output = mnem(
+        dir.path(),
+        &[
+            "retrieve",
+            "--explain",
+            "--graph-expand",
+            "20",
+            "--vector-cap",
+            "1",
+            "architect",
+        ],
+    )
+    .env_remove("MNEM_DISABLE_MOCK_FALLBACK")
+    .output()
+    .expect("retrieve ran");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -337,10 +419,13 @@ fn explain_with_multi_query_no_llm_falls_back() {
     let (dir, _) = setup_repo_with_node("Ivan is a principal engineer at MegaCorp");
     // Provide N=4 explicitly after --multi-query to avoid clap trying to parse
     // --explain or the query as the optional N value.
-    let output = mnem(dir.path(), &["retrieve", "--multi-query", "4", "--explain", "Ivan"])
-        .env_remove("MNEM_DISABLE_MOCK_FALLBACK")
-        .output()
-        .expect("retrieve ran");
+    let output = mnem(
+        dir.path(),
+        &["retrieve", "--multi-query", "4", "--explain", "Ivan"],
+    )
+    .env_remove("MNEM_DISABLE_MOCK_FALLBACK")
+    .output()
+    .expect("retrieve ran");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);

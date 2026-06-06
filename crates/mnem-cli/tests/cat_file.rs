@@ -52,9 +52,18 @@ fn setup_with_node(dir: &TempDir) -> String {
     mnem(dir.path(), &["init", dir.path().to_str().unwrap()])
         .assert()
         .success();
-    mnem(dir.path(), &["add", "node", "--summary", "cat-file test node", "--no-embed"])
-        .assert()
-        .success();
+    mnem(
+        dir.path(),
+        &[
+            "add",
+            "node",
+            "--summary",
+            "cat-file test node",
+            "--no-embed",
+        ],
+    )
+    .assert()
+    .success();
     current_op_cid(dir.path())
 }
 
@@ -88,9 +97,8 @@ fn head_commit_cid_from_op(repo: &Path, op_cid: &str) -> Option<String> {
     let view_out = mnem(repo, &["cat-file", &view_cid, "--json"])
         .assert()
         .success();
-    let view_json: serde_json::Value =
-        serde_json::from_slice(&view_out.get_output().stdout)
-            .expect("view --json must be valid JSON");
+    let view_json: serde_json::Value = serde_json::from_slice(&view_out.get_output().stdout)
+        .expect("view --json must be valid JSON");
 
     // View: { "heads": [{"/": "<commit-cid>"}, ...], ... }
     view_json
@@ -242,9 +250,7 @@ fn cat_file_raw_has_no_trailing_newline_json_does() {
     let op_cid = setup_with_node(&dir);
 
     // Raw mode: no trailing newline.
-    let raw_out = mnem(dir.path(), &["cat-file", &op_cid])
-        .assert()
-        .success();
+    let raw_out = mnem(dir.path(), &["cat-file", &op_cid]).assert().success();
     let raw_bytes = &raw_out.get_output().stdout;
     assert!(
         !raw_bytes.is_empty(),
@@ -328,8 +334,8 @@ fn cat_file_json_is_parseable_object_with_string_kind() {
         .success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
 
-    let parsed: serde_json::Value = serde_json::from_str(stdout.trim())
-        .expect("cat-file --json must produce parseable JSON");
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("cat-file --json must produce parseable JSON");
 
     assert!(
         parsed.is_object(),

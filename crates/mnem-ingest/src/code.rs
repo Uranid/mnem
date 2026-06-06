@@ -55,10 +55,12 @@ pub fn parse_code(source: &str, lang: CodeLanguage) -> Result<Vec<Section>, Erro
         }]);
     }
 
-    let tree = parser.parse(source, None).ok_or_else(|| Error::ParseFailed {
-        what: format!("code:{}", lang.as_str()),
-        detail: "tree-sitter parse returned None (input may be empty or cancelled)".into(),
-    })?;
+    let tree = parser
+        .parse(source, None)
+        .ok_or_else(|| Error::ParseFailed {
+            what: format!("code:{}", lang.as_str()),
+            detail: "tree-sitter parse returned None (input may be empty or cancelled)".into(),
+        })?;
 
     let query_src = item_query(lang);
     let query = match Query::new(&ts_lang, query_src) {
@@ -248,7 +250,10 @@ fn main() {
             sections.len(),
             sections
         );
-        let headings: Vec<_> = sections.iter().filter_map(|s| s.heading.as_deref()).collect();
+        let headings: Vec<_> = sections
+            .iter()
+            .filter_map(|s| s.heading.as_deref())
+            .collect();
         assert!(
             headings.iter().any(|h| h.starts_with("fn:add")),
             "missing fn:add in {headings:?}"
@@ -270,7 +275,10 @@ def standalone():
     return 42
 "#;
         let sections = parse_code(src, CodeLanguage::Python).unwrap();
-        let headings: Vec<_> = sections.iter().filter_map(|s| s.heading.as_deref()).collect();
+        let headings: Vec<_> = sections
+            .iter()
+            .filter_map(|s| s.heading.as_deref())
+            .collect();
         assert!(
             headings.iter().any(|h| h.starts_with("class:Animal")),
             "missing class:Animal in {headings:?}"

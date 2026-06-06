@@ -72,9 +72,8 @@ fn current_commit_cid(repo: &Path) -> String {
     let view_out = mnem(repo, &["cat-file", &view_cid, "--json"])
         .assert()
         .success();
-    let view_json: serde_json::Value =
-        serde_json::from_slice(&view_out.get_output().stdout)
-            .expect("view --json must be valid JSON");
+    let view_json: serde_json::Value = serde_json::from_slice(&view_out.get_output().stdout)
+        .expect("view --json must be valid JSON");
     view_json
         .get("heads")
         .and_then(|h| h.as_array())
@@ -124,7 +123,15 @@ fn blame_lists_incoming_edges_with_src() {
 
     let a_out = mnem(
         dir.path(),
-        &["add", "node", "--summary", "target", "--label", "doc", "--no-embed"],
+        &[
+            "add",
+            "node",
+            "--summary",
+            "target",
+            "--label",
+            "doc",
+            "--no-embed",
+        ],
     )
     .assert()
     .success();
@@ -132,7 +139,15 @@ fn blame_lists_incoming_edges_with_src() {
 
     let b_out = mnem(
         dir.path(),
-        &["add", "node", "--summary", "author", "--label", "person", "--no-embed"],
+        &[
+            "add",
+            "node",
+            "--summary",
+            "author",
+            "--label",
+            "person",
+            "--no-embed",
+        ],
     )
     .assert()
     .success();
@@ -140,7 +155,9 @@ fn blame_lists_incoming_edges_with_src() {
 
     mnem(
         dir.path(),
-        &["add", "edge", "--from", &b_id, "--to", &a_id, "--label", "authored"],
+        &[
+            "add", "edge", "--from", &b_id, "--to", &a_id, "--label", "authored",
+        ],
     )
     .assert()
     .success();
@@ -168,31 +185,54 @@ fn blame_header_row_contains_expected_columns() {
         .assert()
         .success();
 
-    let a_out = mnem(dir.path(), &["add", "node", "--summary", "target", "--no-embed"])
-        .assert()
-        .success();
+    let a_out = mnem(
+        dir.path(),
+        &["add", "node", "--summary", "target", "--no-embed"],
+    )
+    .assert()
+    .success();
     let a_id = extract_node_id(&String::from_utf8_lossy(&a_out.get_output().stdout));
 
-    let b_out = mnem(dir.path(), &["add", "node", "--summary", "author", "--no-embed"])
-        .assert()
-        .success();
+    let b_out = mnem(
+        dir.path(),
+        &["add", "node", "--summary", "author", "--no-embed"],
+    )
+    .assert()
+    .success();
     let b_id = extract_node_id(&String::from_utf8_lossy(&b_out.get_output().stdout));
 
     mnem(
         dir.path(),
-        &["add", "edge", "--from", &b_id, "--to", &a_id, "--label", "wrote"],
+        &[
+            "add", "edge", "--from", &b_id, "--to", &a_id, "--label", "wrote",
+        ],
     )
     .assert()
     .success();
 
     let out = mnem(dir.path(), &["blame", &a_id]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
-    let header = stdout.lines().next().expect("blame must emit at least one line");
+    let header = stdout
+        .lines()
+        .next()
+        .expect("blame must emit at least one line");
 
-    assert!(header.contains("edge_id"), "header must contain 'edge_id'; got: {header}");
-    assert!(header.contains("etype"), "header must contain 'etype'; got: {header}");
-    assert!(header.contains("src"), "header must contain 'src'; got: {header}");
-    assert!(header.contains("in_commit"), "header must contain 'in_commit'; got: {header}");
+    assert!(
+        header.contains("edge_id"),
+        "header must contain 'edge_id'; got: {header}"
+    );
+    assert!(
+        header.contains("etype"),
+        "header must contain 'etype'; got: {header}"
+    );
+    assert!(
+        header.contains("src"),
+        "header must contain 'src'; got: {header}"
+    );
+    assert!(
+        header.contains("in_commit"),
+        "header must contain 'in_commit'; got: {header}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -206,30 +246,43 @@ fn blame_etype_filter_restricts_to_matching_edges() {
         .assert()
         .success();
 
-    let a_out = mnem(dir.path(), &["add", "node", "--summary", "target-a", "--no-embed"])
-        .assert()
-        .success();
+    let a_out = mnem(
+        dir.path(),
+        &["add", "node", "--summary", "target-a", "--no-embed"],
+    )
+    .assert()
+    .success();
     let a_id = extract_node_id(&String::from_utf8_lossy(&a_out.get_output().stdout));
 
-    let b_out = mnem(dir.path(), &["add", "node", "--summary", "author-b", "--no-embed"])
-        .assert()
-        .success();
+    let b_out = mnem(
+        dir.path(),
+        &["add", "node", "--summary", "author-b", "--no-embed"],
+    )
+    .assert()
+    .success();
     let b_id = extract_node_id(&String::from_utf8_lossy(&b_out.get_output().stdout));
 
-    let c_out = mnem(dir.path(), &["add", "node", "--summary", "citer-c", "--no-embed"])
-        .assert()
-        .success();
+    let c_out = mnem(
+        dir.path(),
+        &["add", "node", "--summary", "citer-c", "--no-embed"],
+    )
+    .assert()
+    .success();
     let c_id = extract_node_id(&String::from_utf8_lossy(&c_out.get_output().stdout));
 
     mnem(
         dir.path(),
-        &["add", "edge", "--from", &b_id, "--to", &a_id, "--label", "authored"],
+        &[
+            "add", "edge", "--from", &b_id, "--to", &a_id, "--label", "authored",
+        ],
     )
     .assert()
     .success();
     mnem(
         dir.path(),
-        &["add", "edge", "--from", &c_id, "--to", &a_id, "--label", "cites"],
+        &[
+            "add", "edge", "--from", &c_id, "--to", &a_id, "--label", "cites",
+        ],
     )
     .assert()
     .success();
@@ -247,8 +300,14 @@ fn blame_etype_filter_restricts_to_matching_edges() {
         !out.contains(&c_id),
         "authored-filter output must NOT include src C ({c_id}); got: {out}"
     );
-    assert!(out.contains("authored"), "filtered output must show 'authored'; got: {out}");
-    assert!(!out.contains("cites"), "filtered output must NOT show 'cites'; got: {out}");
+    assert!(
+        out.contains("authored"),
+        "filtered output must show 'authored'; got: {out}"
+    );
+    assert!(
+        !out.contains("cites"),
+        "filtered output must NOT show 'cites'; got: {out}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -262,29 +321,40 @@ fn blame_first_writer_shows_introducing_commit() {
         .assert()
         .success();
 
-    let a_out = mnem(dir.path(), &["add", "node", "--summary", "target-fw", "--no-embed"])
-        .assert()
-        .success();
+    let a_out = mnem(
+        dir.path(),
+        &["add", "node", "--summary", "target-fw", "--no-embed"],
+    )
+    .assert()
+    .success();
     let a_id = extract_node_id(&String::from_utf8_lossy(&a_out.get_output().stdout));
 
-    let b_out = mnem(dir.path(), &["add", "node", "--summary", "author-fw", "--no-embed"])
-        .assert()
-        .success();
+    let b_out = mnem(
+        dir.path(),
+        &["add", "node", "--summary", "author-fw", "--no-embed"],
+    )
+    .assert()
+    .success();
     let b_id = extract_node_id(&String::from_utf8_lossy(&b_out.get_output().stdout));
 
     // op3: add edge B->A. Capture commit CID immediately after.
     mnem(
         dir.path(),
-        &["add", "edge", "--from", &b_id, "--to", &a_id, "--label", "authored"],
+        &[
+            "add", "edge", "--from", &b_id, "--to", &a_id, "--label", "authored",
+        ],
     )
     .assert()
     .success();
     let commit_at_edge = current_commit_cid(dir.path());
 
     // op4: advance HEAD without touching the edge.
-    mnem(dir.path(), &["add", "node", "--summary", "unrelated", "--no-embed"])
-        .assert()
-        .success();
+    mnem(
+        dir.path(),
+        &["add", "node", "--summary", "unrelated", "--no-embed"],
+    )
+    .assert()
+    .success();
     let commit_current = current_commit_cid(dir.path());
 
     assert_ne!(
@@ -333,9 +403,12 @@ fn blame_first_writer_no_edges_still_succeeds() {
     mnem(dir.path(), &["init", dir.path().to_str().unwrap()])
         .assert()
         .success();
-    let out = mnem(dir.path(), &["add", "node", "--summary", "lonely", "--no-embed"])
-        .assert()
-        .success();
+    let out = mnem(
+        dir.path(),
+        &["add", "node", "--summary", "lonely", "--no-embed"],
+    )
+    .assert()
+    .success();
     let node_id = extract_node_id(&String::from_utf8_lossy(&out.get_output().stdout));
 
     let blamed = mnem(dir.path(), &["blame", &node_id, "--first-writer"])
@@ -359,7 +432,9 @@ fn blame_invalid_node_uuid_exits_nonzero() {
         .assert()
         .success();
 
-    let out = mnem(dir.path(), &["blame", "not-a-uuid"]).assert().failure();
+    let out = mnem(dir.path(), &["blame", "not-a-uuid"])
+        .assert()
+        .failure();
     let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
     assert!(
         !stderr.is_empty(),
@@ -381,54 +456,76 @@ fn blame_etype_and_first_writer_compose() {
         .assert()
         .success();
 
-    let a_out = mnem(dir.path(), &["add", "node", "--summary", "target-ew", "--no-embed"])
-        .assert()
-        .success();
+    let a_out = mnem(
+        dir.path(),
+        &["add", "node", "--summary", "target-ew", "--no-embed"],
+    )
+    .assert()
+    .success();
     let a_id = extract_node_id(&String::from_utf8_lossy(&a_out.get_output().stdout));
 
-    let b_out = mnem(dir.path(), &["add", "node", "--summary", "author-ew", "--no-embed"])
-        .assert()
-        .success();
+    let b_out = mnem(
+        dir.path(),
+        &["add", "node", "--summary", "author-ew", "--no-embed"],
+    )
+    .assert()
+    .success();
     let b_id = extract_node_id(&String::from_utf8_lossy(&b_out.get_output().stdout));
 
-    let c_out = mnem(dir.path(), &["add", "node", "--summary", "citer-ew", "--no-embed"])
-        .assert()
-        .success();
+    let c_out = mnem(
+        dir.path(),
+        &["add", "node", "--summary", "citer-ew", "--no-embed"],
+    )
+    .assert()
+    .success();
     let c_id = extract_node_id(&String::from_utf8_lossy(&c_out.get_output().stdout));
 
     // Introduce "authored" edge first, capture its commit.
     mnem(
         dir.path(),
-        &["add", "edge", "--from", &b_id, "--to", &a_id, "--label", "authored"],
+        &[
+            "add", "edge", "--from", &b_id, "--to", &a_id, "--label", "authored",
+        ],
     )
     .assert()
     .success();
     let commit_authored = current_commit_cid(dir.path());
 
     // Advance HEAD (separates commit_authored from commit_cites).
-    mnem(dir.path(), &["add", "node", "--summary", "separator", "--no-embed"])
-        .assert()
-        .success();
+    mnem(
+        dir.path(),
+        &["add", "node", "--summary", "separator", "--no-embed"],
+    )
+    .assert()
+    .success();
 
     // Introduce "cites" edge, capture its commit.
     mnem(
         dir.path(),
-        &["add", "edge", "--from", &c_id, "--to", &a_id, "--label", "cites"],
+        &[
+            "add", "edge", "--from", &c_id, "--to", &a_id, "--label", "cites",
+        ],
     )
     .assert()
     .success();
     let commit_cites = current_commit_cid(dir.path());
 
     // Advance HEAD again so current != either introducing commit.
-    mnem(dir.path(), &["add", "node", "--summary", "final", "--no-embed"])
-        .assert()
-        .success();
+    mnem(
+        dir.path(),
+        &["add", "node", "--summary", "final", "--no-embed"],
+    )
+    .assert()
+    .success();
     let commit_current = current_commit_cid(dir.path());
 
     // --etype authored --first-writer: shows commit_authored, not commit_current or commit_cites.
-    let out_auth = mnem(dir.path(), &["blame", &a_id, "--etype", "authored", "--first-writer"])
-        .assert()
-        .success();
+    let out_auth = mnem(
+        dir.path(),
+        &["blame", &a_id, "--etype", "authored", "--first-writer"],
+    )
+    .assert()
+    .success();
     let stdout_auth = String::from_utf8_lossy(&out_auth.get_output().stdout).to_string();
     assert!(
         stdout_auth.contains(&b_id),
@@ -450,9 +547,12 @@ fn blame_etype_and_first_writer_compose() {
     );
 
     // --etype cites --first-writer: shows commit_cites, not commit_authored.
-    let out_cites = mnem(dir.path(), &["blame", &a_id, "--etype", "cites", "--first-writer"])
-        .assert()
-        .success();
+    let out_cites = mnem(
+        dir.path(),
+        &["blame", &a_id, "--etype", "cites", "--first-writer"],
+    )
+    .assert()
+    .success();
     let stdout_cites = String::from_utf8_lossy(&out_cites.get_output().stdout).to_string();
     assert!(
         stdout_cites.contains(&c_id),
@@ -486,25 +586,36 @@ fn blame_first_writer_tracks_each_edge_independently() {
         .assert()
         .success();
 
-    let a_out = mnem(dir.path(), &["add", "node", "--summary", "target-multi", "--no-embed"])
-        .assert()
-        .success();
+    let a_out = mnem(
+        dir.path(),
+        &["add", "node", "--summary", "target-multi", "--no-embed"],
+    )
+    .assert()
+    .success();
     let a_id = extract_node_id(&String::from_utf8_lossy(&a_out.get_output().stdout));
 
-    let b_out = mnem(dir.path(), &["add", "node", "--summary", "author-multi", "--no-embed"])
-        .assert()
-        .success();
+    let b_out = mnem(
+        dir.path(),
+        &["add", "node", "--summary", "author-multi", "--no-embed"],
+    )
+    .assert()
+    .success();
     let b_id = extract_node_id(&String::from_utf8_lossy(&b_out.get_output().stdout));
 
-    let c_out = mnem(dir.path(), &["add", "node", "--summary", "citer-multi", "--no-embed"])
-        .assert()
-        .success();
+    let c_out = mnem(
+        dir.path(),
+        &["add", "node", "--summary", "citer-multi", "--no-embed"],
+    )
+    .assert()
+    .success();
     let c_id = extract_node_id(&String::from_utf8_lossy(&c_out.get_output().stdout));
 
     // Edge B->A introduced first.
     mnem(
         dir.path(),
-        &["add", "edge", "--from", &b_id, "--to", &a_id, "--label", "authored"],
+        &[
+            "add", "edge", "--from", &b_id, "--to", &a_id, "--label", "authored",
+        ],
     )
     .assert()
     .success();
@@ -513,21 +624,32 @@ fn blame_first_writer_tracks_each_edge_independently() {
     // Edge C->A introduced second (different op, different commit).
     mnem(
         dir.path(),
-        &["add", "edge", "--from", &c_id, "--to", &a_id, "--label", "cites"],
+        &[
+            "add", "edge", "--from", &c_id, "--to", &a_id, "--label", "cites",
+        ],
     )
     .assert()
     .success();
     let commit_c = current_commit_cid(dir.path());
 
     // Advance HEAD so current HEAD differs from both introducing commits.
-    mnem(dir.path(), &["add", "node", "--summary", "extra", "--no-embed"])
-        .assert()
-        .success();
+    mnem(
+        dir.path(),
+        &["add", "node", "--summary", "extra", "--no-embed"],
+    )
+    .assert()
+    .success();
     let commit_current = current_commit_cid(dir.path());
 
     // All three commits must be distinct.
-    assert_ne!(commit_b, commit_c, "two separate edge ops must produce distinct commits");
-    assert_ne!(commit_c, commit_current, "advancing HEAD must produce a new commit");
+    assert_ne!(
+        commit_b, commit_c,
+        "two separate edge ops must produce distinct commits"
+    );
+    assert_ne!(
+        commit_c, commit_current,
+        "advancing HEAD must produce a new commit"
+    );
 
     let out = mnem(dir.path(), &["blame", &a_id, "--first-writer"])
         .assert()

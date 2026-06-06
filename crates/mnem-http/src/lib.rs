@@ -230,6 +230,7 @@ pub fn app_with_options(repo_dir: &Path, opts: AppOptions) -> Result<Router> {
     let embed_cfg = load_embed_config(&data_dir);
     let sparse_cfg = load_sparse_config(&data_dir);
     let ner_cfg = load_ner_config(&data_dir);
+    let llm_cfg = load_llm_config(&data_dir);
 
     // `allow_labels` is gated behind the `MNEM_BENCH` env var. Off by
     // default so casual / single-tenant callers never stumble into
@@ -273,6 +274,8 @@ pub fn app_with_options(repo_dir: &Path, opts: AppOptions) -> Result<Router> {
         graph_cache: Arc::new(Mutex::new(state::GraphCache::default())),
         traverse_cfg: Arc::new(routes::traverse::TraverseAnswerCfg::default()),
         ner_cfg,
+        llm_cfg,
+        data_dir: data_dir.clone(),
     };
 
     // Permissive CORS for v1: the server binds to loopback by default
@@ -493,6 +496,30 @@ fn load_ner_config(data_dir: &Path) -> Option<mnem_ingest::NerConfig> {
                 path = %path.display(),
                 error = %e,
                 "config.toml [ner] parse failed; NER defaults to rule-based"
+            );
+            None
+        }
+    }
+}
+
+/// Load `llm` section from `<data_dir>/config.toml` if it exists.
+/// When present, HyDE and multi-query RAG-Fusion paths auto-activate
+/// on `/v1/retrieve`. Same "None on malformed config" policy as the
+/// other load functions.
+fn load_llm_config(data_dir: &Path) -> Option<mnem_llm_providers::ProviderConfig> {
+    #[derive(serde::Deserialize)]
+    struct MiniCfg {
+        llm: Option<mnem_llm_providers::ProviderConfig>,
+    }
+    let path = data_dir.join("config.toml");
+    let s = std::fs::read_to_string(&path).ok()?;
+    match toml::from_str::<MiniCfg>(&s) {
+        Ok(parsed) => parsed.llm,
+        Err(e) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "config.toml [llm] parse failed; LLM features disabled"
             );
             None
         }

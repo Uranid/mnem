@@ -28,9 +28,9 @@ use mnem_core::id::{Cid, EdgeId, NodeId};
 use mnem_core::index::PropPredicate;
 use mnem_core::objects::{Commit, Edge, Node, Operation, View};
 use mnem_core::prolly::tree::{TreeChunk, build_tree, load_tree_chunk};
-use mnem_core::prolly::{DiffEntry, Cursor, diff as prolly_diff};
-use mnem_core::store::blockstore::recompute_cid;
+use mnem_core::prolly::{Cursor, DiffEntry, diff as prolly_diff};
 use mnem_core::retrieve::Lane;
+use mnem_core::store::blockstore::recompute_cid;
 use mnem_core::{HEADS_PREFIX, TAGS_PREFIX};
 // BENCH-1 (C4): trait import is required so `MockEmbedder::embed`
 // and `::model` resolve on the concrete struct in the cold-start
@@ -216,7 +216,11 @@ fn clamp_or_reject_u32(name: &'static str, value: Option<u32>, cap: u32) -> Resu
 }
 
 /// Reject a Vec that exceeds `max_len` entries.
-fn reject_vec_too_long<T>(name: &'static str, value: &Option<Vec<T>>, max_len: usize) -> Result<(), Error> {
+fn reject_vec_too_long<T>(
+    name: &'static str,
+    value: &Option<Vec<T>>,
+    max_len: usize,
+) -> Result<(), Error> {
     if let Some(v) = value
         && v.len() > max_len
     {
@@ -615,9 +619,8 @@ pub(crate) async fn post_node(
     // blake3(label + sorted props) so two callers with identical inputs
     // produce the same node UUID and content_cid.
     let node_id = if body.deterministic {
-        derive_deterministic_node_id_http(&label, body.props.as_ref()).map_err(|e| {
-            Error::bad_request(format!("could not derive deterministic id: {e}"))
-        })?
+        derive_deterministic_node_id_http(&label, body.props.as_ref())
+            .map_err(|e| Error::bad_request(format!("could not derive deterministic id: {e}")))?
     } else {
         match body.id.as_deref() {
             Some(s) => NodeId::parse_uuid(s)
@@ -631,7 +634,12 @@ pub(crate) async fn post_node(
     // summary because identity comes from props or the explicit UUID.
     if !body.deterministic
         && body.id.is_none()
-        && body.summary.as_deref().map(str::trim).filter(|s| !s.is_empty()).is_none()
+        && body
+            .summary
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .is_none()
     {
         return Err(Error::bad_request("summary is required"));
     }
@@ -1733,12 +1741,24 @@ fn retrieve_impl(s: AppState, body: RetrieveRequest) -> Result<Json<Value>, Erro
     clamp_or_reject("vector_cap", body.vector_cap, MAX_VECTOR_CAP)?;
     clamp_or_reject("rerank_top_k", body.rerank_top_k, MAX_RERANK_TOP_K)?;
     clamp_or_reject("multi_query", body.multi_query, MAX_MULTI_QUERY)?;
-    clamp_or_reject("community_expand_seeds", body.community_expand_seeds, MAX_COMMUNITY_EXPAND_SEEDS)?;
-    clamp_or_reject("community_max_per", body.community_max_per, MAX_COMMUNITY_MAX_PER)?;
+    clamp_or_reject(
+        "community_expand_seeds",
+        body.community_expand_seeds,
+        MAX_COMMUNITY_EXPAND_SEEDS,
+    )?;
+    clamp_or_reject(
+        "community_max_per",
+        body.community_max_per,
+        MAX_COMMUNITY_MAX_PER,
+    )?;
     clamp_or_reject_u32("ppr_iter", body.ppr_iter, MAX_PPR_ITER)?;
     clamp_or_reject("graph_expand", body.graph_expand, MAX_GRAPH_EXPAND)?;
     clamp_or_reject("graph_depth", body.graph_depth, MAX_GRAPH_DEPTH)?;
-    clamp_or_reject("graph_max_per_seed", body.graph_max_per_seed, MAX_GRAPH_MAX_PER_SEED)?;
+    clamp_or_reject(
+        "graph_max_per_seed",
+        body.graph_max_per_seed,
+        MAX_GRAPH_MAX_PER_SEED,
+    )?;
     reject_vec_too_long("graph_etype", &body.graph_etype, MAX_GRAPH_ETYPE_COUNT)?;
     if let Some(v) = &body.vector
         && v.len() > MAX_VECTOR_DIM
@@ -1800,7 +1820,17 @@ fn retrieve_impl(s: AppState, body: RetrieveRequest) -> Result<Json<Value>, Erro
         && let Some(lc) = &s.llm_cfg
         && let Some(pc) = &s.embed_cfg
     {
-        match run_multi_query_http(&repo, q, n_variants, body.limit, body.budget, body.vector_cap, body.no_vector.unwrap_or(false), lc, pc) {
+        match run_multi_query_http(
+            &repo,
+            q,
+            n_variants,
+            body.limit,
+            body.budget,
+            body.vector_cap,
+            body.no_vector.unwrap_or(false),
+            lc,
+            pc,
+        ) {
             Ok(Some(result)) => {
                 let items_json: Vec<Value> = result
                     .items
@@ -1836,10 +1866,14 @@ fn retrieve_impl(s: AppState, body: RetrieveRequest) -> Result<Json<Value>, Erro
                 })));
             }
             Ok(None) => {
-                skipped.push("multi_query: no variants generated; falling back to plain retrieve".into());
+                skipped.push(
+                    "multi_query: no variants generated; falling back to plain retrieve".into(),
+                );
             }
             Err(e) => {
-                skipped.push(format!("multi_query error: {e}; falling back to plain retrieve"));
+                skipped.push(format!(
+                    "multi_query error: {e}; falling back to plain retrieve"
+                ));
             }
         }
     }
@@ -1943,7 +1977,9 @@ fn retrieve_impl(s: AppState, body: RetrieveRequest) -> Result<Json<Value>, Erro
     // warning so callers see the degradation in the response.
     // Skipped entirely when no_vector is set.
     if !no_vector
-        && embedder_text.as_deref().is_some_and(|t| !t.trim().is_empty())
+        && embedder_text
+            .as_deref()
+            .is_some_and(|t| !t.trim().is_empty())
         && vector_model.is_none()
         && sparse_vocab.is_none()
         && body.vector.is_none()
@@ -2455,12 +2491,12 @@ fn run_multi_query_http(
         if let Some(n) = vector_cap {
             ret = ret.vector_cap(n);
         }
-        if !no_vector
-            && let Ok(qvec) = embedder.embed(q)
-        {
+        if !no_vector && let Ok(qvec) = embedder.embed(q) {
             ret = ret.vector(embedder.model().to_string(), qvec);
         }
-        let sub = ret.execute().map_err(|e| anyhow!("sub-retrieve failed: {e}"))?;
+        let sub = ret
+            .execute()
+            .map_err(|e| anyhow!("sub-retrieve failed: {e}"))?;
         let ids: Vec<mnem_core::id::NodeId> = sub.items.iter().map(|i| i.node.id).collect();
         ranked_lists.push((ids, 1.0));
     }
@@ -3391,10 +3427,18 @@ pub(crate) async fn post_import(
     // in the CLI's `import.rs`).
     let mut best_commit: Option<(u64, mnem_core::id::Cid)> = None;
     for cid in &imported_cids {
-        let Ok(Some(bytes)) = bs.get(cid) else { continue };
-        let Ok(Ipld::Map(m)) = from_canonical_bytes::<Ipld>(&bytes) else { continue };
-        let Some(Ipld::String(kind)) = m.get("_kind") else { continue };
-        if kind != "commit" { continue; }
+        let Ok(Some(bytes)) = bs.get(cid) else {
+            continue;
+        };
+        let Ok(Ipld::Map(m)) = from_canonical_bytes::<Ipld>(&bytes) else {
+            continue;
+        };
+        let Some(Ipld::String(kind)) = m.get("_kind") else {
+            continue;
+        };
+        if kind != "commit" {
+            continue;
+        }
         let time = match m.get("time") {
             Some(Ipld::Integer(n)) => u64::try_from(*n).unwrap_or(0),
             _ => 0,
@@ -3546,9 +3590,7 @@ pub(crate) async fn post_branch(
             let bytes = bs
                 .get(&cid)
                 .map_err(|e| Error::internal(format!("blockstore error: {e}")))?
-                .ok_or_else(|| {
-                    Error::not_found(format!("block {cid} not found in blockstore"))
-                })?;
+                .ok_or_else(|| Error::not_found(format!("block {cid} not found in blockstore")))?;
             if from_canonical_bytes::<Commit>(&bytes).is_err() {
                 return Err(Error::bad_request(format!(
                     "`{commitish}` resolves to {cid} which does not decode as a commit; \
@@ -4011,8 +4053,7 @@ fn compute_diff(
 ) -> Result<Value, Error> {
     let (from_op_cid, from_cid, from_commit, from_refs) =
         resolve_to_commit_and_refs(bs, from_resolved_str)?;
-    let (to_op_cid, to_cid, to_commit, to_refs) =
-        resolve_to_commit_and_refs(bs, to_resolved_str)?;
+    let (to_op_cid, to_cid, to_commit, to_refs) = resolve_to_commit_and_refs(bs, to_resolved_str)?;
 
     let node_changes = prolly_diff(bs, &from_commit.nodes, &to_commit.nodes)
         .map_err(|e| Error::internal(format!("node diff failed: {e}")))?;
@@ -4036,8 +4077,7 @@ fn compute_diff(
     }
     for (name, target) in &from_refs {
         if !to_refs.contains_key(name) {
-            refs_removed
-                .push(json!({ "name": name, "target": ref_target_to_str(target) }));
+            refs_removed.push(json!({ "name": name, "target": ref_target_to_str(target) }));
         }
     }
 
@@ -4094,9 +4134,9 @@ fn compute_diff(
                                 "summary": n.summary,
                             })
                         });
-                        let before_state = before_node.as_ref().map(|n| {
-                            json!({ "ntype": n.ntype, "summary": n.summary })
-                        });
+                        let before_state = before_node
+                            .as_ref()
+                            .map(|n| json!({ "ntype": n.ntype, "summary": n.summary }));
                         node_deltas.push(json!({
                             "type": "changed",
                             "id": after_node.id.to_uuid_string(),
@@ -4601,12 +4641,8 @@ pub(crate) async fn get_refs(State(s): State<AppState>) -> Result<Json<Value>, E
                 ("other", name.clone())
             };
             let (cid_str, conflicted) = match target {
-                mnem_core::objects::RefTarget::Normal { target } => {
-                    (target.to_string(), false)
-                }
-                mnem_core::objects::RefTarget::Conflicted { .. } => {
-                    (String::new(), true)
-                }
+                mnem_core::objects::RefTarget::Normal { target } => (target.to_string(), false),
+                mnem_core::objects::RefTarget::Conflicted { .. } => (String::new(), true),
             };
             // Branches expose the CID as "head"; tags expose it as "target".
             // This mirrors the type-specific endpoint conventions.
@@ -4674,8 +4710,12 @@ fn is_valid_ref_name(name: &str) -> bool {
         return false;
     }
     // git-refname forbidden chars: ~, ^, :, ?, *, [
-    if s.contains('~') || s.contains('^') || s.contains(':')
-        || s.contains('?') || s.contains('*') || s.contains('[')
+    if s.contains('~')
+        || s.contains('^')
+        || s.contains(':')
+        || s.contains('?')
+        || s.contains('*')
+        || s.contains('[')
     {
         return false;
     }
@@ -4727,12 +4767,7 @@ pub(crate) async fn post_ref(
 
     let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
     let new_repo = guard
-        .update_ref(
-            &name,
-            prev_target.as_ref(),
-            Some(new_target),
-            &author,
-        )
+        .update_ref(&name, prev_target.as_ref(), Some(new_target), &author)
         .map_err(|e| {
             use mnem_core::error::RepoError;
             match &e {
@@ -4877,15 +4912,18 @@ fn run_query(
     }
 
     for kv in wheres {
-        let (k, v) = kv
-            .split_once('=')
-            .ok_or_else(|| Error::bad_request(format!("where clause must be key=value, got: {kv}")))?;
+        let (k, v) = kv.split_once('=').ok_or_else(|| {
+            Error::bad_request(format!("where clause must be key=value, got: {kv}"))
+        })?;
         if k.is_empty() {
             return Err(Error::bad_request(format!(
                 "where clause key must not be empty in `{kv}`"
             )));
         }
-        q = q.where_prop(k, PropPredicate::Eq(ipld_core::ipld::Ipld::String(v.to_string())));
+        q = q.where_prop(
+            k,
+            PropPredicate::Eq(ipld_core::ipld::Ipld::String(v.to_string())),
+        );
     }
 
     for etype in with_outgoing {
@@ -5251,8 +5289,7 @@ fn save_remote_section(
     let mut root: toml::Value = if config_path.exists() {
         let text = std::fs::read_to_string(config_path)
             .map_err(|e| Error::internal(format!("read config.toml: {e}")))?;
-        toml::from_str(&text)
-            .map_err(|e| Error::internal(format!("parse config.toml: {e}")))?
+        toml::from_str(&text).map_err(|e| Error::internal(format!("parse config.toml: {e}")))?
     } else {
         toml::Value::Table(toml::map::Map::new())
     };
@@ -5430,12 +5467,12 @@ pub(crate) async fn get_status(State(s): State<AppState>) -> Result<Json<Value>,
     });
 
     let refs = &view.refs;
-    let (normal_count, conflicted_count) = refs.iter().fold((0usize, 0usize), |(n, c), (_, t)| {
-        match t {
-            mnem_core::objects::RefTarget::Normal { .. } => (n + 1, c),
-            mnem_core::objects::RefTarget::Conflicted { .. } => (n, c + 1),
-        }
-    });
+    let (normal_count, conflicted_count) =
+        refs.iter()
+            .fold((0usize, 0usize), |(n, c), (_, t)| match t {
+                mnem_core::objects::RefTarget::Normal { .. } => (n + 1, c),
+                mnem_core::objects::RefTarget::Conflicted { .. } => (n, c + 1),
+            });
     let conflicted_refs: Vec<Value> = refs
         .iter()
         .filter_map(|(name, t)| match t {
@@ -5544,10 +5581,7 @@ pub(crate) async fn post_switch(
         format!("{HEADS_PREFIX}{name}")
     };
 
-    let short_name = name
-        .strip_prefix(HEADS_PREFIX)
-        .unwrap_or(name)
-        .to_string();
+    let short_name = name.strip_prefix(HEADS_PREFIX).unwrap_or(name).to_string();
 
     let mut guard = s.repo.lock().map_err(|_| Error::locked())?;
 
@@ -5555,12 +5589,9 @@ pub(crate) async fn post_switch(
     // atomically at the current HEAD commit before switching. This mirrors
     // `git switch -c <branch>` / `git checkout -b <branch>`.
     let created = if body.create && !guard.view().refs.contains_key(&full_ref) {
-        let head_cid = guard
-            .view()
-            .heads
-            .first()
-            .cloned()
-            .ok_or_else(|| Error::conflict("repository has no commits yet; cannot create branch"))?;
+        let head_cid = guard.view().heads.first().cloned().ok_or_else(|| {
+            Error::conflict("repository has no commits yet; cannot create branch")
+        })?;
         let new_repo = guard
             .update_ref(
                 &full_ref,
@@ -5583,9 +5614,7 @@ pub(crate) async fn post_switch(
             )));
         }
         None => {
-            return Err(Error::not_found(format!(
-                "branch '{short_name}' not found"
-            )));
+            return Err(Error::not_found(format!("branch '{short_name}' not found")));
         }
     };
 
@@ -5729,18 +5758,21 @@ pub(crate) async fn get_node_blame(
         if !visited.insert(ancestor_op_id.clone()) {
             continue;
         }
-        let ancestor =
-            match mnem_core::repo::ReadonlyRepo::load_at(bs.clone(), ohs.clone(), ancestor_op_id.clone()) {
-                Ok(a) => a,
-                Err(e) => {
-                    tracing::warn!(
-                        ancestor_op = %ancestor_op_id,
-                        error = %e,
-                        "blame first_writer: skipped ancestor"
-                    );
-                    continue;
-                }
-            };
+        let ancestor = match mnem_core::repo::ReadonlyRepo::load_at(
+            bs.clone(),
+            ohs.clone(),
+            ancestor_op_id.clone(),
+        ) {
+            Ok(a) => a,
+            Err(e) => {
+                tracing::warn!(
+                    ancestor_op = %ancestor_op_id,
+                    error = %e,
+                    "blame first_writer: skipped ancestor"
+                );
+                continue;
+            }
+        };
         let ancestor_commit = ancestor
             .view()
             .heads
@@ -5853,8 +5885,8 @@ pub(crate) async fn post_embed(
     };
 
     let bs = r.blockstore().clone();
-    let cursor = Cursor::new(&*bs, &head.nodes)
-        .map_err(|e| Error::internal(format!("cursor: {e}")))?;
+    let cursor =
+        Cursor::new(&*bs, &head.nodes).map_err(|e| Error::internal(format!("cursor: {e}")))?;
 
     let mut candidates: Vec<(Cid, Node)> = Vec::new();
     let mut skipped_already_embedded: usize = 0;
@@ -6138,10 +6170,7 @@ struct FsckErrorEntry {
 /// Verify that a CID exists in the blockstore and that its bytes hash to that
 /// CID. Returns `Ok(())` on success or `Err(reason)` with a human-readable
 /// description.
-fn fsck_check_block(
-    bs: &dyn mnem_core::store::Blockstore,
-    cid: &Cid,
-) -> Result<(), String> {
+fn fsck_check_block(bs: &dyn mnem_core::store::Blockstore, cid: &Cid) -> Result<(), String> {
     let bytes = bs
         .get(cid)
         .map_err(|e| format!("store I/O error fetching {cid}: {e}"))?;
@@ -6227,7 +6256,9 @@ pub(crate) async fn get_fsck(
                 blocks_verified += 1;
                 bs.get(&cur)
                     .map_err(|e| Error::internal(format!("store I/O: {e}")))?
-                    .ok_or_else(|| Error::internal(format!("op block {} vanished after verification", cur)))?
+                    .ok_or_else(|| {
+                        Error::internal(format!("op block {} vanished after verification", cur))
+                    })?
             }
             Err(reason) => {
                 errors.push(FsckErrorEntry {
@@ -6260,7 +6291,12 @@ pub(crate) async fn get_fsck(
                 let view_bytes = bs
                     .get(view_cid)
                     .map_err(|e| Error::internal(format!("store I/O: {e}")))?
-                    .ok_or_else(|| Error::internal(format!("view block {} vanished after verification", view_cid)))?;
+                    .ok_or_else(|| {
+                        Error::internal(format!(
+                            "view block {} vanished after verification",
+                            view_cid
+                        ))
+                    })?;
                 match from_canonical_bytes::<View>(&view_bytes) {
                     Ok(v) => Some(v),
                     Err(e) => {
@@ -6292,7 +6328,12 @@ pub(crate) async fn get_fsck(
                         let commit_bytes = bs
                             .get(head_cid)
                             .map_err(|e| Error::internal(format!("store I/O: {e}")))?
-                            .ok_or_else(|| Error::internal(format!("commit block {} vanished after verification", head_cid)))?;
+                            .ok_or_else(|| {
+                                Error::internal(format!(
+                                    "commit block {} vanished after verification",
+                                    head_cid
+                                ))
+                            })?;
                         match from_canonical_bytes::<Commit>(&commit_bytes) {
                             Ok(c) => Some(c),
                             Err(e) => {
@@ -6321,8 +6362,13 @@ pub(crate) async fn get_fsck(
                         ("edges", &commit.edges),
                         ("schema", &commit.schema),
                     ] {
-                        let n =
-                            fsck_walk_prolly_tree(bs, tree_cid, tree_name, &op_cid_str, &mut errors);
+                        let n = fsck_walk_prolly_tree(
+                            bs,
+                            tree_cid,
+                            tree_name,
+                            &op_cid_str,
+                            &mut errors,
+                        );
                         blocks_verified += n;
                     }
 
@@ -6331,13 +6377,8 @@ pub(crate) async fn get_fsck(
                         ("sparse", commit.sparse.as_ref()),
                     ] {
                         if let Some(cid) = maybe_cid {
-                            let n = fsck_walk_prolly_tree(
-                                bs,
-                                cid,
-                                tree_name,
-                                &op_cid_str,
-                                &mut errors,
-                            );
+                            let n =
+                                fsck_walk_prolly_tree(bs, cid, tree_name, &op_cid_str, &mut errors);
                             blocks_verified += n;
                         }
                     }
@@ -6445,8 +6486,9 @@ pub(crate) async fn get_show(
     let repo = s.repo.lock().map_err(|_| Error::locked())?;
 
     let target_cid: Cid = match q.cid {
-        Some(ref s) => Cid::parse_str(s)
-            .map_err(|e| Error::bad_request(format!("invalid CID: {e}")))?,
+        Some(ref s) => {
+            Cid::parse_str(s).map_err(|e| Error::bad_request(format!("invalid CID: {e}")))?
+        }
         None => repo.op_id().clone(),
     };
 
@@ -6471,10 +6513,7 @@ pub(crate) async fn get_show(
     obj.insert("schema".into(), json!("mnem.v1.show"));
     obj.insert("cid".into(), json!(target_cid.to_string()));
     obj.insert("size".into(), json!(bytes.len()));
-    obj.insert(
-        "kind".into(),
-        json!(kind.as_deref().unwrap_or("<unknown>")),
-    );
+    obj.insert("kind".into(), json!(kind.as_deref().unwrap_or("<unknown>")));
 
     match kind.as_deref() {
         Some("node") => {
@@ -6500,16 +6539,17 @@ pub(crate) async fn get_show(
                     let embeds: Vec<Value> = models
                         .iter()
                         .filter_map(|model| {
-                            repo.embedding_for(&target_cid, model).ok().flatten().map(
-                                |emb| {
+                            repo.embedding_for(&target_cid, model)
+                                .ok()
+                                .flatten()
+                                .map(|emb| {
                                     json!({
                                         "model": emb.model,
                                         "dim": emb.dim,
                                         "dtype": serde_json::to_value(&emb.dtype)
                                             .unwrap_or(json!("f32")),
                                     })
-                                },
-                            )
+                                })
                         })
                         .collect();
                     if !embeds.is_empty() {
@@ -6552,11 +6592,12 @@ pub(crate) async fn get_show(
                 }
                 obj.insert(
                     "parents".into(),
-                    json!(c
-                        .parents
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()),
+                    json!(
+                        c.parents
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                    ),
                 );
                 obj.insert("has_signature".into(), json!(c.signature.is_some()));
             }
@@ -6574,11 +6615,12 @@ pub(crate) async fn get_show(
                 obj.insert("time".into(), json!(op.time));
                 obj.insert(
                     "parents".into(),
-                    json!(op
-                        .parents
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()),
+                    json!(
+                        op.parents
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                    ),
                 );
                 obj.insert("view".into(), json!(op.view.to_string()));
                 // Decode the view block to surface head CID and refs count,
@@ -6600,9 +6642,7 @@ pub(crate) async fn get_show(
             }
         }
         Some("index_set") => {
-            if let Ok(idx) =
-                from_canonical_bytes::<mnem_core::objects::IndexSet>(&bytes)
-            {
+            if let Ok(idx) = from_canonical_bytes::<mnem_core::objects::IndexSet>(&bytes) {
                 obj.insert("labels".into(), json!(idx.nodes_by_label.len()));
             }
         }
@@ -6656,10 +6696,7 @@ pub(crate) fn reindex_text_of_node(node: &Node) -> String {
     reindex_fallback_text_of(node)
 }
 
-fn reindex_resolve_commitish(
-    r: &mnem_core::repo::ReadonlyRepo,
-    s: &str,
-) -> Result<Cid, Error> {
+fn reindex_resolve_commitish(r: &mnem_core::repo::ReadonlyRepo, s: &str) -> Result<Cid, Error> {
     if s.eq_ignore_ascii_case("HEAD") {
         return r
             .view()
@@ -6679,9 +6716,9 @@ fn reindex_resolve_commitish(
     };
     match refs.get(&candidate) {
         Some(mnem_core::objects::RefTarget::Normal { target }) => Ok(target.clone()),
-        Some(mnem_core::objects::RefTarget::Conflicted { .. }) => Err(Error::bad_request(
-            format!("ref `{candidate}` is conflicted; resolve the ref first"),
-        )),
+        Some(mnem_core::objects::RefTarget::Conflicted { .. }) => Err(Error::bad_request(format!(
+            "ref `{candidate}` is conflicted; resolve the ref first"
+        ))),
         None => Err(Error::bad_request(format!(
             "cannot resolve `{s}` to a commit (tried HEAD, raw CID, ref `{s}`, \
              and `{HEADS_PREFIX}{s}`)"
@@ -6696,14 +6733,12 @@ fn reindex_nodes_at(
     let bytes = bs
         .get(commit_cid)
         .map_err(|e| Error::internal(e.to_string()))?
-        .ok_or_else(|| {
-            Error::bad_request(format!("commit CID {commit_cid} missing from store"))
-        })?;
+        .ok_or_else(|| Error::bad_request(format!("commit CID {commit_cid} missing from store")))?;
     let commit: Commit =
         from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
     let mut out = std::collections::HashSet::new();
-    let cursor = Cursor::new(&**bs, &commit.nodes)
-        .map_err(|e| Error::internal(format!("cursor: {e}")))?;
+    let cursor =
+        Cursor::new(&**bs, &commit.nodes).map_err(|e| Error::internal(format!("cursor: {e}")))?;
     for entry in cursor {
         let (_k, node_cid) = entry.map_err(|e| Error::internal(e.to_string()))?;
         out.insert(node_cid);
@@ -6711,9 +6746,7 @@ fn reindex_nodes_at(
     Ok(out)
 }
 
-fn decode_reindex_embedding(
-    val: &Ipld,
-) -> Result<mnem_core::objects::node::Embedding, Error> {
+fn decode_reindex_embedding(val: &Ipld) -> Result<mnem_core::objects::node::Embedding, Error> {
     let bytes = to_canonical_bytes(val)
         .map_err(|e| Error::internal(format!("CBOR re-encode of extra[\"embed\"]: {e}")))?;
     let emb: mnem_core::objects::node::Embedding = from_canonical_bytes(&bytes)
@@ -6723,20 +6756,16 @@ fn decode_reindex_embedding(
     Ok(emb)
 }
 
-fn decode_reindex_sparse(
-    val: &Ipld,
-) -> Result<mnem_core::sparse::SparseEmbed, Error> {
-    let bytes = to_canonical_bytes(val).map_err(|e| {
-        Error::internal(format!("CBOR re-encode of extra[\"sparse_embed\"]: {e}"))
-    })?;
+fn decode_reindex_sparse(val: &Ipld) -> Result<mnem_core::sparse::SparseEmbed, Error> {
+    let bytes = to_canonical_bytes(val)
+        .map_err(|e| Error::internal(format!("CBOR re-encode of extra[\"sparse_embed\"]: {e}")))?;
     let se: mnem_core::sparse::SparseEmbed = from_canonical_bytes(&bytes).map_err(|e| {
         Error::internal(format!(
             "decode extra[\"sparse_embed\"] as SparseEmbed: {e}"
         ))
     })?;
-    se.validate().map_err(|e| {
-        Error::internal(format!("extra[\"sparse_embed\"] invariant violated: {e}"))
-    })?;
+    se.validate()
+        .map_err(|e| Error::internal(format!("extra[\"sparse_embed\"] invariant violated: {e}")))?;
     Ok(se)
 }
 
@@ -6821,8 +6850,8 @@ pub(crate) async fn post_reindex(
         let mut decode_errors: usize = 0;
         let mut to_lift: Vec<(Cid, mnem_core::objects::node::Embedding)> = Vec::new();
 
-        let cursor = Cursor::new(&*bs, &head.nodes)
-            .map_err(|e| Error::internal(format!("cursor: {e}")))?;
+        let cursor =
+            Cursor::new(&*bs, &head.nodes).map_err(|e| Error::internal(format!("cursor: {e}")))?;
         for entry in cursor {
             let (_k, node_cid) = entry.map_err(|e| Error::internal(e.to_string()))?;
             let bytes = bs
@@ -6888,9 +6917,7 @@ pub(crate) async fn post_reindex(
                 .map_err(|e| Error::internal(e.to_string()))?;
         }
         let msg = body.message.clone().unwrap_or_else(|| {
-            format!(
-                "mnem reindex --lift-legacy-extra: {total} embedding(s) promoted to sidecar"
-            )
+            format!("mnem reindex --lift-legacy-extra: {total} embedding(s) promoted to sidecar")
         });
         let new_repo = tx
             .commit(&author, &msg)
@@ -6917,8 +6944,8 @@ pub(crate) async fn post_reindex(
         let mut decode_errors: usize = 0;
         let mut to_lift: Vec<(Cid, mnem_core::sparse::SparseEmbed)> = Vec::new();
 
-        let cursor = Cursor::new(&*bs, &head.nodes)
-            .map_err(|e| Error::internal(format!("cursor: {e}")))?;
+        let cursor =
+            Cursor::new(&*bs, &head.nodes).map_err(|e| Error::internal(format!("cursor: {e}")))?;
         for entry in cursor {
             let (_k, node_cid) = entry.map_err(|e| Error::internal(e.to_string()))?;
             let bytes = bs
@@ -7029,8 +7056,8 @@ pub(crate) async fn post_reindex(
     let mut skipped_already_embedded: usize = 0;
     let mut skipped_outside_since: usize = 0;
 
-    let cursor = Cursor::new(&*bs, &head.nodes)
-        .map_err(|e| Error::internal(format!("cursor: {e}")))?;
+    let cursor =
+        Cursor::new(&*bs, &head.nodes).map_err(|e| Error::internal(format!("cursor: {e}")))?;
     for entry in cursor {
         let (_k, node_cid) = entry.map_err(|e| Error::internal(e.to_string()))?;
         let bytes = bs
@@ -7158,8 +7185,8 @@ fn find_op_and_parent(
             .get(&cur)
             .map_err(|e| Error::internal(e.to_string()))?
             .ok_or_else(|| Error::internal(format!("op {cur} missing from blockstore")))?;
-        let op: Operation = from_canonical_bytes(&bytes)
-            .map_err(|e| Error::internal(format!("decode op: {e}")))?;
+        let op: Operation =
+            from_canonical_bytes(&bytes).map_err(|e| Error::internal(format!("decode op: {e}")))?;
 
         if &cur == target_cid {
             let parent_op: Option<Operation> = match op.parents.first() {
@@ -7226,8 +7253,8 @@ pub(crate) async fn post_revert(
     let bs = r.blockstore().clone();
     let head_op_cid = r.op_id().clone();
 
-    let (target_op, parent_op_opt) =
-        find_op_and_parent(&*bs, &head_op_cid, &target_cid)?.ok_or_else(|| {
+    let (target_op, parent_op_opt) = find_op_and_parent(&*bs, &head_op_cid, &target_cid)?
+        .ok_or_else(|| {
             Error::bad_request(format!(
                 "op `{}` not found in op-log; use GET /v1/log to list available ops",
                 body.commit
@@ -7255,22 +7282,22 @@ pub(crate) async fn post_revert(
     })?;
 
     // Resolve parent view and commit CID (the "before" state).
-    let (parent_view_opt, parent_commit_cid_opt): (Option<View>, Option<Cid>) =
-        match &parent_op_opt {
-            None => (None, None),
-            Some(pop) => {
-                let pv_bytes = bs
-                    .get(&pop.view)
-                    .map_err(|e| Error::internal(e.to_string()))?
-                    .ok_or_else(|| {
-                        Error::internal("view block for parent op missing from blockstore")
-                    })?;
-                let pview: View = from_canonical_bytes(&pv_bytes)
-                    .map_err(|e| Error::internal(format!("decode parent view: {e}")))?;
-                let pcid = pview.heads.first().cloned();
-                (Some(pview), pcid)
-            }
-        };
+    let (parent_view_opt, parent_commit_cid_opt): (Option<View>, Option<Cid>) = match &parent_op_opt
+    {
+        None => (None, None),
+        Some(pop) => {
+            let pv_bytes = bs
+                .get(&pop.view)
+                .map_err(|e| Error::internal(e.to_string()))?
+                .ok_or_else(|| {
+                    Error::internal("view block for parent op missing from blockstore")
+                })?;
+            let pview: View = from_canonical_bytes(&pv_bytes)
+                .map_err(|e| Error::internal(format!("decode parent view: {e}")))?;
+            let pcid = pview.heads.first().cloned();
+            (Some(pview), pcid)
+        }
+    };
 
     // Load both commits and compute prolly-tree diffs.
     let target_commit_bytes = bs
@@ -7370,7 +7397,12 @@ pub(crate) async fn post_revert(
                     .ok_or_else(|| Error::internal(format!("node block `{value}` missing")))?;
                 let node: Node =
                     from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
-                if tx.base().lookup_node(&node.id).map_err(|e| Error::internal(e.to_string()))?.is_some() {
+                if tx
+                    .base()
+                    .lookup_node(&node.id)
+                    .map_err(|e| Error::internal(e.to_string()))?
+                    .is_some()
+                {
                     tx.remove_node(node.id);
                     mutations_applied += 1;
                 }
@@ -7382,8 +7414,14 @@ pub(crate) async fn post_revert(
                     .ok_or_else(|| Error::internal(format!("node block `{value}` missing")))?;
                 let node: Node =
                     from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
-                if tx.base().lookup_node(&node.id).map_err(|e| Error::internal(e.to_string()))?.is_none() {
-                    tx.add_node(&node).map_err(|e| Error::internal(e.to_string()))?;
+                if tx
+                    .base()
+                    .lookup_node(&node.id)
+                    .map_err(|e| Error::internal(e.to_string()))?
+                    .is_none()
+                {
+                    tx.add_node(&node)
+                        .map_err(|e| Error::internal(e.to_string()))?;
                     mutations_applied += 1;
                 }
             }
@@ -7394,12 +7432,17 @@ pub(crate) async fn post_revert(
                     .ok_or_else(|| Error::internal(format!("node block `{before}` missing")))?;
                 let node: Node =
                     from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
-                let current_is_before = match tx.base().lookup_node(&node.id).map_err(|e| Error::internal(e.to_string()))? {
+                let current_is_before = match tx
+                    .base()
+                    .lookup_node(&node.id)
+                    .map_err(|e| Error::internal(e.to_string()))?
+                {
                     None => false,
                     Some(ref cur) => cur == &node,
                 };
                 if !current_is_before {
-                    tx.add_node(&node).map_err(|e| Error::internal(e.to_string()))?;
+                    tx.add_node(&node)
+                        .map_err(|e| Error::internal(e.to_string()))?;
                     mutations_applied += 1;
                 }
             }
@@ -7415,7 +7458,12 @@ pub(crate) async fn post_revert(
                     .ok_or_else(|| Error::internal(format!("edge block `{value}` missing")))?;
                 let edge: mnem_core::objects::Edge =
                     from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
-                if tx.base().lookup_edge(&edge.id).map_err(|e| Error::internal(e.to_string()))?.is_some() {
+                if tx
+                    .base()
+                    .lookup_edge(&edge.id)
+                    .map_err(|e| Error::internal(e.to_string()))?
+                    .is_some()
+                {
                     tx.remove_edge(edge.id);
                     mutations_applied += 1;
                 }
@@ -7427,8 +7475,14 @@ pub(crate) async fn post_revert(
                     .ok_or_else(|| Error::internal(format!("edge block `{value}` missing")))?;
                 let edge: mnem_core::objects::Edge =
                     from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
-                if tx.base().lookup_edge(&edge.id).map_err(|e| Error::internal(e.to_string()))?.is_none() {
-                    tx.add_edge(&edge).map_err(|e| Error::internal(e.to_string()))?;
+                if tx
+                    .base()
+                    .lookup_edge(&edge.id)
+                    .map_err(|e| Error::internal(e.to_string()))?
+                    .is_none()
+                {
+                    tx.add_edge(&edge)
+                        .map_err(|e| Error::internal(e.to_string()))?;
                     mutations_applied += 1;
                 }
             }
@@ -7439,12 +7493,17 @@ pub(crate) async fn post_revert(
                     .ok_or_else(|| Error::internal(format!("edge block `{before}` missing")))?;
                 let edge: mnem_core::objects::Edge =
                     from_canonical_bytes(&bytes).map_err(|e| Error::internal(e.to_string()))?;
-                let current_is_before = match tx.base().lookup_edge(&edge.id).map_err(|e| Error::internal(e.to_string()))? {
+                let current_is_before = match tx
+                    .base()
+                    .lookup_edge(&edge.id)
+                    .map_err(|e| Error::internal(e.to_string()))?
+                {
                     None => false,
                     Some(ref cur) => cur == &edge,
                 };
                 if !current_is_before {
-                    tx.add_edge(&edge).map_err(|e| Error::internal(e.to_string()))?;
+                    tx.add_edge(&edge)
+                        .map_err(|e| Error::internal(e.to_string()))?;
                     mutations_applied += 1;
                 }
             }
@@ -7505,8 +7564,7 @@ fn load_config_toml(path: &std::path::Path) -> Result<toml::Table, Error> {
 fn save_config_toml(path: &std::path::Path, table: &toml::Table) -> Result<(), Error> {
     let text = toml::to_string_pretty(table)
         .map_err(|e| Error::internal(format!("serialize config.toml: {e}")))?;
-    std::fs::write(path, text)
-        .map_err(|e| Error::internal(format!("write config.toml: {e}")))
+    std::fs::write(path, text).map_err(|e| Error::internal(format!("write config.toml: {e}")))
 }
 
 /// Flatten a TOML table into dotted-key string pairs.

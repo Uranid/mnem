@@ -88,12 +88,9 @@ fn revert_root_op_exercises_empty_before_state() {
     // The anchor node (fixed UUID from init.rs ANCHOR_NODE_ID) must be absent
     // after the revert, confirming the empty-before-state path correctly
     // applied the inverse (deletion of the added anchor node).
-    mnem(
-        dir.path(),
-        &["get", "00000000-0000-7000-8000-6d6e656d0001"],
-    )
-    .assert()
-    .failure();
+    mnem(dir.path(), &["get", "00000000-0000-7000-8000-6d6e656d0001"])
+        .assert()
+        .failure();
 }
 
 /// Reverting a node-add op causes the node to be removed from the graph.
@@ -105,14 +102,10 @@ fn revert_undoes_add_node() {
     let uuid = add_node(dir.path(), "to-be-reverted");
     let op_cid = latest_op_cid(dir.path());
 
-    mnem(dir.path(), &["revert", &op_cid])
-        .assert()
-        .success();
+    mnem(dir.path(), &["revert", &op_cid]).assert().success();
 
     // Node must no longer be reachable in the graph.
-    mnem(dir.path(), &["get", &uuid])
-        .assert()
-        .failure();
+    mnem(dir.path(), &["get", &uuid]).assert().failure();
 }
 
 /// The revert command emits the documented output lines on success.
@@ -124,9 +117,7 @@ fn revert_output_format() {
     add_node(dir.path(), "format-check-node");
     let op_cid = latest_op_cid(dir.path());
 
-    let out = mnem(dir.path(), &["revert", &op_cid])
-        .assert()
-        .success();
+    let out = mnem(dir.path(), &["revert", &op_cid]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
 
     // The first line names the op being reverted.
@@ -186,16 +177,12 @@ fn revert_undoes_node_deletion() {
     let uuid = add_node(dir.path(), "will-be-deleted");
 
     // Hard-delete the node.
-    mnem(dir.path(), &["delete", &uuid])
-        .assert()
-        .success();
+    mnem(dir.path(), &["delete", &uuid]).assert().success();
 
     let delete_op_cid = latest_op_cid(dir.path());
 
     // Confirm the node is gone.
-    mnem(dir.path(), &["get", &uuid])
-        .assert()
-        .failure();
+    mnem(dir.path(), &["get", &uuid]).assert().failure();
 
     // Revert the delete op.
     mnem(dir.path(), &["revert", &delete_op_cid])
@@ -203,9 +190,7 @@ fn revert_undoes_node_deletion() {
         .success();
 
     // Node must be visible again and carry its original summary.
-    let out = mnem(dir.path(), &["get", &uuid])
-        .assert()
-        .success();
+    let out = mnem(dir.path(), &["get", &uuid]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(
         stdout.contains("will-be-deleted"),
@@ -222,16 +207,12 @@ fn revert_undoes_tombstone() {
     let uuid = add_node(dir.path(), "soft-delete-candidate");
 
     // Soft-delete the node.
-    mnem(dir.path(), &["tombstone", &uuid])
-        .assert()
-        .success();
+    mnem(dir.path(), &["tombstone", &uuid]).assert().success();
 
     let tombstone_op_cid = latest_op_cid(dir.path());
 
     // Confirm the node is tombstoned.
-    let out = mnem(dir.path(), &["get", &uuid])
-        .assert()
-        .success();
+    let out = mnem(dir.path(), &["get", &uuid]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(
         stdout.contains("  tombstoned: true"),
@@ -249,9 +230,7 @@ fn revert_undoes_tombstone() {
     );
 
     // Node must still be reachable, but the tombstone marker must be gone.
-    let out = mnem(dir.path(), &["get", &uuid])
-        .assert()
-        .success();
+    let out = mnem(dir.path(), &["get", &uuid]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(
         !stdout.contains("  tombstoned: true"),
@@ -270,9 +249,7 @@ fn revert_already_reverted_prints_nothing_to_commit() {
     let op_cid = latest_op_cid(dir.path());
 
     // First revert: must succeed.
-    mnem(dir.path(), &["revert", &op_cid])
-        .assert()
-        .success();
+    mnem(dir.path(), &["revert", &op_cid]).assert().success();
 
     // Count ops before the no-op second revert.
     let before_out = mnem(dir.path(), &["log"]).assert().success();
@@ -282,9 +259,7 @@ fn revert_already_reverted_prints_nothing_to_commit() {
         .count();
 
     // Second revert of the same original op: inverse changes are all no-ops.
-    let out = mnem(dir.path(), &["revert", &op_cid])
-        .assert()
-        .success();
+    let out = mnem(dir.path(), &["revert", &op_cid]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
 
     // The "note: ..." companion line must be printed before "nothing to commit.".
@@ -304,8 +279,7 @@ fn revert_already_reverted_prints_nothing_to_commit() {
         .filter(|l| l.starts_with("op "))
         .count();
     assert_eq!(
-        after_count,
-        before_count,
+        after_count, before_count,
         "no-op revert must not create a new op (count unchanged at {before_count})"
     );
 }
@@ -319,9 +293,12 @@ fn revert_custom_message_in_log() {
     add_node(dir.path(), "msg-test-node");
     let op_cid = latest_op_cid(dir.path());
 
-    mnem(dir.path(), &["revert", &op_cid, "-m", "my-custom-revert-message"])
-        .assert()
-        .success();
+    mnem(
+        dir.path(),
+        &["revert", &op_cid, "-m", "my-custom-revert-message"],
+    )
+    .assert()
+    .success();
 
     let out = mnem(dir.path(), &["log"]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
@@ -381,9 +358,7 @@ fn revert_chaining_restores_original_state() {
         .assert()
         .success();
 
-    mnem(dir.path(), &["get", &uuid])
-        .assert()
-        .failure();
+    mnem(dir.path(), &["get", &uuid]).assert().failure();
 
     // The revert itself is now the latest op.
     let revert_op_cid = latest_op_cid(dir.path());
@@ -393,9 +368,7 @@ fn revert_chaining_restores_original_state() {
         .assert()
         .success();
 
-    let out = mnem(dir.path(), &["get", &uuid])
-        .assert()
-        .success();
+    let out = mnem(dir.path(), &["get", &uuid]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(
         stdout.contains("original-node"),
@@ -413,12 +386,19 @@ fn revert_undoes_edge_add() {
     let dst_uuid = add_node(dir.path(), "edge-dst-node");
 
     // Add an edge from src to dst.
-    mnem(dir.path(), &[
-        "add", "edge",
-        "--from", &src_uuid,
-        "--to", &dst_uuid,
-        "--label", "test_link",
-    ])
+    mnem(
+        dir.path(),
+        &[
+            "add",
+            "edge",
+            "--from",
+            &src_uuid,
+            "--to",
+            &dst_uuid,
+            "--label",
+            "test_link",
+        ],
+    )
     .assert()
     .success();
 
@@ -461,12 +441,19 @@ fn revert_bug4_preflight_rejects_when_edge_endpoint_deleted() {
     let dst_uuid = add_node(dir.path(), "bug4-dst");
 
     // Add an edge.
-    mnem(dir.path(), &[
-        "add", "edge",
-        "--from", &src_uuid,
-        "--to", &dst_uuid,
-        "--label", "bug4_link",
-    ])
+    mnem(
+        dir.path(),
+        &[
+            "add",
+            "edge",
+            "--from",
+            &src_uuid,
+            "--to",
+            &dst_uuid,
+            "--label",
+            "bug4_link",
+        ],
+    )
     .assert()
     .success();
 
@@ -481,9 +468,7 @@ fn revert_bug4_preflight_rejects_when_edge_endpoint_deleted() {
     let remove_edge_op_cid = latest_op_cid(dir.path());
 
     // Delete the dst endpoint node (the edge would need it to exist).
-    mnem(dir.path(), &["delete", &dst_uuid])
-        .assert()
-        .success();
+    mnem(dir.path(), &["delete", &dst_uuid]).assert().success();
 
     // Now try to revert the remove-edge op. This would re-add the edge,
     // but dst_uuid no longer exists -> BUG-4 pre-flight must reject it.
@@ -503,12 +488,19 @@ fn revert_undoes_edge_removal() {
     let dst_uuid = add_node(dir.path(), "edge-restore-dst");
 
     // Add the edge.
-    mnem(dir.path(), &[
-        "add", "edge",
-        "--from", &src_uuid,
-        "--to", &dst_uuid,
-        "--label", "restore_link",
-    ])
+    mnem(
+        dir.path(),
+        &[
+            "add",
+            "edge",
+            "--from",
+            &src_uuid,
+            "--to",
+            &dst_uuid,
+            "--label",
+            "restore_link",
+        ],
+    )
     .assert()
     .success();
 
@@ -560,12 +552,19 @@ fn revert_bug4_preflight_rejects_when_edge_endpoint_tombstoned() {
     let dst_uuid = add_node(dir.path(), "bug4-ts-dst");
 
     // Add an edge from src to dst.
-    mnem(dir.path(), &[
-        "add", "edge",
-        "--from", &src_uuid,
-        "--to", &dst_uuid,
-        "--label", "bug4_ts_link",
-    ])
+    mnem(
+        dir.path(),
+        &[
+            "add",
+            "edge",
+            "--from",
+            &src_uuid,
+            "--to",
+            &dst_uuid,
+            "--label",
+            "bug4_ts_link",
+        ],
+    )
     .assert()
     .success();
 
@@ -604,12 +603,19 @@ fn revert_bug4_preflight_rejects_when_edge_src_deleted() {
     let dst_uuid = add_node(dir.path(), "bug4-src-del-dst");
 
     // Add an edge from src to dst.
-    mnem(dir.path(), &[
-        "add", "edge",
-        "--from", &src_uuid,
-        "--to", &dst_uuid,
-        "--label", "bug4_src_link",
-    ])
+    mnem(
+        dir.path(),
+        &[
+            "add",
+            "edge",
+            "--from",
+            &src_uuid,
+            "--to",
+            &dst_uuid,
+            "--label",
+            "bug4_src_link",
+        ],
+    )
     .assert()
     .success();
 
@@ -623,9 +629,7 @@ fn revert_bug4_preflight_rejects_when_edge_src_deleted() {
     let remove_edge_op_cid = latest_op_cid(dir.path());
 
     // Hard-delete the SRC endpoint node.
-    mnem(dir.path(), &["delete", &src_uuid])
-        .assert()
-        .success();
+    mnem(dir.path(), &["delete", &src_uuid]).assert().success();
 
     // Reverting the remove-edge op would re-add the edge whose src endpoint
     // no longer exists. BUG-4 pre-flight must reject this.
@@ -647,12 +651,19 @@ fn revert_bug4_preflight_rejects_when_edge_src_tombstoned() {
     let dst_uuid = add_node(dir.path(), "bug4-src-ts-dst");
 
     // Add an edge from src to dst.
-    mnem(dir.path(), &[
-        "add", "edge",
-        "--from", &src_uuid,
-        "--to", &dst_uuid,
-        "--label", "bug4_src_ts_link",
-    ])
+    mnem(
+        dir.path(),
+        &[
+            "add",
+            "edge",
+            "--from",
+            &src_uuid,
+            "--to",
+            &dst_uuid,
+            "--label",
+            "bug4_src_ts_link",
+        ],
+    )
     .assert()
     .success();
 

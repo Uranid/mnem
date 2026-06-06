@@ -2241,6 +2241,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "tempfile",
  "tokio",
  "toml",
@@ -2401,7 +2402,7 @@ dependencies = [
 
 [[package]]
 name = "mnem-wasm"
-version = "0.1.7"
+version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.2.17",

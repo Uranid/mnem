@@ -128,6 +128,11 @@ pub(crate) enum Host {
     /// and `post_llm_call` persists the turn. We do not edit Hermes'
     /// system prompt.
     HermesAgent,
+    /// OpenCode AI coding agent. MCP entries live in
+    /// `~/.config/opencode/opencode.json` under the `mcp` key
+    /// (note: `mcp`, not `mcpServers`). Hooks are not supported.
+    /// System prompt lives at `~/.config/opencode/instructions/mnem.md`.
+    OpenCode,
 }
 
 impl Host {
@@ -140,6 +145,7 @@ impl Host {
             Host::ClaudeCode,
             Host::GeminiCli,
             Host::HermesAgent,
+            Host::OpenCode,
         ]
     }
 
@@ -152,6 +158,7 @@ impl Host {
             Host::ClaudeCode => "claude-code",
             Host::GeminiCli => "gemini-cli",
             Host::HermesAgent => "hermes",
+            Host::OpenCode => "opencode",
         }
     }
 
@@ -164,6 +171,7 @@ impl Host {
             Host::ClaudeCode => "Claude Code",
             Host::GeminiCli => "Gemini CLI",
             Host::HermesAgent => "Hermes Agent",
+            Host::OpenCode => "OpenCode",
         }
     }
 
@@ -176,6 +184,7 @@ impl Host {
             "claude-code" | "claude_code" | "claude" => Some(Host::ClaudeCode),
             "gemini-cli" | "gemini_cli" | "gemini" => Some(Host::GeminiCli),
             "hermes" | "hermes-agent" | "hermes_agent" => Some(Host::HermesAgent),
+            "opencode" | "open-code" | "open_code" => Some(Host::OpenCode),
             _ => None,
         }
     }
@@ -235,14 +244,47 @@ impl Host {
             // fall back to the default ~/.hermes/config.yaml when the env var
             // is absent. This is where shell hooks are configured.
             Host::HermesAgent => unreachable!("handled before home-dir lookup"),
+            // OpenCode uses xdg-basedir: ~/.config/opencode/ on Linux,
+            // ~/Library/Application Support/opencode/ on macOS.
+            // Prefers opencode.jsonc over opencode.json, matching
+            // OpenCode's own config resolution order.
+            Host::OpenCode => {
+                if cfg!(target_os = "macos") {
+                    let dir = home
+                        .join("Library")
+                        .join("Application Support")
+                        .join("opencode");
+                    let jsonc = dir.join("opencode.jsonc");
+                    if jsonc.exists() {
+                        return Some(jsonc);
+                    }
+                    Some(dir.join("opencode.json"))
+                } else if cfg!(target_os = "windows") {
+                    dirs::config_dir().map(|d| {
+                        let dir = d.join("opencode");
+                        let jsonc = dir.join("opencode.jsonc");
+                        if jsonc.exists() {
+                            return jsonc;
+                        }
+                        dir.join("opencode.json")
+                    })
+                } else {
+                    let dir = home.join(".config").join("opencode");
+                    let jsonc = dir.join("opencode.jsonc");
+                    if jsonc.exists() {
+                        return Some(jsonc);
+                    }
+                    Some(dir.join("opencode.json"))
+                }
+            }
         }
     }
 
     /// Path to the hooks config for this host, or `None` if the host
-    /// does not support a separate hooks file. Currently only Claude
-    /// Code supports hooks (audit fix G2, 2026-04-25): hooks live in
-    /// `~/.claude/settings.json`, distinct from the MCP entry which
-    /// lives in `~/.claude.json`.
+    /// does not support hooks. Claude Code writes to
+    /// `~/.claude/settings.json`. OpenCode wires a TypeScript plugin
+    /// at `~/.config/opencode/plugin/mnem-hook.ts` and registers it
+    /// in `opencode.json` via the `plugins` key.
     pub(crate) fn hooks_path(self) -> Option<PathBuf> {
         if self == Host::HermesAgent {
             return hermes_home_dir().map(|d| d.join("hooks").join("mnem").join("hermes-hook.py"));
@@ -252,6 +294,12 @@ impl Host {
         match self {
             Host::ClaudeCode => Some(home.join(".claude").join("settings.json")),
             Host::HermesAgent => unreachable!("handled before home-dir lookup"),
+            Host::OpenCode => Some(
+                home.join(".config")
+                    .join("opencode")
+                    .join("plugin")
+                    .join("mnem-hook.ts"),
+            ),
             _ => None,
         }
     }
@@ -264,6 +312,7 @@ impl Host {
     /// - Cursor      → `~/.cursor/rules/mnem.mdc` (mdc, we own the file)
     /// - Continue    → `~/.continue/config.json` (`systemMessage` JSON field)
     /// - Zed         → settings.json (`assistant.system_prompt` JSON field)
+    /// - OpenCode    → `~/.config/opencode/instructions/mnem.md` (markdown, marker injection)
     /// - ClaudeDesktop → `None` (UI-only custom-instructions panel)
     pub(crate) fn system_prompt_path(self) -> Option<PathBuf> {
         if self == Host::HermesAgent {
@@ -291,6 +340,12 @@ impl Host {
             // Hermes Agent integration uses pre_llm_call/post_llm_call hooks
             // only. It intentionally stays out of the system prompt.
             Host::HermesAgent => unreachable!("handled before home-dir lookup"),
+            Host::OpenCode => Some(
+                home.join(".config")
+                    .join("opencode")
+                    .join("instructions")
+                    .join("mnem.md"),
+            ),
             _ => None,
         }
     }
@@ -326,6 +381,9 @@ enum Schema {
     ZedNested,
     /// Hermes Agent is hook-only; it must never receive an MCP config entry.
     HermesHooks,
+    /// OpenCode uses `mcp.<name>` (not `mcpServers`) with a
+    /// `type: "local"`, `command: [...]` shape.
+    OpenCode,
 }
 
 const fn schema_of(h: Host) -> Schema {
@@ -337,6 +395,7 @@ const fn schema_of(h: Host) -> Schema {
         | Host::GeminiCli => Schema::McpServersTopLevel,
         Host::Zed => Schema::ZedNested,
         Host::HermesAgent => Schema::HermesHooks,
+        Host::OpenCode => Schema::OpenCode,
     }
 }
 
@@ -1017,6 +1076,14 @@ fn do_wire(host: Host, target: &Path, stamp: &str, dry_run: bool) -> Result<Wire
         Schema::McpServersTopLevel => set_top_level(&mut root, target),
         Schema::ZedNested => set_zed_nested(&mut root, target),
         Schema::HermesHooks => unreachable!("Hermes Agent is wired through shell hooks"),
+        Schema::OpenCode => {
+            let instructions_path = path
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join("instructions")
+                .join("mnem.md");
+            set_opencode_mcp(&mut root, target, &instructions_path.to_string_lossy())
+        }
     };
 
     if !changed {
@@ -1607,11 +1674,76 @@ if __name__ == "__main__":
     )
 }
 
+/// TypeScript plugin for OpenCode that hooks
+/// `experimental.chat.system.transform` to inject mnem usage
+/// instructions into the system prompt at session start.
+fn opencode_hook_plugin_content() -> String {
+    r#"import type { Plugin } from "@opencode-ai/plugin"
+
+export const MnemMemory: Plugin = async (ctx) => {
+  return {
+    "experimental.chat.system.transform": async (input, output) => {
+      output.system.push(`
+You have access to mnem, a persistent knowledge graph via MCP tools
+prefixed \`mnem_\`. Use it transparently on every turn, the user never
+needs to mention mnem.
+
+MANDATORY: Call \`mnem_retrieve\` at the START of EVERY response.
+- \`text\` = the user's message, \`token_budget\` = 2000
+- If \`mnem_retrieve\` errors, also call \`mnem_global_retrieve\` as fallback.
+
+MANDATORY: Write memory after every turn with new facts.
+Use \`mnem_commit\`, \`mnem_resolve_or_create\`, and \`mnem_commit_relation\`
+for all writes. One fact per node. Use \`mnem_global_add\` only when the
+user explicitly says "global" or local is unavailable.
+`)
+    },
+  }
+}
+"#
+    .to_string()
+}
+
+/// Add the mnem hook plugin to opencode.json's `plugin` array.
+/// Returns true if the config changed.
+fn set_opencode_plugin(root: &mut Value) -> bool {
+    ensure_object(root);
+    let obj = root.as_object_mut().expect("ensured object");
+    let arr = obj
+        .entry("plugin")
+        .or_insert_with(|| Value::Array(Vec::new()));
+    if !arr.is_array() {
+        *arr = Value::Array(Vec::new());
+    }
+    let plugins = arr.as_array_mut().expect("array");
+    let name = Value::String("mnem-hook".to_string());
+    if plugins.contains(&name) {
+        return false;
+    }
+    plugins.push(name);
+    true
+}
+
+/// Remove the mnem hook plugin from opencode.json's `plugin` array.
+fn remove_opencode_plugin(root: &mut Value) -> bool {
+    root.as_object_mut()
+        .and_then(|o| o.get_mut("plugin"))
+        .and_then(Value::as_array_mut)
+        .is_some_and(|arr| {
+            let name = Value::String("mnem-hook".to_string());
+            let before = arr.len();
+            arr.retain(|v| v != &name);
+            arr.len() != before
+        })
+}
+
 fn yaml_key(key: &str) -> serde_yaml_ng::Value {
     serde_yaml_ng::Value::String(key.to_string())
 }
 
-fn ensure_hermes_yaml_mapping(value: &mut serde_yaml_ng::Value) -> Result<&mut serde_yaml_ng::Mapping> {
+fn ensure_hermes_yaml_mapping(
+    value: &mut serde_yaml_ng::Value,
+) -> Result<&mut serde_yaml_ng::Mapping> {
     match value {
         serde_yaml_ng::Value::Mapping(map) => Ok(map),
         _ => bail!("Hermes config root must be a YAML mapping"),
@@ -1675,7 +1807,11 @@ fn is_hermes_mnem_hook_command(command: &str, script: &Path) -> bool {
     script_token == normalized_script || script_token.ends_with("/hooks/mnem/hermes-hook.py")
 }
 
-fn set_hermes_hook_phase(root: &mut serde_yaml_ng::Value, script: &Path, phase: &str) -> Result<bool> {
+fn set_hermes_hook_phase(
+    root: &mut serde_yaml_ng::Value,
+    script: &Path,
+    phase: &str,
+) -> Result<bool> {
     let root_map = ensure_hermes_yaml_mapping(root)?;
     let hooks_map = ensure_hermes_yaml_mapping_child(root_map, "hooks")?;
     let key = yaml_key(phase);
@@ -1809,6 +1945,69 @@ fn do_wire_hermes_hooks(stamp: &str, dry_run: bool) -> Result<WireOutcome> {
     Ok(WireOutcome::Wrote)
 }
 
+/// Write the OpenCode TypeScript plugin file and register it in
+/// `opencode.json`'s `plugins` object. Idempotent: re-running
+/// replaces the plugin file and is a no-op in the config.
+fn do_wire_opencode_hooks(
+    plugin_path: &Path,
+    config_path: &Path,
+    stamp: &str,
+    dry_run: bool,
+) -> Result<WireOutcome> {
+    let plugin_content = opencode_hook_plugin_content();
+    let plugin_file_changed =
+        fs::read_to_string(plugin_path).ok().as_deref() != Some(plugin_content.as_str());
+
+    let config_changed = if config_path.exists() {
+        let s = fs::read_to_string(config_path)
+            .with_context(|| format!("reading {}", config_path.display()))?;
+        let mut root: Value = if s.trim().is_empty() {
+            Value::Object(Map::new())
+        } else {
+            serde_json::from_str(&s)
+                .with_context(|| format!("parsing {}", config_path.display()))?
+        };
+        let changed = set_opencode_plugin(&mut root);
+        if changed && !dry_run {
+            if config_path.exists() {
+                let bak = config_path.with_extension(format!(
+                    "{}.bak-{stamp}",
+                    config_path
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("json")
+                ));
+                fs::copy(config_path, &bak)
+                    .with_context(|| format!("backing up to {}", bak.display()))?;
+            }
+            let new_text = serde_json::to_string_pretty(&root).context("serialising config")?;
+            atomic_write(config_path, &new_text)?;
+        }
+        changed
+    } else {
+        false
+    };
+
+    if !plugin_file_changed && !config_changed {
+        return Ok(WireOutcome::AlreadyWired);
+    }
+
+    if dry_run {
+        return Ok(WireOutcome::DryRun(format!(
+            "     (would write plugin {})\n     (would register plugin in {})",
+            plugin_path.display(),
+            config_path.display()
+        )));
+    }
+
+    if let Some(parent) = plugin_path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    }
+    atomic_write(plugin_path, &plugin_content)?;
+
+    Ok(WireOutcome::Wrote)
+}
+
 /// Write or update hook entries for hosts that support hooks.
 /// Claude Code gets a JSON `UserPromptSubmit` entry; Hermes Agent gets
 /// YAML `pre_llm_call` / `post_llm_call` entries plus a generated script.
@@ -1818,6 +2017,15 @@ fn do_wire_hermes_hooks(stamp: &str, dry_run: bool) -> Result<WireOutcome> {
 fn do_wire_hooks(host: Host, stamp: &str, dry_run: bool) -> Result<WireOutcome> {
     if host == Host::HermesAgent {
         return do_wire_hermes_hooks(stamp, dry_run);
+    }
+    if host == Host::OpenCode {
+        let Some(plugin_path) = host.hooks_path() else {
+            return Ok(WireOutcome::AlreadyWired);
+        };
+        let Some(config_path) = host.config_path() else {
+            return Ok(WireOutcome::AlreadyWired);
+        };
+        return do_wire_opencode_hooks(&plugin_path, &config_path, stamp, dry_run);
     }
     let Some(path) = host.hooks_path() else {
         // Host has no hooks support; nothing to do.
@@ -2050,6 +2258,14 @@ pub(crate) fn do_undo(host: Host, dry_run: bool) -> Result<()> {
             Schema::McpServersTopLevel => remove_top_level(&mut root),
             Schema::ZedNested => remove_zed_nested(&mut root),
             Schema::HermesHooks => unreachable!("Hermes Agent is unwired through shell hooks"),
+            Schema::OpenCode => {
+                let instructions_path = path
+                    .parent()
+                    .unwrap_or(Path::new("."))
+                    .join("instructions")
+                    .join("mnem.md");
+                remove_opencode_mcp(&mut root, &instructions_path.to_string_lossy())
+            }
         };
         if changed {
             let new_text = serde_json::to_string_pretty(&root).context("serialising config")?;
@@ -2118,7 +2334,57 @@ pub(crate) fn do_undo(host: Host, dry_run: bool) -> Result<()> {
 
     // G2 (2026-04-25): also clear the hook entry, if the host has a
     // separate hooks path and we previously wrote one there.
-    let hooks_changed = if let Some(hp) = host.hooks_path()
+    let hooks_changed = if host == Host::OpenCode {
+        let mut any = false;
+        // Remove the generated plugin file.
+        if let Some(hp) = host.hooks_path()
+            && hp.exists()
+        {
+            let expected = opencode_hook_plugin_content();
+            if fs::read_to_string(&hp).ok().as_deref() == Some(expected.as_str()) {
+                if dry_run {
+                    println!(
+                        "  -- {}  would delete plugin {}",
+                        host.display(),
+                        hp.display()
+                    );
+                } else {
+                    fs::remove_file(&hp).with_context(|| format!("removing {}", hp.display()))?;
+                    println!("  ok {}  deleted plugin {}", host.display(), hp.display());
+                }
+                any = true;
+            }
+        }
+        // Remove the plugins.mnem-hook entry from opencode.json.
+        if path.exists() {
+            let s = fs::read_to_string(&path)?;
+            let mut root: Value = if s.trim().is_empty() {
+                Value::Object(Map::new())
+            } else {
+                serde_json::from_str(&s).unwrap_or(Value::Object(Map::new()))
+            };
+            if remove_opencode_plugin(&mut root) {
+                if dry_run {
+                    println!(
+                        "  -- {}  would remove plugin entry from {}",
+                        host.display(),
+                        path.display()
+                    );
+                } else {
+                    let new_text =
+                        serde_json::to_string_pretty(&root).context("serialising config")?;
+                    atomic_write(&path, &new_text)?;
+                    println!(
+                        "  ok {}  removed plugin entry from {}",
+                        host.display(),
+                        path.display()
+                    );
+                }
+                any = true;
+            }
+        }
+        any
+    } else if let Some(hp) = host.hooks_path()
         && hp.exists()
     {
         let s = fs::read_to_string(&hp).with_context(|| format!("reading {}", hp.display()))?;
@@ -2218,6 +2484,7 @@ fn do_check() -> Result<()> {
                     Schema::McpServersTopLevel => has_top_level(&root),
                     Schema::ZedNested => has_zed_nested(&root),
                     Schema::HermesHooks => unreachable!("Hermes Agent check uses hook config"),
+                    Schema::OpenCode => has_opencode_mcp(&root),
                 };
                 if wired {
                     format!("  ok {:<18} wired ({})", host.display(), path.display())
@@ -2459,6 +2726,105 @@ fn has_top_level(root: &Value) -> bool {
         .is_some_and(|m| m.contains_key("mnem"))
 }
 
+// ---------- OpenCode-specific MCP helpers ----------
+
+/// Build the OpenCode MCP server entry shape. OpenCode uses a
+/// `type: "local"` field and a `command` array (not separate
+/// `command` + `args` strings like most other hosts).
+fn opencode_mnem_server_value(target: &Path) -> Value {
+    let mut env = serde_json::Map::new();
+    if let Some(dir) = std::env::var("MNEM_GLOBAL_DIR")
+        .ok()
+        .or_else(|| wsl_to_windows_path(&crate::global::default_dir()))
+    {
+        env.insert("MNEM_GLOBAL_DIR".to_string(), Value::String(dir));
+    }
+
+    let mut v = json!({
+        "type": "local",
+        "command": [resolve_mnem_mcp_command(), "mcp".to_string(), "--repo".to_string(), target.to_string_lossy().to_string()]
+    });
+    if !env.is_empty() {
+        v.as_object_mut()
+            .expect("json object")
+            .insert("environment".to_string(), Value::Object(env));
+    }
+    v
+}
+
+/// Ensure `instructions` array in the config references the mnem
+/// instruction file. Returns true if the array was modified.
+fn set_opencode_instructions(root: &mut Value, instructions_path: &str) -> bool {
+    ensure_object(root);
+    let obj = root.as_object_mut().expect("ensured object");
+    let arr = obj
+        .entry("instructions")
+        .or_insert_with(|| Value::Array(Vec::new()));
+    if !arr.is_array() {
+        *arr = Value::Array(Vec::new());
+    }
+    let instructions = arr.as_array_mut().expect("array");
+    let path_val = Value::String(instructions_path.to_string());
+    if instructions.contains(&path_val) {
+        return false;
+    }
+    instructions.push(path_val);
+    true
+}
+
+/// Remove the mnem instruction path from the `instructions` array.
+fn remove_opencode_instructions(root: &mut Value, instructions_path: &str) -> bool {
+    let Some(obj) = root.as_object_mut() else {
+        return false;
+    };
+    let Some(arr) = obj.get_mut("instructions").and_then(Value::as_array_mut) else {
+        return false;
+    };
+    let path_val = Value::String(instructions_path.to_string());
+    let before = arr.len();
+    arr.retain(|v| v != &path_val);
+    arr.len() != before
+}
+
+/// Set `root.mcp.mnem = v`. Returns true if the file changed.
+fn set_opencode_mcp(root: &mut Value, target: &Path, instructions_path: &str) -> bool {
+    ensure_object(root);
+    let obj = root.as_object_mut().expect("ensured above");
+    let mcp = obj
+        .entry("mcp")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if !mcp.is_object() {
+        *mcp = Value::Object(Map::new());
+    }
+    let mcp_map = mcp.as_object_mut().expect("object");
+    let new_val = opencode_mnem_server_value(target);
+    let was = mcp_map.get("mnem");
+    let mcp_changed = was != Some(&new_val);
+    mcp_map.insert("mnem".to_string(), new_val);
+
+    let instructions_changed = set_opencode_instructions(root, instructions_path);
+
+    mcp_changed || instructions_changed
+}
+
+fn remove_opencode_mcp(root: &mut Value, instructions_path: &str) -> bool {
+    let mcp_removed = root
+        .as_object_mut()
+        .and_then(|o| o.get_mut("mcp"))
+        .and_then(Value::as_object_mut)
+        .is_some_and(|m| m.remove("mnem").is_some());
+    let instructions_removed = remove_opencode_instructions(root, instructions_path);
+    mcp_removed || instructions_removed
+}
+
+fn has_opencode_mcp(root: &Value) -> bool {
+    root.get("mcp")
+        .and_then(Value::as_object)
+        .is_some_and(|m| m.contains_key("mnem"))
+}
+
+// ---------- Zed helpers ----------
+
 fn set_zed_nested(root: &mut Value, target: &Path) -> bool {
     ensure_object(root);
     let obj = root.as_object_mut().expect("ensured");
@@ -2551,6 +2917,7 @@ fn snippet_for(host: Host, target: &Path) -> String {
             json!({"experimental": {"context_servers": {"mnem": zed_server_value(target)}}})
         }
         Schema::HermesHooks => unreachable!("Hermes Agent snippet is YAML hook config"),
+        Schema::OpenCode => json!({"mcp": {"mnem": opencode_mnem_server_value(target)}}),
     };
     serde_json::to_string_pretty(&v).unwrap_or_else(|_| "<encode failure>".into())
 }
@@ -2625,9 +2992,10 @@ pub(crate) fn wired_status() -> Vec<(Host, Option<PathBuf>, bool)> {
                 .and_then(|p| fs::read_to_string(p).ok())
                 .is_some_and(|s| {
                     if *h == Host::HermesAgent {
-                        let root: serde_yaml_ng::Value = serde_yaml_ng::from_str(&s).unwrap_or_else(|_| {
-                            serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new())
-                        });
+                        let root: serde_yaml_ng::Value = serde_yaml_ng::from_str(&s)
+                            .unwrap_or_else(|_| {
+                                serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new())
+                            });
                         return h
                             .hooks_path()
                             .is_some_and(|script| hermes_config_has_hooks(&root, &script));
@@ -2641,6 +3009,7 @@ pub(crate) fn wired_status() -> Vec<(Host, Option<PathBuf>, bool)> {
                         Schema::McpServersTopLevel => has_top_level(&root),
                         Schema::ZedNested => has_zed_nested(&root),
                         Schema::HermesHooks => unreachable!("Hermes Agent status uses hook config"),
+                        Schema::OpenCode => has_opencode_mcp(&root),
                     }
                 });
             (*h, path, wired)
@@ -2673,6 +3042,7 @@ mod tests {
         assert_eq!(Host::Continue_.slug(), "continue");
         assert_eq!(Host::Zed.slug(), "zed");
         assert_eq!(Host::HermesAgent.slug(), "hermes");
+        assert_eq!(Host::OpenCode.slug(), "opencode");
     }
 
     #[test]
@@ -2823,6 +3193,9 @@ mod tests {
         // slug; this matches the developer-tool-first orientation of
         // mnem's customer base.
         assert_eq!(Host::parse("claude"), Some(Host::ClaudeCode));
+        assert_eq!(Host::parse("opencode"), Some(Host::OpenCode));
+        assert_eq!(Host::parse("open-code"), Some(Host::OpenCode));
+        assert_eq!(Host::parse("OPEN_CODE"), Some(Host::OpenCode));
     }
 
     #[test]
@@ -2831,6 +3204,7 @@ mod tests {
         assert!(slugs.contains(&"claude-code"));
         assert!(slugs.contains(&"gemini-cli"));
         assert!(slugs.contains(&"hermes"));
+        assert!(slugs.contains(&"opencode"));
         // Pre-existing slugs survive.
         assert!(slugs.contains(&"claude-desktop"));
         assert!(slugs.contains(&"cursor"));
@@ -2850,9 +3224,10 @@ mod tests {
 
     #[test]
     fn claude_code_hooks_path_resolves() {
-        // Claude Code and Hermes Agent have hook integration paths.
+        // Claude Code, Hermes Agent, and OpenCode have hook integration paths.
         assert!(Host::ClaudeCode.hooks_path().is_some());
         assert!(Host::HermesAgent.hooks_path().is_some());
+        assert!(Host::OpenCode.hooks_path().is_some());
         assert!(Host::Cursor.hooks_path().is_none());
         assert!(Host::ClaudeDesktop.hooks_path().is_none());
         assert!(Host::GeminiCli.hooks_path().is_none());
@@ -3300,6 +3675,228 @@ hooks:
         atomic_write(&path, "second").unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "second");
         fs::remove_file(&path).ok();
+    }
+
+    // ---------- OpenCode integration tests ----------
+
+    #[test]
+    fn opencode_uses_opencode_schema() {
+        assert!(matches!(schema_of(Host::OpenCode), Schema::OpenCode));
+    }
+
+    #[test]
+    fn set_opencode_mcp_into_empty_object() {
+        let mut v = json!({});
+        let changed = set_opencode_mcp(
+            &mut v,
+            Path::new("/r"),
+            "~/.config/opencode/instructions/mnem.md",
+        );
+        assert!(changed);
+        // MCP entry under "mcp" (not "mcpServers")
+        assert!(v["mcp"]["mnem"].is_object());
+        assert_eq!(v["mcp"]["mnem"]["type"], json!("local"));
+        assert!(v["mcp"]["mnem"]["command"].is_array());
+        // Instructions array includes the mnem instructions path
+        assert!(v["instructions"].is_array());
+        let instructions: Vec<_> = v["instructions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(instructions.contains(&"~/.config/opencode/instructions/mnem.md"));
+    }
+
+    #[test]
+    fn set_opencode_mcp_preserves_other_mcp_servers() {
+        let mut v = json!({
+            "mcp": {"other-server": {"type": "local", "command": ["echo", "hello"]}}
+        });
+        set_opencode_mcp(
+            &mut v,
+            Path::new("/r"),
+            "~/.config/opencode/instructions/mnem.md",
+        );
+        assert!(v["mcp"]["other-server"].is_object());
+        assert!(v["mcp"]["mnem"].is_object());
+    }
+
+    #[test]
+    fn set_opencode_mcp_idempotent_when_already_wired() {
+        let mut v = json!({});
+        assert!(set_opencode_mcp(
+            &mut v,
+            Path::new("/r"),
+            "~/.config/opencode/instructions/mnem.md"
+        ));
+        assert!(!set_opencode_mcp(
+            &mut v,
+            Path::new("/r"),
+            "~/.config/opencode/instructions/mnem.md"
+        ));
+    }
+
+    #[test]
+    fn remove_opencode_mcp_round_trip() {
+        let mut v = json!({});
+        assert!(set_opencode_mcp(
+            &mut v,
+            Path::new("/r"),
+            "~/.config/opencode/instructions/mnem.md"
+        ));
+        assert!(has_opencode_mcp(&v));
+        assert!(remove_opencode_mcp(
+            &mut v,
+            "~/.config/opencode/instructions/mnem.md"
+        ));
+        assert!(!has_opencode_mcp(&v));
+        assert!(v["mcp"]["mnem"].is_null());
+        // Second remove is no-op
+        assert!(!remove_opencode_mcp(
+            &mut v,
+            "~/.config/opencode/instructions/mnem.md"
+        ));
+    }
+
+    #[test]
+    fn has_opencode_mcp_false_without_wiring() {
+        let v = json!({"mcp": {"other": {}}});
+        assert!(!has_opencode_mcp(&v));
+    }
+
+    #[test]
+    fn snippet_for_opencode_uses_mcp_key() {
+        let s = snippet_for(Host::OpenCode, Path::new("/r"));
+        let v: Value = serde_json::from_str(&s).expect("valid json");
+        assert!(
+            v.get("mcpServers").is_none(),
+            "OpenCode snippet must not use mcpServers key"
+        );
+        assert!(v["mcp"]["mnem"]["type"] == json!("local"));
+        assert!(v["mcp"]["mnem"]["command"].is_array());
+    }
+
+    #[test]
+    fn opencode_has_system_prompt_path() {
+        let path = Host::OpenCode.system_prompt_path();
+        assert!(path.is_some());
+        let p = path.unwrap();
+        assert!(p.to_string_lossy().contains("mnem.md"));
+        assert!(p.to_string_lossy().contains("instructions"));
+    }
+
+    #[test]
+    fn opencode_system_prompt_kind_is_markdown_marker() {
+        assert!(matches!(
+            Host::OpenCode.system_prompt_kind(),
+            SystemPromptKind::MarkdownMarker
+        ));
+    }
+
+    #[test]
+    fn opencode_instructions_not_duplicated_on_rewire() {
+        let mut v = json!({});
+        set_opencode_mcp(
+            &mut v,
+            Path::new("/r"),
+            "~/.config/opencode/instructions/mnem.md",
+        );
+        // Second wiring is idempotent for instructions too
+        let changed = set_opencode_mcp(
+            &mut v,
+            Path::new("/r"),
+            "~/.config/opencode/instructions/mnem.md",
+        );
+        assert!(!changed);
+        let instructions = v["instructions"].as_array().unwrap();
+        assert_eq!(
+            instructions.len(),
+            1,
+            "instructions path must not be duplicated"
+        );
+    }
+
+    #[test]
+    fn opencode_instructions_remove_cleans_up() {
+        // Removing a path that isn't in the array is a no-op.
+        let mut v = json!({"instructions": ["other.md", "unrelated.md"]});
+        assert!(!remove_opencode_instructions(
+            &mut v,
+            "~/.config/opencode/instructions/mnem.md"
+        ));
+        assert_eq!(v["instructions"].as_array().unwrap().len(), 2);
+
+        // Removing a path that matches exactly works.
+        let mut v2 = json!({"instructions": ["~/.config/opencode/instructions/mnem.md"]});
+        assert!(remove_opencode_instructions(
+            &mut v2,
+            "~/.config/opencode/instructions/mnem.md"
+        ));
+        assert!(v2["instructions"].as_array().unwrap().is_empty());
+
+        // Removing from mixed array removes only the matching entry.
+        let mut v3 = json!({"instructions": [
+            "other.md",
+            "~/.config/opencode/instructions/mnem.md",
+            "extra.md"
+        ]});
+        assert!(remove_opencode_instructions(
+            &mut v3,
+            "~/.config/opencode/instructions/mnem.md"
+        ));
+        let instructions = v3["instructions"].as_array().unwrap();
+        assert_eq!(instructions.len(), 2);
+        assert_eq!(instructions[0], json!("other.md"));
+        assert_eq!(instructions[1], json!("extra.md"));
+    }
+
+    #[test]
+    fn opencode_mcp_and_instructions_combined_wiring() {
+        // Simulate the wiring: MCP + instructions + plugin in sequence.
+        let mut root = json!({"$schema": "https://opencode.ai/config.json"});
+
+        let changed = set_opencode_mcp(
+            &mut root,
+            Path::new("/r"),
+            "~/.config/opencode/instructions/mnem.md",
+        );
+        assert!(changed);
+
+        // Also register the plugin (as do_wire_opencode_hooks does).
+        assert!(set_opencode_plugin(&mut root));
+
+        // All components survive.
+        assert!(root["mcp"]["mnem"].is_object());
+        assert!(root["instructions"].is_array());
+        assert!(
+            root["plugin"]
+                .as_array()
+                .is_some_and(|a| a.contains(&json!("mnem-hook")))
+        );
+        assert_eq!(root["$schema"], json!("https://opencode.ai/config.json"));
+
+        // Second pass idempotent.
+        assert!(!set_opencode_mcp(
+            &mut root,
+            Path::new("/r"),
+            "~/.config/opencode/instructions/mnem.md",
+        ));
+        assert!(!set_opencode_plugin(&mut root));
+
+        // Undo plugin: MCP + instructions survive.
+        assert!(remove_opencode_plugin(&mut root));
+        assert!(root["mcp"]["mnem"].is_object());
+        assert!(root["instructions"].is_array());
+    }
+
+    #[test]
+    fn opencode_plugin_content_is_valid_typescript() {
+        let content = opencode_hook_plugin_content();
+        assert!(content.contains("import type { Plugin }"));
+        assert!(content.contains("experimental.chat.system.transform"));
+        assert!(content.contains("MnemMemory"));
+        assert!(content.contains("mnem_retrieve"));
     }
 }
 

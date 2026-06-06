@@ -163,10 +163,14 @@ pub fn resolve_chunker(
             },
         ),
         "paragraph" => ChunkerKind::Paragraph,
-        "recursive" => ChunkerKind::Recursive { max_tokens, overlap },
-        "sentence_recursive" | "sentence-recursive" => {
-            ChunkerKind::SentenceRecursive { max_tokens, overlap }
-        }
+        "recursive" => ChunkerKind::Recursive {
+            max_tokens,
+            overlap,
+        },
+        "sentence_recursive" | "sentence-recursive" => ChunkerKind::SentenceRecursive {
+            max_tokens,
+            overlap,
+        },
         "session" => ChunkerKind::Session { max_messages: 10 },
         "structural" => ChunkerKind::Structural,
         other => return Err(UnknownChunker(other.to_string())),
@@ -293,8 +297,10 @@ fn chunk_sentence_recursive(sections: &[Section], max_tokens: u32, overlap: u32)
         }
 
         // Pre-compute whitespace token counts per sentence.
-        let sent_tokens: Vec<usize> =
-            sentences.iter().map(|s| s.split_whitespace().count()).collect();
+        let sent_tokens: Vec<usize> = sentences
+            .iter()
+            .map(|s| s.split_whitespace().count())
+            .collect();
 
         let mut start = 0usize;
         loop {
@@ -742,7 +748,11 @@ mod tests {
             },
         );
         // Should produce multiple chunks; no chunk cuts mid-sentence.
-        assert!(chunks.len() >= 2, "expected at least 2 chunks, got {}", chunks.len());
+        assert!(
+            chunks.len() >= 2,
+            "expected at least 2 chunks, got {}",
+            chunks.len()
+        );
         // Every chunk text should end at a sentence boundary (no hanging words).
         for c in &chunks {
             let t = c.text.trim();

@@ -43,10 +43,7 @@ fn parse_count(stdout: &str, label: &str) -> usize {
             let num_str = seg.strip_suffix(&suffix)?;
             // The first segment looks like "ingested 1 files"; strip the
             // leading "ingested " if present before parsing.
-            let num_str = num_str
-                .strip_prefix("ingested ")
-                .unwrap_or(num_str)
-                .trim();
+            let num_str = num_str.strip_prefix("ingested ").unwrap_or(num_str).trim();
             num_str.parse::<usize>().ok()
         })
         .unwrap_or_else(|| panic!("could not find '{label}' count in: {stdout}"))
@@ -228,8 +225,7 @@ fn ingest_unsupported_extension_falls_back_to_text() {
     // (invoked for SourceKind::Text with auto chunker, max_tokens=512) produces
     // exactly 1 chunk. assert_eq! documents the Text-fallback contract precisely.
     assert_eq!(
-        chunk_count,
-        1,
+        chunk_count, 1,
         "text-fallback for unknown extension must produce exactly 1 chunk for a single-line file; got {chunk_count}"
     );
 }
@@ -248,7 +244,11 @@ fn ingest_comment_only_code_file_produces_one_chunk() {
     // the fallback in code.rs returns one headless section containing the
     // full file text.  The chunker then produces exactly 1 chunk from it.
     let file = repo.join("comment_only.rs");
-    std::fs::write(&file, "use std::io;\n// no function definitions in this file\n").unwrap();
+    std::fs::write(
+        &file,
+        "use std::io;\n// no function definitions in this file\n",
+    )
+    .unwrap();
 
     let out = mnem(repo, &["ingest", file.to_str().unwrap()])
         .output()
@@ -281,8 +281,7 @@ fn ingest_comment_only_code_file_produces_one_chunk() {
     // No named entities are extracted from a use-statement + comment, so entity
     // nodes do not inflate the count.
     assert_eq!(
-        node_count,
-        2,
+        node_count, 2,
         "comment-only .rs file must produce exactly 2 nodes (1 doc + 1 chunk node); got {node_count}"
     );
 }
@@ -292,9 +291,7 @@ fn ingest_invalid_utf8_code_file_fails_with_error() {
     // A .rs file containing invalid UTF-8 bytes cannot be processed as text.
     // The pipeline must fail with a non-zero exit code and a useful error message.
     let dir = TempDir::new().unwrap();
-    mnem(dir.path(), &["init"])
-        .assert()
-        .success();
+    mnem(dir.path(), &["init"]).assert().success();
     let bad_rs = dir.path().join("bad.rs");
     // The CLI calls `count_chunks_for` first; the `unwrap_or(0)` at the call
     // site in `run()` silently swallows UTF-8 errors at that stage.
@@ -303,9 +300,7 @@ fn ingest_invalid_utf8_code_file_fails_with_error() {
     // includes the file path ("bad.rs"), giving a specific error message.
     // Bytes that are not valid UTF-8
     std::fs::write(&bad_rs, &[0xff, 0xfe, 0x80, 0x81, 0x82]).unwrap();
-    let out = mnem(dir.path(), &["ingest", "bad.rs"])
-        .assert()
-        .failure();
+    let out = mnem(dir.path(), &["ingest", "bad.rs"]).assert().failure();
     let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
     assert!(
         !stderr.is_empty(),
@@ -322,21 +317,26 @@ fn ingest_recursive_skips_unsupported_extensions() {
     // `--recursive` uses SUPPORTED_EXTS to filter files.
     // Unknown extensions are skipped entirely (they do NOT fall back to Text in recursive mode).
     let dir = TempDir::new().unwrap();
-    mnem(dir.path(), &["init"])
-        .assert()
-        .success();
+    mnem(dir.path(), &["init"]).assert().success();
     let src = dir.path().join("src");
     std::fs::create_dir(&src).unwrap();
     // Supported: .rs ingested as Code
-    std::fs::write(src.join("lib.rs"), "pub fn foo() -> u32 { 42 }\npub fn bar() -> u32 { 1 }\n").unwrap();
+    std::fs::write(
+        src.join("lib.rs"),
+        "pub fn foo() -> u32 { 42 }\npub fn bar() -> u32 { 1 }\n",
+    )
+    .unwrap();
     // Supported: .txt ingested as Text (txt is in SUPPORTED_EXTS)
     std::fs::write(src.join("notes.txt"), "project notes\n").unwrap();
     // Unsupported: must be SKIPPED, not Text-fallback
     std::fs::write(src.join("config.unknown_ext_xyz"), "ignored content\n").unwrap();
 
-    let out = mnem(dir.path(), &["ingest", "--recursive", src.to_str().unwrap()])
-        .assert()
-        .success();
+    let out = mnem(
+        dir.path(),
+        &["ingest", "--recursive", src.to_str().unwrap()],
+    )
+    .assert()
+    .success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
 
     // Must ingest exactly 2 files (lib.rs + notes.txt), not 3.
@@ -367,9 +367,12 @@ fn ingest_recursive_no_supported_files_fails_with_error() {
     std::fs::write(src.join("data.unknown_ext_xyz"), "some data\n").unwrap();
     std::fs::write(src.join("more.another_unknown"), "more data\n").unwrap();
 
-    let out = mnem(dir.path(), &["ingest", "--recursive", src.to_str().unwrap()])
-        .assert()
-        .failure();
+    let out = mnem(
+        dir.path(),
+        &["ingest", "--recursive", src.to_str().unwrap()],
+    )
+    .assert()
+    .failure();
     let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
     assert!(
         stderr.contains("no ingestable files found"),

@@ -289,9 +289,14 @@ fn mnem_ingest_malformed_python_code_falls_back_to_full_file_chunk() {
         overlap: 0, // overlap has no effect on ChunkerKind::Structural
         ner: mnem_ingest::NerConfig::default(),
     });
-    let malformed_py = b"def broken(\n    x: int\n    y: int  # missing comma\n->:\n    return x + y\n";
+    let malformed_py =
+        b"def broken(\n    x: int\n    y: int  # missing comma\n->:\n    return x + y\n";
     let result = ing
-        .ingest(&mut tx, malformed_py, SourceKind::Code(CodeLanguage::Python))
+        .ingest(
+            &mut tx,
+            malformed_py,
+            SourceKind::Code(CodeLanguage::Python),
+        )
         .expect("malformed Python must not panic or return Err; tree-sitter is fault-tolerant");
     assert!(
         result.node_count >= 1,
@@ -300,8 +305,7 @@ fn mnem_ingest_malformed_python_code_falls_back_to_full_file_chunk() {
     // chunk_count is exactly 1 since the source is non-empty: the fallback section
     // contains the full source text, which chunk_structural does NOT skip.
     assert_eq!(
-        result.chunk_count,
-        1,
+        result.chunk_count, 1,
         "non-empty malformed Python must produce exactly 1 chunk via the whole-file fallback section; {result:?}"
     );
 }
@@ -335,8 +339,14 @@ fn mnem_ingest_rust_code_with_embedder() {
             SourceKind::Code(CodeLanguage::Rust),
         )
         .expect("ingest must succeed");
-    assert!(result.chunk_count >= 3, "snippet has 2 fns + 1 enum → must produce >= 3 structural chunks; {result:?}");
-    assert!(result.node_count >= 4, "must create doc node + >= 3 chunk nodes = >= 4 total; {result:?}");
+    assert!(
+        result.chunk_count >= 3,
+        "snippet has 2 fns + 1 enum → must produce >= 3 structural chunks; {result:?}"
+    );
+    assert!(
+        result.node_count >= 4,
+        "must create doc node + >= 3 chunk nodes = >= 4 total; {result:?}"
+    );
 }
 
 #[test]
@@ -389,8 +399,14 @@ class MathUtils:
         )
         .expect("ingest with embedder must not panic on Python code chunks");
 
-    assert!(result.chunk_count >= 4, "Python snippet has 2 fns + 1 class + 1 method → must produce >= 4 structural chunks; {result:?}");
-    assert!(result.node_count >= 5, "must create doc node + >= 4 chunk nodes = >= 5 total; {result:?}");
+    assert!(
+        result.chunk_count >= 4,
+        "Python snippet has 2 fns + 1 class + 1 method → must produce >= 4 structural chunks; {result:?}"
+    );
+    assert!(
+        result.node_count >= 5,
+        "must create doc node + >= 4 chunk nodes = >= 5 total; {result:?}"
+    );
 }
 
 // ---------- CLI / HTTP subprocess smokes ----------

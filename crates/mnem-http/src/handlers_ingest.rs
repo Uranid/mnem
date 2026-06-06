@@ -338,9 +338,7 @@ fn run_ingest(
     mut params: IngestParams,
 ) -> Result<Json<Value>, Error> {
     if bytes.is_empty() {
-        return Err(Error::bad_request(
-            "source is empty; nothing to ingest",
-        ));
+        return Err(Error::bad_request("source is empty; nothing to ingest"));
     }
     if params.max_tokens > MAX_INGEST_TOKENS {
         return Err(Error::bad_request(format!(

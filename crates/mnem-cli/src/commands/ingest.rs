@@ -128,13 +128,11 @@ const SUPPORTED_EXTS: &[&str] = &[
     // Structured text / data (routed to Text; sentence-aware chunking)
     "yaml", "yml", "toml", "xml", "html", "htm", "csv", "sql",
     // Code: tree-sitter parsed (function-level chunks)
-    "rs", "py", "js", "ts", "tsx", "mts", "cts", "go", "java", "c", "cpp", "cc", "cxx", "h", "hpp", "hxx",
-    "rb", "gemspec", "rake", "erb", "cs", "csx",
+    "rs", "py", "js", "ts", "tsx", "mts", "cts", "go", "java", "c", "cpp", "cc", "cxx", "h", "hpp",
+    "hxx", "rb", "gemspec", "rake", "erb", "cs", "csx",
     // Code: no tree-sitter grammar, routed to Text
-    "sh", "bash", "zsh", "fish",
-    "php", "swift", "kt", "kts", "scala", "lua",
-    "ex", "exs", "hs", "lhs", "r", "zig",
-    // Config / script formats also routed to Text
+    "sh", "bash", "zsh", "fish", "php", "swift", "kt", "kts", "scala", "lua", "ex", "exs", "hs",
+    "lhs", "r", "zig", // Config / script formats also routed to Text
     "ini", "conf", "env",
 ];
 
@@ -462,7 +460,6 @@ impl Totals {
         self.edge_count = self.edge_count.saturating_add(r.edge_count);
     }
 }
-
 
 /// Best-effort estimate of the chunk count the ingest pipeline will
 /// produce for a given source file. Used by the CLI's progress bar to

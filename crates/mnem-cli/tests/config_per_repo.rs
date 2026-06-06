@@ -151,9 +151,7 @@ fn config_list_shows_set_keys() {
     .assert()
     .success();
 
-    let out = mnem(repo.path(), &["config", "list"])
-        .assert()
-        .success();
+    let out = mnem(repo.path(), &["config", "list"]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(
         stdout.contains("user.name = Bob"),
@@ -183,9 +181,7 @@ fn config_list_on_empty_repo_prints_no_keys_set() {
     let cfg_path = repo.path().join(".mnem").join("config.toml");
     let _ = std::fs::remove_file(&cfg_path); // ignore "not found"
 
-    let out = mnem(repo.path(), &["config", "list"])
-        .assert()
-        .success();
+    let out = mnem(repo.path(), &["config", "list"]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(
         stdout.contains("(no keys set)"),
@@ -276,9 +272,7 @@ fn config_retrieve_limit_persists_to_file() {
     );
 
     // List must contain the key.
-    let out = mnem(repo.path(), &["config", "list"])
-        .assert()
-        .success();
+    let out = mnem(repo.path(), &["config", "list"]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(
         stdout.contains("retrieve.limit = 20"),
@@ -315,12 +309,9 @@ fn config_embed_provider_persists_across_get_and_file() {
     let repo = TempDir::new().unwrap();
     init(repo.path());
 
-    mnem(
-        repo.path(),
-        &["config", "set", "embed.provider", "ollama"],
-    )
-    .assert()
-    .success();
+    mnem(repo.path(), &["config", "set", "embed.provider", "ollama"])
+        .assert()
+        .success();
 
     mnem(
         repo.path(),
@@ -577,12 +568,9 @@ fn config_api_key_guardrail_rejects_sk_prefix_value() {
     // so only the value-prefix branch is responsible for the rejection below.
     // set_embed_model requires embed.provider to be set first (it calls
     // cfg.embed.as_mut()...) so we seed onnx before setting the model.
-    mnem(
-        repo.path(),
-        &["config", "set", "embed.provider", "onnx"],
-    )
-    .assert()
-    .success();
+    mnem(repo.path(), &["config", "set", "embed.provider", "onnx"])
+        .assert()
+        .success();
     mnem(
         repo.path(),
         &["config", "set", "embed.model", "bge-small-en-v1.5"],
@@ -594,7 +582,12 @@ fn config_api_key_guardrail_rejects_sk_prefix_value() {
     // branch (`embed.api_key`), so only the value-prefix branch can fire here.
     let out = mnem(
         repo.path(),
-        &["config", "set", "embed.model", "sk-this-is-a-secret-not-a-model"],
+        &[
+            "config",
+            "set",
+            "embed.model",
+            "sk-this-is-a-secret-not-a-model",
+        ],
     )
     .assert()
     .failure();
@@ -743,7 +736,12 @@ fn config_api_key_guardrail_rejects_sk_prefix_in_rerank_namespace() {
     // only the value-prefix check can produce the rejection below.
     let out = mnem(
         repo.path(),
-        &["config", "set", "rerank.model", "sk-this-is-a-secret-not-a-model"],
+        &[
+            "config",
+            "set",
+            "rerank.model",
+            "sk-this-is-a-secret-not-a-model",
+        ],
     )
     .assert()
     .failure();
@@ -777,12 +775,9 @@ fn config_rerank_namespace_round_trips() {
 
     // Set the provider first - required before any other rerank.* key.
     // "cohere" is a known valid provider; seeds model = "rerank-v3.5".
-    mnem(
-        repo.path(),
-        &["config", "set", "rerank.provider", "cohere"],
-    )
-    .assert()
-    .success();
+    mnem(repo.path(), &["config", "set", "rerank.provider", "cohere"])
+        .assert()
+        .success();
 
     // Set the api_key_env. Must be [A-Z_][A-Z0-9_]+ shape (env-var name).
     mnem(
@@ -855,8 +850,7 @@ fn config_guardrail_rejection_does_not_modify_toml() {
 
     // Read the config.toml immediately after init (the baseline).
     let cfg_path = repo.path().join(".mnem").join("config.toml");
-    let contents_before = std::fs::read_to_string(&cfg_path)
-        .expect("init must create config.toml");
+    let contents_before = std::fs::read_to_string(&cfg_path).expect("init must create config.toml");
 
     // Attempt to set embed.api_key - must be rejected by the key-name guardrail.
     mnem(
@@ -870,8 +864,7 @@ fn config_guardrail_rejection_does_not_modify_toml() {
     let contents_after = std::fs::read_to_string(&cfg_path)
         .expect("config.toml must still exist after a failed set");
     assert_eq!(
-        contents_before,
-        contents_after,
+        contents_before, contents_after,
         "guardrail rejection must not modify config.toml at all; \
          file changed between before and after the rejected set"
     );

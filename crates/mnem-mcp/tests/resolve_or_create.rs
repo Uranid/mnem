@@ -300,11 +300,12 @@ fn resolve_or_create_missing_required_fields_returns_error() {
     // With allow_labels=true the handler hits the missing `label` check first,
     // so the error will mention "label" or "kind". With allow_labels=false it
     // would reach the `prop_name` check. Either way a specific field name appears.
-    let text = resp["result"]["content"][0]["text"]
-        .as_str()
-        .unwrap_or("");
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
     assert!(
-        text.contains("prop_name") || text.contains("name") || text.contains("label") || text.contains("kind"),
+        text.contains("prop_name")
+            || text.contains("name")
+            || text.contains("label")
+            || text.contains("kind"),
         "error text must mention the specific missing field ('label', 'kind', 'prop_name', or 'name'); got: {text:?}"
     );
 }

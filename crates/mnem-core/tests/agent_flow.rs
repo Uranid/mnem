@@ -265,7 +265,11 @@ fn anchor_excluded_from_retrieve_by_default_and_surfaced_under_include_system() 
     // Also check the Meta-labelled retrieve directly: the anchor is a
     // Meta node so without the system filter it would dominate the
     // results. With the filter on (default) we expect zero hits.
-    let result_meta = repo.retrieve().label("Meta").execute().expect("retrieve ok");
+    let result_meta = repo
+        .retrieve()
+        .label("Meta")
+        .execute()
+        .expect("retrieve ok");
     let ids_meta: Vec<_> = result_meta.items.iter().map(|i| i.node.id).collect();
     assert!(
         ids_meta.is_empty(),
@@ -299,9 +303,7 @@ fn query_excludes_anchor_by_default_and_surfaces_under_include_system() {
     let mut tx = repo.start_transaction();
     tx.add_node(&Node::new(anchor_node_id(), "Meta"))
         .expect("add anchor");
-    let _real = tx
-        .commit_memory("Note", "user-authored fact", [])
-        .unwrap();
+    let _real = tx.commit_memory("Note", "user-authored fact", []).unwrap();
     let repo = tx.commit("agent", "init + content").unwrap();
 
     // Default Query for ntype=Meta: zero hits (only the anchor lives

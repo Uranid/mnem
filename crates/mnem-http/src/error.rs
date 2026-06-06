@@ -48,6 +48,13 @@ impl Error {
         }
     }
 
+    pub(crate) fn unprocessable(msg: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            message: msg.into(),
+        }
+    }
+
     pub(crate) fn locked() -> Self {
         Self::internal("server state lock poisoned")
     }

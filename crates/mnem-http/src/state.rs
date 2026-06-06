@@ -287,6 +287,13 @@ pub struct AppState {
     /// NER provider config resolved from the repo's `config.toml` at
     /// startup. When `None`, ingest paths default to `NerConfig::Rule`.
     pub ner_cfg: Option<mnem_ingest::NerConfig>,
+    /// LLM provider config resolved from the repo's `config.toml` at
+    /// startup. When present, HyDE and multi-query RAG-Fusion paths
+    /// auto-activate on `/v1/retrieve`.
+    pub llm_cfg: Option<mnem_llm_providers::ProviderConfig>,
+    /// Path to the `.mnem` data directory. Used by config management
+    /// routes (`GET/PUT /v1/config`) and merge operations.
+    pub data_dir: std::path::PathBuf,
 }
 
 impl AppState {
@@ -937,6 +944,8 @@ pub(crate) mod test_support {
             graph_cache: Arc::new(Mutex::new(GraphCache::default())),
             traverse_cfg: Arc::new(crate::routes::traverse::TraverseAnswerCfg::default()),
             ner_cfg: None,
+            llm_cfg: None,
+            data_dir: std::path::PathBuf::from(".mnem"),
         }
     }
 }

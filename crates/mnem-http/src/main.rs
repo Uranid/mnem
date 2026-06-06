@@ -130,8 +130,7 @@ async fn main() -> Result<()> {
     // audit-2026-04-25 P2-7: enumerate every mounted route from the
     // single source of truth (mnem_http::route_table) so the banner
     // and the router can never drift apart again.
-    let global_enabled = mnem_http::global_graph_dir().join(".mnem").exists();
-    for (method, path, brief) in mnem_http::route_table(metrics_enabled, global_enabled) {
+    for (method, path, brief) in mnem_http::route_table(metrics_enabled) {
         println!("  {method:<10} {path:<32} {brief}");
     }
 

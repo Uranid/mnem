@@ -1,11 +1,11 @@
 #![allow(missing_docs)]
 #![allow(unreachable_pub)]
 
-use mnem_core::store::{MemoryBlockstore, MemoryOpHeadsStore};
+use js_sys::{Array, Object, Reflect};
 use mnem_core::ReadonlyRepo;
+use mnem_core::store::{MemoryBlockstore, MemoryOpHeadsStore};
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
-use js_sys::{Array, Object, Reflect};
 
 struct LogEntry {
     hash: String,
@@ -31,8 +31,7 @@ impl MnemGraph {
         console_error_panic_hook::set_once();
         let bs = Arc::new(MemoryBlockstore::new());
         let oh = Arc::new(MemoryOpHeadsStore::new());
-        let repo = ReadonlyRepo::init(bs, oh)
-            .map_err(|e| JsError::new(&e.to_string()))?;
+        let repo = ReadonlyRepo::init(bs, oh).map_err(|e| JsError::new(&e.to_string()))?;
         Ok(MnemGraph { repo, log: vec![] })
     }
 
@@ -57,10 +56,7 @@ impl MnemGraph {
 
     /// Keyword search over stored nodes; returns up to 3 hits as a JS Array of objects.
     pub fn retrieve_nodes(&self, query: &str) -> JsValue {
-        let terms: Vec<String> = query
-            .split_whitespace()
-            .map(|s| s.to_lowercase())
-            .collect();
+        let terms: Vec<String> = query.split_whitespace().map(|s| s.to_lowercase()).collect();
         let hits: Vec<&LogEntry> = self
             .log
             .iter()

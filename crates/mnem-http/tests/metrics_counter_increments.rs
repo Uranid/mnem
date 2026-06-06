@@ -157,8 +157,7 @@ async fn http_requests_total_increments_on_healthz() {
 
     // Baseline: fresh app, no requests yet.
     let before_text = scrape(app.clone()).await;
-    let before =
-        sum_metric_values_with_prefix(&before_text, "mnem_http_requests_total_total");
+    let before = sum_metric_values_with_prefix(&before_text, "mnem_http_requests_total_total");
 
     // Drive a GET /v1/healthz.
     let _resp = app
@@ -173,8 +172,7 @@ async fn http_requests_total_increments_on_healthz() {
         .unwrap();
 
     let after_text = scrape(app.clone()).await;
-    let after =
-        sum_metric_values_with_prefix(&after_text, "mnem_http_requests_total_total");
+    let after = sum_metric_values_with_prefix(&after_text, "mnem_http_requests_total_total");
 
     assert!(
         after > before,
@@ -184,9 +182,9 @@ async fn http_requests_total_increments_on_healthz() {
 
     // Verify the method="GET" label is emitted -- a bug that hardcodes method="POST"
     // on all requests would pass the sum check above but fail here.
-    let has_get_label = after_text.lines().any(|l| {
-        l.starts_with("mnem_http_requests_total_total") && l.contains("method=\"GET\"")
-    });
+    let has_get_label = after_text
+        .lines()
+        .any(|l| l.starts_with("mnem_http_requests_total_total") && l.contains("method=\"GET\""));
     assert!(
         has_get_label,
         "expected a mnem_http_requests_total_total line with method=\"GET\" after \
@@ -245,8 +243,7 @@ async fn http_requests_total_increments_on_4xx_retrieve() {
     let (app, _td) = make_app();
 
     let before_text = scrape(app.clone()).await;
-    let before =
-        sum_metric_values_with_prefix(&before_text, "mnem_http_requests_total_total");
+    let before = sum_metric_values_with_prefix(&before_text, "mnem_http_requests_total_total");
 
     // GET /v1/retrieve with `text=` and no embedder configured returns 503.
     let resp = app
@@ -269,8 +266,7 @@ async fn http_requests_total_increments_on_4xx_retrieve() {
     );
 
     let after_text = scrape(app.clone()).await;
-    let after =
-        sum_metric_values_with_prefix(&after_text, "mnem_http_requests_total_total");
+    let after = sum_metric_values_with_prefix(&after_text, "mnem_http_requests_total_total");
 
     assert!(
         after > before,
@@ -304,11 +300,9 @@ async fn http_duration_histogram_gets_sample_on_healthz() {
     let (app, _td) = make_app();
 
     let before_text = scrape(app.clone()).await;
-    let before_count = extract_metric_value(
-        &before_text,
-        "mnem_http_request_duration_seconds_count",
-    )
-    .unwrap_or(0.0);
+    let before_count =
+        extract_metric_value(&before_text, "mnem_http_request_duration_seconds_count")
+            .unwrap_or(0.0);
 
     let _resp = app
         .clone()
@@ -322,11 +316,10 @@ async fn http_duration_histogram_gets_sample_on_healthz() {
         .unwrap();
 
     let after_text = scrape(app.clone()).await;
-    let after_count = extract_metric_value(
-        &after_text,
-        "mnem_http_request_duration_seconds_count",
-    )
-    .expect("mnem_http_request_duration_seconds_count must be present in /metrics after a request");
+    let after_count = extract_metric_value(&after_text, "mnem_http_request_duration_seconds_count")
+        .expect(
+            "mnem_http_request_duration_seconds_count must be present in /metrics after a request",
+        );
 
     assert!(
         after_count > before_count,
@@ -372,9 +365,10 @@ async fn commit_duration_histogram_gets_sample_after_post_node() {
     );
 
     let after_text = scrape(app.clone()).await;
-    let after_count =
-        extract_metric_value(&after_text, "mnem_commit_duration_seconds_count")
-            .expect("mnem_commit_duration_seconds_count must be present after a successful POST /v1/nodes");
+    let after_count = extract_metric_value(&after_text, "mnem_commit_duration_seconds_count")
+        .expect(
+            "mnem_commit_duration_seconds_count must be present after a successful POST /v1/nodes",
+        );
 
     assert!(
         after_count > before_count,
@@ -408,8 +402,9 @@ async fn commit_duration_histogram_sum_is_non_negative_after_commit() {
     assert_eq!(resp.status(), StatusCode::OK, "POST /v1/nodes must succeed");
 
     let text = scrape(app.clone()).await;
-    let sum = extract_metric_value(&text, "mnem_commit_duration_seconds_sum")
-        .expect("mnem_commit_duration_seconds_sum must be present in /metrics after a successful commit");
+    let sum = extract_metric_value(&text, "mnem_commit_duration_seconds_sum").expect(
+        "mnem_commit_duration_seconds_sum must be present in /metrics after a successful commit",
+    );
 
     assert!(
         sum > 0.0,
@@ -482,9 +477,8 @@ async fn retrieve_latency_histogram_gets_sample_on_label_filter_retrieve() {
     );
 
     let after_text = scrape(app.clone()).await;
-    let after_count =
-        extract_metric_value(&after_text, "mnem_retrieve_latency_seconds_count")
-            .expect("mnem_retrieve_latency_seconds_count must be present after a successful retrieve");
+    let after_count = extract_metric_value(&after_text, "mnem_retrieve_latency_seconds_count")
+        .expect("mnem_retrieve_latency_seconds_count must be present after a successful retrieve");
 
     assert!(
         after_count > before_count,
@@ -590,9 +584,8 @@ async fn ingest_chunks_total_increments_after_ingest() {
     );
 
     let after_text = scrape(app.clone()).await;
-    let after =
-        extract_metric_value(&after_text, "mnem_ingest_chunks_total_total")
-            .expect("mnem_ingest_chunks_total_total must be present after a successful ingest");
+    let after = extract_metric_value(&after_text, "mnem_ingest_chunks_total_total")
+        .expect("mnem_ingest_chunks_total_total must be present after a successful ingest");
 
     assert!(
         after > before,
@@ -644,9 +637,8 @@ async fn ingest_chunks_not_incremented_on_bad_field() {
 
     // Baseline: counter is guaranteed non-zero and present in the scrape.
     let before_text = scrape(app.clone()).await;
-    let before =
-        extract_metric_value(&before_text, "mnem_ingest_chunks_total_total")
-            .expect("mnem_ingest_chunks_total_total must be present after the seed ingest");
+    let before = extract_metric_value(&before_text, "mnem_ingest_chunks_total_total")
+        .expect("mnem_ingest_chunks_total_total must be present after the seed ingest");
 
     // `IngestJsonBody.text` is required.  Sending `content` (the wrong key)
     // causes serde deserialization to fail, returning 4xx before any chunks
@@ -674,9 +666,8 @@ async fn ingest_chunks_not_incremented_on_bad_field() {
     );
 
     let after_text = scrape(app.clone()).await;
-    let after =
-        extract_metric_value(&after_text, "mnem_ingest_chunks_total_total")
-            .expect("mnem_ingest_chunks_total_total must still be present after the failed request");
+    let after = extract_metric_value(&after_text, "mnem_ingest_chunks_total_total")
+        .expect("mnem_ingest_chunks_total_total must still be present after the failed request");
 
     assert_eq!(
         before, after,
@@ -719,9 +710,8 @@ async fn ingest_duration_histogram_gets_sample_on_success() {
     );
 
     let after_text = scrape(app.clone()).await;
-    let after_count =
-        extract_metric_value(&after_text, "mnem_ingest_duration_seconds_count")
-            .expect("mnem_ingest_duration_seconds_count must be present after a successful ingest");
+    let after_count = extract_metric_value(&after_text, "mnem_ingest_duration_seconds_count")
+        .expect("mnem_ingest_duration_seconds_count must be present after a successful ingest");
 
     assert!(
         after_count > before_count,
@@ -751,10 +741,8 @@ async fn remote_advance_head_not_incremented_on_auth_failure() {
 
     let before_text = scrape(app.clone()).await;
     // Family counter; sum over all label-sets (rendered as _total_total).
-    let before = sum_metric_values_with_prefix(
-        &before_text,
-        "mnem_remote_advance_head_total_total",
-    );
+    let before =
+        sum_metric_values_with_prefix(&before_text, "mnem_remote_advance_head_total_total");
 
     let mh = mnem_core::id::Multihash::sha2_256(b"x");
     let cid = mnem_core::id::Cid::new(mnem_core::id::CODEC_RAW, mh);
@@ -776,10 +764,7 @@ async fn remote_advance_head_not_incremented_on_auth_failure() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 
     let after_text = scrape(app.clone()).await;
-    let after = sum_metric_values_with_prefix(
-        &after_text,
-        "mnem_remote_advance_head_total_total",
-    );
+    let after = sum_metric_values_with_prefix(&after_text, "mnem_remote_advance_head_total_total");
 
     assert_eq!(
         before, after,
@@ -795,10 +780,8 @@ async fn remote_advance_head_cas_mismatch_counter_increments() {
     let (app, _td) = make_app();
 
     let before_text = scrape(app.clone()).await;
-    let before = sum_metric_values_with_prefix(
-        &before_text,
-        "mnem_remote_advance_head_total_total",
-    );
+    let before =
+        sum_metric_values_with_prefix(&before_text, "mnem_remote_advance_head_total_total");
 
     // A CID that is not the current head -> CAS mismatch.
     let mh = mnem_core::id::Multihash::sha2_256(b"nonexistent");
@@ -825,10 +808,7 @@ async fn remote_advance_head_cas_mismatch_counter_increments() {
     );
 
     let after_text = scrape(app.clone()).await;
-    let after = sum_metric_values_with_prefix(
-        &after_text,
-        "mnem_remote_advance_head_total_total",
-    );
+    let after = sum_metric_values_with_prefix(&after_text, "mnem_remote_advance_head_total_total");
 
     assert!(
         after > before,
@@ -872,17 +852,19 @@ async fn remote_advance_head_success_counter_increments() {
         )
         .await
         .unwrap();
-    assert_eq!(refs_resp.status(), StatusCode::OK, "GET /remote/v1/refs must return 200");
+    assert_eq!(
+        refs_resp.status(),
+        StatusCode::OK,
+        "GET /remote/v1/refs must return 200"
+    );
     let refs_bytes = refs_resp.into_body().collect().await.unwrap().to_bytes();
     let refs_json: serde_json::Value =
         serde_json::from_slice(&refs_bytes).expect("refs response must be valid JSON");
 
     // Step 2: baseline counter before advance-head.
     let before_text = scrape(app.clone()).await;
-    let before = sum_metric_values_with_prefix(
-        &before_text,
-        "mnem_remote_advance_head_total_total",
-    );
+    let before =
+        sum_metric_values_with_prefix(&before_text, "mnem_remote_advance_head_total_total");
 
     // Step 3: build the advance-head request body.
     // `ReadonlyRepo::init` always writes a root-op so `head` is non-null.
@@ -919,18 +901,14 @@ async fn remote_advance_head_success_counter_increments() {
 
     // Step 5: counter must have increased with label result="success".
     let after_text = scrape(app.clone()).await;
-    let after = sum_metric_values_with_prefix(
-        &after_text,
-        "mnem_remote_advance_head_total_total",
-    );
+    let after = sum_metric_values_with_prefix(&after_text, "mnem_remote_advance_head_total_total");
     assert!(
         after > before,
         "mnem_remote_advance_head_total_total must increase on a successful advance-head \
          (before={before}, after={after})"
     );
     let has_success_label = after_text.lines().any(|l| {
-        l.starts_with("mnem_remote_advance_head_total_total")
-            && l.contains("result=\"success\"")
+        l.starts_with("mnem_remote_advance_head_total_total") && l.contains("result=\"success\"")
     });
     assert!(
         has_success_label,
@@ -950,8 +928,7 @@ async fn counters_accumulate_across_multiple_commits() {
     let (app, _td) = make_app();
 
     let before_text = scrape(app.clone()).await;
-    let before_req =
-        sum_metric_values_with_prefix(&before_text, "mnem_http_requests_total_total");
+    let before_req = sum_metric_values_with_prefix(&before_text, "mnem_http_requests_total_total");
     let before_commit =
         extract_metric_value(&before_text, "mnem_commit_duration_seconds_count").unwrap_or(0.0);
 
@@ -976,8 +953,7 @@ async fn counters_accumulate_across_multiple_commits() {
     }
 
     let after_text = scrape(app.clone()).await;
-    let after_req =
-        sum_metric_values_with_prefix(&after_text, "mnem_http_requests_total_total");
+    let after_req = sum_metric_values_with_prefix(&after_text, "mnem_http_requests_total_total");
     let after_commit =
         extract_metric_value(&after_text, "mnem_commit_duration_seconds_count").unwrap_or(0.0);
 

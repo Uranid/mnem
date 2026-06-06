@@ -281,30 +281,14 @@ fn sparse_sidecar_blocks_round_trip_through_car() {
     let vocab_a = "test:splade-sparse";
     let vocab_b = "test:bge-m3-sparse";
 
-    let se_a1 = SparseEmbed::new(
-        vec![10, 20, 30, 100],
-        vec![0.9, 0.5, 0.1, 0.3],
-        vocab_a,
-    )
-    .expect("valid SparseEmbed node1 vocab_a");
-    let se_b1 = SparseEmbed::new(
-        vec![5, 15, 42],
-        vec![0.8, 0.4, 0.2],
-        vocab_b,
-    )
-    .expect("valid SparseEmbed node1 vocab_b");
-    let se_a2 = SparseEmbed::new(
-        vec![3, 7, 11, 200],
-        vec![0.6, 0.3, 0.7, 0.1],
-        vocab_a,
-    )
-    .expect("valid SparseEmbed node2 vocab_a");
-    let se_b2 = SparseEmbed::new(
-        vec![1, 50, 99],
-        vec![0.5, 0.9, 0.4],
-        vocab_b,
-    )
-    .expect("valid SparseEmbed node2 vocab_b");
+    let se_a1 = SparseEmbed::new(vec![10, 20, 30, 100], vec![0.9, 0.5, 0.1, 0.3], vocab_a)
+        .expect("valid SparseEmbed node1 vocab_a");
+    let se_b1 = SparseEmbed::new(vec![5, 15, 42], vec![0.8, 0.4, 0.2], vocab_b)
+        .expect("valid SparseEmbed node1 vocab_b");
+    let se_a2 = SparseEmbed::new(vec![3, 7, 11, 200], vec![0.6, 0.3, 0.7, 0.1], vocab_a)
+        .expect("valid SparseEmbed node2 vocab_a");
+    let se_b2 = SparseEmbed::new(vec![1, 50, 99], vec![0.5, 0.9, 0.4], vocab_b)
+        .expect("valid SparseEmbed node2 vocab_b");
 
     // Two nodes give the sparse Prolly tree multiple entries, exercising
     // the multi-bucket serialization path through the CAR boundary.
@@ -315,10 +299,10 @@ fn sparse_sidecar_blocks_round_trip_through_car() {
         let ohs_arc: Arc<dyn OpHeadsStore> = ohs;
         let repo = ReadonlyRepo::open(bs_arc, ohs_arc).expect("open src repo");
 
-        let n1 = Node::new(NodeId::new_v7(), "TestDoc")
-            .with_summary("sparse sidecar round-trip node 1");
-        let n2 = Node::new(NodeId::new_v7(), "TestDoc")
-            .with_summary("sparse sidecar round-trip node 2");
+        let n1 =
+            Node::new(NodeId::new_v7(), "TestDoc").with_summary("sparse sidecar round-trip node 1");
+        let n2 =
+            Node::new(NodeId::new_v7(), "TestDoc").with_summary("sparse sidecar round-trip node 2");
         let mut tx = repo.start_transaction();
         let cid1 = tx.add_node(&n1).expect("add node1");
         let cid2 = tx.add_node(&n2).expect("add node2");
@@ -349,10 +333,7 @@ fn sparse_sidecar_blocks_round_trip_through_car() {
         .nth(1)
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or_else(|| panic!("could not parse block count from: {export_stdout}"));
-    assert!(
-        car.exists(),
-        "CAR file must exist after export"
-    );
+    assert!(car.exists(), "CAR file must exist after export");
     assert!(
         exported_n > 4,
         "sparse sidecar must add Prolly-tree blocks beyond the base commit graph; \
